@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://ccuittest0001"]
+
+[ext_resource type="Script" path="res://test.js" id="1_test"]
+
+[node name="TestRunner" type="Node"]
+script = ExtResource("1_test")

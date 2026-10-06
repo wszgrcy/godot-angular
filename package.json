@@ -1,0 +1,23 @@
+{
+  "name": "control-ui-js",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Run Angular inside Godot (GodotJS / V8) by rendering Control subclasses",
+  "packageManager": "pnpm@12.9.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm --filter @control-ui-js/core build && pnpm --filter demo build",
+    "build:dev": "pnpm --filter @control-ui-js/core build && pnpm --filter demo build:dev",
+    "demo": "pnpm run build && node tools/run-demo.mjs",
+    "demo:window": "pnpm run build && node tools/run-demo.mjs --window",
+    "test": "pnpm --filter @control-ui-js/core test",
+    "test:engine": "pnpm run build && node tools/run-tests.mjs",
+    "test:all": "pnpm test && pnpm test:engine",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}

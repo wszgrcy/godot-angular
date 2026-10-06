@@ -1,0 +1,59 @@
+<VBoxContainer name="demo" [sizeFlags]="expand">
+  <Label text="control-ui-js — Angular in Godot"></Label>
+
+  <!-- 信号 → 事件：(click) 解析到 Button.pressed -->
+  <HBoxContainer>
+    <Label [text]="'count = ' + count()"></Label>
+    <Button text="+1" (click)="inc()"></Button>
+  </HBoxContainer>
+
+  <!-- @if -->
+  <HBoxContainer>
+    <Button text="toggle @if" (click)="toggleIf()"></Button>
+    @if (showIf()) {
+      <Label text="@if 为真时存在"></Label>
+    } @else {
+      <Label text="@if 为假"></Label>
+    }
+  </HBoxContainer>
+
+  <!-- @for -->
+  <HBoxContainer>
+    <Button text="add" (click)="addItem()"></Button>
+    <Button text="remove" (click)="removeFirst()"></Button>
+  </HBoxContainer>
+  <VBoxContainer>
+    @for (item of items(); track item.id) {
+      <Label [text]="item.name"></Label>
+    }
+  </VBoxContainer>
+
+  <!-- @switch -->
+  <HBoxContainer>
+    <Button text="cycle @switch" (click)="cycleMode()"></Button>
+    @switch (mode()) {
+      @case ("a") { <Label text="模式 A"></Label> }
+      @case ("b") { <Label text="模式 B"></Label> }
+      @default { <Label text="模式 C"></Label> }
+    }
+  </HBoxContainer>
+
+  <!-- 属性设置：颜色 / 字号 / 最小尺寸 -->
+  <Label
+    text="styled label"
+    [customMinimumSize]="{ x: 0, y: 40 }"
+    [style.color]="'#ff8800'"
+    [style.fontSize]="28"
+  ></Label>
+
+  <!-- 输入信号：LineEdit.text_changed -->
+  <HBoxContainer>
+    <LineEdit [sizeFlags]="expand" (input)="onInput($event)"></LineEdit>
+    <Label [text]="'input: ' + lastInput()"></Label>
+  </HBoxContainer>
+
+  <!-- ng-content 投影 -->
+  <ui-card [title]="'ng-content 投影'">
+    <Label text="这行是被投影进来的内容"></Label>
+  </ui-card>
+</VBoxContainer>
