@@ -9,7 +9,11 @@
  *     fetch TextEncoder structuredClone Intl localStorage XMLHttpRequest
  *
  * 本文件只做"让 Angular 不炸"的最小补齐，不伪造 DOM 语义。
- * 必须在任何 Angular 代码之前执行（installGodotPolyfills()）。
+ *
+ * 安装点只有一个：本模块被 import 时就装（文件末尾）。core 的 provider 常量数组在
+ * 模块求值阶段就会调 provideZonelessChangeDetection()，而它要 performance.mark；
+ * Angular 自己也在模块求值阶段就要 performance / rAF。所以“装 polyfill”必须
+ * 在它们之前，只能绑在 import 上，不能放到 bootstrapGodotApp 这种运行期入口里。
  */
 
 type RafCallback = (time: number) => void;
@@ -226,7 +230,11 @@ export function installGodotPolyfills(): void {
   }
 }
 
-/** 供平台层注入的 DOCUMENT 值 */
+/** 供平台层注入的 DOCUMENT 值（本模块求值完 polyfill 已装，拿到的就是 globalThis.document） */
 export function getDocumentStub(): any {
   return (globalThis as any).document ?? makeDocumentStub();
 }
+
+// 唯一安装点。core 内部所有模块都依赖本文件，且排在 @angular/core 之前被求值，
+// 于是“polyfill 先于 Angular”这条约定不需要任何调用方配合就成立。
+installGodotPolyfills();
