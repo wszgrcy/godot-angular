@@ -6,11 +6,73 @@
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-export const GODOT_BIN =
-  process.env.GODOT_BIN ??
-  "/workspace/godot-test/tools_dl/godotjs/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64";
+/**
+ * 引擎二进制解析。
+ *
+ * 查找顺序：
+ *   1. 环境变量 GODOT_BIN（显式覆盖，CI / 非常规路径用）
+ *   2. 仓库内 bin/<平台目录>/<可执行文件>（预定义映射，日常不需要设环境变量）
+ *
+ * 子目录名 = GodotJS release 资产的解压目录名，文件名 = 里面的可执行文件名。
+ * 二进制本身在 .gitignore 里（175 MB/个），放置说明见 bin/README.md。
+ */
+export const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+export const demoDir = join(repoRoot, "demo");
+const binRoot = join(repoRoot, "bin");
+
+/** 平台键（process.platform + process.arch）→ GodotJS 资产目录 / 可执行文件名 */
+export const BIN_TABLE = {
+  "linux-x64": { dir: "linux-editor-4.6.1-v8", exe: "godot.linuxbsd.editor.x86_64" },
+  "win32-x64": { dir: "windows-editor-4.6.1-v8", exe: "godot.windows.editor.x86_64.exe" },
+};
+
+/** 返回 { bin, source } 或 { bin: null, expected, key } */
+export function resolveGodotBin() {
+  if (process.env.GODOT_BIN) {
+    return { bin: process.env.GODOT_BIN, source: "环境变量 GODOT_BIN" };
+  }
+  const key = `${process.platform}-${process.arch}`;
+  const hit = BIN_TABLE[key];
+  if (!hit) return { bin: null, expected: null, key };
+  const expected = join(binRoot, hit.dir, hit.exe);
+  if (existsSync(expected)) return { bin: expected, source: `bin/ (${key})` };
+  return { bin: null, expected, key };
+}
+
+export function requireGodotBin() {
+  const found = resolveGodotBin();
+  if (!found.bin) {
+    console.error("找不到 GodotJS 引擎二进制（官方 Godot 跑不了 .js，必须 GodotJS 构建）。\n");
+    if (found.expected) {
+      console.error(`它找过了：
+  ${found.expected}
+
+从 https://github.com/godotjs/GodotJS/releases 下载 ${found.key} 的编辑器构建，
+把可执行文件放到上面那个路径（子目录不存在就自己建），详见 bin/README.md。
+或者用环境变量指向任意位置：
+`);
+      console.error(
+        process.platform === "win32"
+          ? '  $env:GODOT_BIN = "C:\\path\\to\\godot.windows.editor.x86_64.exe"\n'
+          : "  export GODOT_BIN=/path/to/godot.linuxbsd.editor.x86_64\n",
+      );
+    } else {
+      console.error(`当前平台 ${found.key} 未预置。已知映射：
+`);
+      for (const [k, v] of Object.entries(BIN_TABLE)) console.error(`  ${k}  ->  bin/${v.dir}/${v.exe}`);
+      console.error("\n本平台请用环境变量指定：export GODOT_BIN=/path/to/引擎\n");
+    }
+    process.exit(1);
+  }
+  if (!existsSync(found.bin)) {
+    console.error(`GODOT_BIN 指向的文件不存在：${found.bin}`);
+    process.exit(1);
+  }
+  return found.bin;
+}
 
 /** 只戳入口脚本（bundle 是 require 读的，不走资源缓存） */
 function entryHash(demoDir) {

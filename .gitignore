@@ -1,3 +1,7 @@
 node_modules
 .godot
 dist
+
+# GodotJS 引擎二进制（175 MB/个，不进版本库；放置位置见 bin/README.md）
+bin/*
+!bin/README.md

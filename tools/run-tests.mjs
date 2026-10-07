@@ -3,16 +3,17 @@
 // 解析 [TEST] passed=N failed=M 决定退出码，可直接进 CI。
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { GODOT_BIN, ensureImported } from "./godot.mjs";
+import { join } from "node:path";
+import { requireGodotBin, demoDir, ensureImported } from "./godot.mjs";
 
-const demo = new URL("../demo/", import.meta.url).pathname;
-if (!existsSync(demo + "dist/app.bundle.js")) {
+const bin = requireGodotBin();
+if (!existsSync(join(demoDir, "dist", "app.bundle.js"))) {
   console.error("缺 demo/dist/app.bundle.js —— 先跑 pnpm build");
   process.exit(1);
 }
-ensureImported(demo);
+ensureImported(demoDir, bin);
 
-const res = spawnSync(GODOT_BIN, ["--headless", "--path", demo, "res://test.tscn"], {
+const res = spawnSync(bin, ["--headless", "--path", demoDir, "res://test.tscn"], {
   encoding: "utf8",
   timeout: 180_000,
   env: { ...process.env },

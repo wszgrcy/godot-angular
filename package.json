@@ -15,7 +15,8 @@
     "test": "pnpm --filter @control-ui-js/core test",
     "test:engine": "pnpm run build && node tools/run-tests.mjs",
     "test:all": "pnpm test && pnpm test:engine",
-    "typecheck": "pnpm -r --if-present typecheck"
+    "typecheck": "pnpm -r --if-present typecheck",
+    "check": "node tools/check.mjs"
   },
   "devDependencies": {
     "typescript": "6.0.3"

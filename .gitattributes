@@ -1,0 +1,10 @@
+# GodotJS 按字节读 .js，Godot 的 .tscn/.godot 配置也统一换行，
+# 避免 Windows 上 git autocrlf 换成 CRLF 后出现难查的解析差异。
+*.js    text eol=lf
+*.ts    text eol=lf
+*.mjs   text eol=lf
+*.json  text eol=lf
+*.tscn  text eol=lf
+*.gd    text eol=lf
+*.md    text eol=lf
+*.sh    text eol=lf
