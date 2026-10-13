@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://cujpages0002"]
+
+[ext_resource type="Script" path="res://dist-pages/counter.js" id="1"]
+
+[node name="PagesCounter" type="Node"]
+script = ExtResource("1")

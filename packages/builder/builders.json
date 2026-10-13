@@ -1,0 +1,15 @@
+{
+  "$schema": "../../node_modules/@angular-devkit/architect/src/builders-schema.json",
+  "builders": {
+    "application": {
+      "implementation": "./application/builder.mjs",
+      "schema": "./application/schema.json",
+      "description": "vite + @analogjs/vite-plugin-angular：AOT 编译成 GodotJS 能跑的 CJS，多入口共享分包"
+    },
+    "vitest": {
+      "implementation": "./vitest/build/builder.mjs",
+      "schema": "./vitest/build/schema.json",
+      "description": "构建引擎测试 bundle，然后在同进程里跑 vitest（用例在真 Godot 里执行）"
+    }
+  }
+}

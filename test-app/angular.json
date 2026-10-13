@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/godot-angular/builder/config/schema.json",
+  "version": 1,
+  "projects": {
+    "test-app": {
+      "projectType": "application",
+      "root": "src",
+      "sourceRoot": "src",
+      "architect": {
+        "test": {
+          "builder": "godot-angular:vitest",
+          "options": {
+            "tsConfig": "tsconfig.json",
+            "outputPath": "dist-engine-test",
+            "resRoot": "res://dist-engine-test",
+            "optimization": false,
+            "sourceMap": false,
+            "specInclude": ["src/tests/engine/*.spec.ts"],
+            "coverage": {
+              "enabled": true,
+              "include": ["../packages/library/**/*.ts", "../packages/css/**/*.ts"],
+              "exclude": ["**/*.spec.ts", "**/test/**", "**/typings/**", "**/*.d.ts"],
+              "reportsDirectory": "../coverage",
+              "reporter": ["text", "html", "text-summary", "json-summary", "lcov"]
+            },
+            "engine": {
+              "projectPath": ".",
+              "scene": "res://engine_vitest.tscn",
+              "port": 18782,
+              "connectTimeout": 30000,
+              "godotBin": "../bin"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.lib.base.json",
+  "compilerOptions": {
+    "outDir": "../../out-tsc/lib",
+    "rootDir": ".",
+    "declarationMap": true,
+    "inlineSources": true,
+    "typeRoots": ["./typings"],
+    "types": ["godot"],
+    "paths": {
+      "godot-angular/core": ["./core/index.ts"],
+      "godot-angular/forms": ["./forms/index.ts"],
+      "godot-angular/testing": ["./testing/index.ts"],
+      "event-target-shim": ["../../node_modules/event-target-shim/index.d.ts"]
+    }
+  },
+  "exclude": ["**/*.spec.ts", "test/**/*", "dist/**/*"]
+}

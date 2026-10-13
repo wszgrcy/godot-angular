@@ -1,5 +1,5 @@
-<VBoxContainer name="demo" [sizeFlags]="expand">
-  <Label text="control-ui-js — Angular in Godot"></Label>
+<VBoxContainer name="demo" [size_flags]="expand">
+  <Label text="godot-angular — Angular in Godot"></Label>
 
   <!-- 信号 → 事件：(click) 解析到 Button.pressed -->
   <HBoxContainer>
@@ -41,14 +41,14 @@
   <!-- 属性设置：颜色 / 字号 / 最小尺寸 -->
   <Label
     text="styled label"
-    [customMinimumSize]="{ x: 0, y: 40 }"
+    [custom_minimum_size]="labelMinSize"
     [style.color]="'#ff8800'"
     [style.fontSize]="28"
   ></Label>
 
   <!-- 输入信号：LineEdit.text_changed -->
   <HBoxContainer>
-    <LineEdit [sizeFlags]="expand" (input)="onInput($event)"></LineEdit>
+    <LineEdit [size_flags]="expand" (input)="onInput($event)"></LineEdit>
     <Label [text]="'input: ' + lastInput()"></Label>
   </HBoxContainer>
 

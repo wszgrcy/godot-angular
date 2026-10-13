@@ -1,0 +1,29 @@
+{
+  "$schema": "../../node_modules/ng-packagr/ng-package.schema.json",
+  "dest": "../../dist",
+  "lib": {
+    "entryFile": "./index.ts"
+  },
+  "allowedNonPeerDependencies": [
+    "@analogjs/vite-plugin-angular",
+    "@angular-devkit/architect",
+    "@angular-devkit/core",
+    "@angular/build",
+    "@babel/core",
+    "@babel/plugin-transform-unicode-regex",
+    "@nberlette/utf8",
+    "@rolldown/pluginutils",
+    "abortcontroller-polyfill",
+    "commander",
+    "event-target-shim",
+    "flatted",
+    "is-relative",
+    "magic-string",
+    "normalize-path",
+    "picomatch",
+    "tinyglobby",
+    "valibot",
+    "vite",
+    "ws"
+  ]
+}

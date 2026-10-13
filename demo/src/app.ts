@@ -1,13 +1,18 @@
 import { Component, Input, NO_ERRORS_SCHEMA, signal } from "@angular/core";
+import { Vector2 } from "godot";
 
 /**
- * ng-content 投影演示用的卡片。
- * 选择器小写、不是 Godot 类 → 宿主元素降级为 VBoxContainer（会自适应子节点尺寸）。
+ * ng-content 投影演示用的卡片。选择器小写、不是 Godot 类 → 宿主元素降级为
+ * VBoxContainer。`styles` + `styleUrls` 是构建期 CSS 通道的回归样本：demo 保留它们，
+ * “产物中 grep 不到未替换的作用域标记”这条断言才有内容可验证。
+ * 注释会随代码进入产物，因此此处不要书写那个标记的字面量，否则会污染 grep 结果。
  */
 @Component({
   selector: "ui-card",
   standalone: true,
   schemas: [NO_ERRORS_SCHEMA],
+  styles: [".card-body { color: rebeccapurple }"],
+  styleUrls: ["./app.css"],
   template: `
     <PanelContainer>
       <VBoxContainer>
@@ -33,6 +38,8 @@ export class App {
   readonly expand = 3;
   /** Control.SIZE_SHRINK_BEGIN */
   readonly shrink = 0;
+  /** 结构体属性直接递引擎对象，渲染器不做形状猜测 */
+  readonly labelMinSize = new Vector2(0, 40);
 
   readonly count = signal(0);
   readonly showIf = signal(true);

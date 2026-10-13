@@ -1,4 +1,5 @@
 {
+  "extends": "../tsconfig.json",
   "compilerOptions": {
     "target": "es2022",
     "lib": ["es2022"],
@@ -9,12 +10,12 @@
     "importHelpers": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "types": []
+    "typeRoots": ["./typings"],
+    "types": ["godot"]
   },
-  // 顶层键，不是 compilerOptions 的子键；放进去 tsc 会报 TS5023
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
-    "strictTemplates": true
+    "strictTemplates": false
   },
   "include": ["src/**/*.ts"]
 }

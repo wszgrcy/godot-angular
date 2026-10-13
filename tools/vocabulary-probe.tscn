@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://ccujvocabulary01"]
+
+[ext_resource type="Script" path="res://cuj_vocabulary_probe.js" id="1_vocab"]
+
+[node name="VocabularyProbe" type="Node"]
+script = ExtResource("1_vocab")

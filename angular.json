@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "projects": {
+    "library": {
+      "projectType": "library",
+      "root": "packages/library",
+      "sourceRoot": "packages/library",
+      "prefix": "godot",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "options": {
+            "project": "packages/library/ng-package.json"
+          },
+          "configurations": {
+            "production": {
+              "tsConfig": "packages/library/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "packages/library/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        }
+      }
+    }
+  }
+}
