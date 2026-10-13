@@ -226,7 +226,7 @@ export const sharedOptionFields = {
   resRoot: v.pipe(
     v.string(),
     v.description(
-      "outputPath 对应的 res:// 前缀，例如 outputPath=demo/dist 时填 res://dist。" +
+      "outputPath 对应的 res:// 前缀，例如工程根下 outputPath=dist 时填 res://dist。" +
         'chunk 之间的 require 会据此改写为绝对路径（GodotJS 的 require("./x") 不可用）。',
     ),
   ),

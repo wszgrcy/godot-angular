@@ -1,5 +1,4 @@
 packages:
-  - "demo"
   - "test-app"
 
 allowBuilds:

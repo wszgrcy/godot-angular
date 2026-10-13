@@ -60,7 +60,10 @@ jobs:
           echo "GodotJS $version"
 
       - name: install-dependencies
-        run: pnpm run setup:ci
+        run: |
+          pnpm i
+          pnpm run gen:typings
+          pnpm run build
 
       - name: typecheck
         run: pnpm run typecheck
@@ -113,7 +116,7 @@ jobs:
 
       - name: install-dependencies
         run: |
-          pnpm install --frozen-lockfile --filter .
+          pnpm install
           pnpm run gen:typings
           pnpm build
 

@@ -41,12 +41,100 @@ Label / Button / VBoxContainer …       真实 Godot 节点
 
 ## 快速开始
 
-`demo/` 是完整可运行的示例工程，同时是项目模板：Godot 工程与 Angular 工作区位于同一目录。
-复制该目录即可开始，无需克隆本仓库。
+一个工程同时是 Godot 工程与 Angular 工作区，两者位于同一目录。
 
-### 1. 准备示例工程
+### 1. 准备工程
 
-将 `demo/` 复制到任意位置，在该目录安装依赖：
+新建目录，放入下列文件（`dist/` 由构建产出，不是手写）：
+
+```
+my-app/
+├── project.godot        # run/main_scene = res://main.tscn
+├── main.tscn            # 根节点脚本 = res://dist/main.js
+├── angular.json         # godot-angular:application 的 target
+├── tsconfig.json        # typeRoots 指向生成的 typings 目录
+├── package.json         # 依赖 godot-angular 与 Angular
+└── src/
+    ├── main.ts          # 入口：_ready() 里 bootstrapGodotApp(App, root)，_process() 里 tick()
+    └── app.ts           # 根组件
+```
+
+`project.godot` 与 `main.tscn`（场景根节点的脚本直接指向构建产物）：
+
+```ini
+; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="my-app"
+run/main_scene="res://main.tscn"
+config/features=PackedStringArray("4.6")
+```
+
+```ini
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://dist/main.js" id="1_root"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_root")
+```
+
+`angular.json`（`builder` 的完整选项见[构建选项](#构建选项)）：
+
+```jsonc
+{
+  "version": 1,
+  "projects": {
+    "app": {
+      "projectType": "application",
+      "root": "src",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "godot-angular:application",
+          "options": {
+            "entries": ["src/main.ts"],
+            "tsConfig": "tsconfig.json",
+            "outputPath": "dist",
+            "resRoot": "res://dist",
+            "optimization": false,
+            "sourceMap": false
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+入口把 Angular 挂到一个 `Control` 上，并每帧驱动变更检测：
+
+```ts
+// src/main.ts
+import { Control, Node, Vector2 } from "godot";
+import { bootstrapGodotApp, GodotAngularApp } from "godot-angular/core";
+import { App } from "./app";
+
+export default class Main extends Node {
+  private app: GodotAngularApp | null = null;
+
+  _ready(): void {
+    const root = new Control();
+    root.name = "AngularRoot";
+    root.size = new Vector2(1024, 768); // 需要跟随窗口时改用 set_anchors_preset(FULL_RECT)
+    this.add_child(root);
+    bootstrapGodotApp(App, root).then((app) => (this.app = app));
+  }
+
+  _process(delta: number): void {
+    this.app?.tick(delta * 1000); // zoneless 变更检测由这一帧驱动，不调用则界面不更新
+  }
+}
+```
+
+在该目录安装依赖：
 
 ```bash
 npm install godot-angular
@@ -87,7 +175,7 @@ npx godot-typings --out typings
 ### 4. 构建并运行
 
 ```bash
-npm run build      # 产出 dist/main.js
+npm run build      # = ng build app，产出 dist/main.js
 godot --path .     # 或使用 Godot 编辑器打开该目录并按 F5
 ```
 

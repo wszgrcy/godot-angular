@@ -10,7 +10,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const root = join(here, "../../../../demo");
+// 入口解析靠的是目录形状，所以给一份专用夹具（src/main.ts + src/app.ts + src/pages/*.ts +
+// src/tests/legacy.ts），不依赖仓库里任何工程目录 —— 工程改名或删掉都不会把测试带坑。
+const root = join(here, "fixtures", "entries");
 
 const names = (...args: Parameters<typeof resolveEntries>) =>
   resolveEntries(...args).map((e) => e.name).sort();

@@ -97,7 +97,7 @@ describe("generateGodotTypings", () => {
 
 describe("resolveUnder", () => {
   it("相对路径按给定根解，绝对路径原样返回", () => {
-    expect(resolveUnder("/w", "demo/typings")).toBe(join("/w", "demo/typings"));
+    expect(resolveUnder("/w", "my-app/typings")).toBe(join("/w", "my-app/typings"));
     expect(resolveUnder("/w", "/abs/typings")).toBe("/abs/typings");
   });
 });

@@ -11,7 +11,7 @@ import {
   walkNodes,
 } from "godot-angular/testing";
 
-/** 按 text 查找 Label 或 Button（demo 中的按钮均依靠 text 定位）。 */
+/** 按 text 查找 Label 或 Button（示例 App 的按钮均依靠 text 定位）。 */
 function byText(root: any, text: string): any {
   return (
     walkNodes(root).find((n) => /^(Label|Button)$/.test(n.get_class()) && (n as { text?: string }).text === text) ??
@@ -37,7 +37,7 @@ async function renderApp(): Promise<any> {
   return fixture;
 }
 
-describe("demo app 端到端（真引擎 + 真布局）", () => {
+describe("示例 App 端到端（真引擎 + 真布局）", () => {
   let fixture: any = null;
 
   beforeEach(() => {
@@ -135,18 +135,18 @@ describe("demo app 端到端（真引擎 + 真布局）", () => {
     await awaitFrames(3);
     const r = fixture.nativeElement;
 
-    const demo = findAllNodes(r, "VBoxContainer")[0];
-    expect(demo.size.x).toBeGreaterThan(0);
-    expect(demo.size.y).toBeGreaterThan(0);
+    const box = findAllNodes(r, "VBoxContainer")[0];
+    expect(box.size.x).toBeGreaterThan(0);
+    expect(box.size.y).toBeGreaterThan(0);
 
-    const kids = (demo.get_children()
-      ? Array.from({ length: demo.get_child_count() }, (_, i) => demo.get_child(i)).filter(
+    const kids = (box.get_children()
+      ? Array.from({ length: box.get_child_count() }, (_, i) => box.get_child(i)).filter(
           (c) => c.get_class() !== "Node",
         )
       : []) as Control[];
     expect(kids.length).toBeGreaterThan(1);
     expect(kids[1].position.y).toBeGreaterThan(kids[0].position.y);
-    expect(kids[0].size.x).toBe(demo.size.x);
+    expect(kids[0].size.x).toBe(box.size.x);
   });
 
   it("属性写入与 theme 覆盖落到真节点", async () => {

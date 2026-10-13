@@ -7,7 +7,7 @@ import { godotRequirePlugin } from "../build-core";
 
 /** 构造一个“两个入口共用一个模块”的工程，迫使 rollup 切出共享 chunk */
 function makeFixture(): string {
-  const root = mkdtempSync(join(tmpdir(), "reqdemo-"));
+  const root = mkdtempSync(join(tmpdir(), "cuj-req-"));
   writeFileSync(join(root, "shared.ts"), `export const SHARED = "shared";\n`);
   writeFileSync(join(root, "a.ts"), `import { SHARED } from "./shared";\nexport const A = "A" + SHARED;\n`);
   writeFileSync(join(root, "b.ts"), `import { SHARED } from "./shared";\nexport const B = "B" + SHARED;\n`);

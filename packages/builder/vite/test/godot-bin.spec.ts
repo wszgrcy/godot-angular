@@ -75,15 +75,15 @@ describe("bin/ 只在工作区根里找", () => {
 
 describe("显式路径（godotBin / GODOT_BIN）", () => {
   it("相对路径按工作区根解，不按进程 CWD", () => {
-    expect(resolveGodotBin("/proj/demo", "bin/x/godot").bin).toBe(resolve("/proj/demo", "bin/x/godot"));
+    expect(resolveGodotBin("/proj/app", "bin/x/godot").bin).toBe(resolve("/proj/app", "bin/x/godot"));
   });
 
   it("绝对路径原样保留", () => {
-    expect(resolveGodotBin("/proj/demo", "/opt/godot").bin).toBe("/opt/godot");
+    expect(resolveGodotBin("/proj/app", "/opt/godot").bin).toBe("/opt/godot");
   });
 
   it.runIf(HAS_PLATFORM)("指目录时按平台表补上子目录与文件名", () => {
-    // 存在的理由：一份配置跨平台通用。仓库内的 demo/ 就靠这个指回仓库根的 bin/。
+    // 存在的理由：一份配置跨平台通用。仓库内的 test-app/ 就靠这个指回仓库根的 bin/。
     const ws = join(TMP, "ws-dir");
     const planted = plantBin(ws);
     expect(resolveGodotBin(ws, "bin").bin).toBe(planted);

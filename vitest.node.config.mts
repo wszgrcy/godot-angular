@@ -26,6 +26,6 @@ export default defineConfig({
       "packages/library/**/test/**/*.spec.ts",
       "packages/builder/**/test/**/*.spec.ts",
     ],
-    exclude: ["**/node_modules/**", "**/dist/**", "demo/**", "test-app/**"],
+    exclude: ["**/node_modules/**", "**/dist/**", "test-app/**"],
   },
 });

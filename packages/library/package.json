@@ -1,12 +1,16 @@
 {
   "name": "godot-angular",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Run Angular inside Godot (GodotJS / V8) by rendering Control subclasses",
   "license": "MIT",
   "type": "module",
   "builders": "./builder/builders.json",
   "bin": {
     "godot-typings": "./builder/typings-gen/cli.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wszgrcy/godot-angular.git"
   },
   "exports": {
     "./forms": {

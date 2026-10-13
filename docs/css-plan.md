@@ -34,7 +34,7 @@
 
 - **布局要等帧**：`add_child` 后立刻读 `size` 是 0 → 测试统一用 `awaitFrames(2)`
 - **媒体查询只能注入假视口**：真实屏幕尺寸拿不到 → Phase 6 的测试形如"注入 `{width:600}` → 命中/不命中"，**真实视口与暗色模式属待实机**
-- **可断言 / 不可断言的边界**：可断言 = theme item 读写、override 有无、StyleBoxFlat 内容、节点属性、**布局尺寸**（`148x100` 这种能 assert）；不可断言 = 任何像素表现，必须 `pnpm demo:window` 人工确认，**汇报时不许混为一谈**
+- **可断言 / 不可断言的边界**：可断言 = theme item 读写、override 有无、StyleBoxFlat 内容、节点属性、**布局尺寸**（`148x100` 这种能 assert）；不可断言 = 任何像素表现，必须开有头引擎人工确认，**汇报时不许混为一谈**
 
 ### 3. CSS 语义与实现参考 → 看 `NativeScript/` 源码
 
@@ -189,7 +189,7 @@ Godot 的 theme 查询顺序（`gui_skinning` "To sum it up…" 原文）：
 - 新包 `packages/css/`：**纯 JS，绝不 import `godot`** —— 全部逻辑要能在 `pnpm test:node` 里跑
 - **打包链路**（漏一项就会在 Phase 2 才发现）：
   - `vitest.node.config.mts` 的 `include` 目前写死 `packages/library/**/test/**` 与 `packages/builder/**/test/**` → 加 `packages/css/**`
-  - `pnpm-workspace.yaml` 只含 `demo` / `test-app`（`packages/library` 只是 ng-packagr 清单模板，不是被安装的包）→ 决定 css 是并入 library 产物还是独立 entry
+  - `pnpm-workspace.yaml` 只含 `test-app`（`packages/library` 只是 ng-packagr 清单模板，不是被安装的包）→ 决定 css 是并入 library 产物还是独立 entry
   - `tools/vite-build.ts` + ng-packagr + `dist/` 布局 + `dist/package.json` exports + `pnpm build` 往返
 - **改写 README 三处旧口径**：第 68 行 `CSS 级联 ❌ 有意不做`、第 742 行 `## 样式：不做 CSS`、第 755 行 `class 一律告警忽略`
 - 定死口径 A–E；`#id` 用 Angular 的 `id` 绑定，不用 `node.name`（C9）
@@ -264,8 +264,8 @@ Godot 的 theme 查询顺序（`gui_skinning` "To sum it up…" 原文）：
 | `styleUrls` 指向不存在的文件 → 构建**失败**且文案含组件文件与路径 | **C15①，现状：静默通过** |
 | `styleUrls` 指向语法错误的 `.scss` → 构建**失败**（不是只打一行 `[sass] Error` 后 rc=0） | **C15②，现状：rc=0** |
 | 不支持的 at-rule（`@keyframes`）→ 构建日志出现一次告警 | 口径透明 |
-| 构建级：demo 加 `styles` 后 `grep -c "%COMP%" demo/dist/main.js` == 0 | 端到端 |
-| 构建级：demo 加 `styleUrls`（文件存在）后 `grep "<那条 CSS 的选择器>" demo/dist/main.js` 命中 | 端到端 |
+| 构建级：消费方工程加 `styles` 后 `grep -c "%COMP%" <outputPath>/main.js` == 0 | 端到端 |
+| 构建级：消费方工程加 `styleUrls`（文件存在）后 `grep "<那条 CSS 的选择器>" <outputPath>/main.js` 命中 | 端到端 |
 | 全局 `styles`：`angular.json` 配了 → 产物含该内容；配非法值 → schema 校验报错 | 白名单口径 |
 | 策略 A 落地后追加：产物里**不含 CSS 原文**，且规则集 JSON 能被 `packages/css` 反序列化回等价规则 | 升级不丢语义 |
 
@@ -600,7 +600,7 @@ scss 的 lint 输入是**预处理后**的 CSS（用例钉住：原文干净、�
    “局部覆盖优先”带坑了（remove 后回落不到 PrimaryButton）。改成都自己 new 按钮。
 3. **“退出码 0”不成立**（已写进附录 A）：负向断言故意让引擎打 ERROR，Godot 把
    ERROR 计入退出码。基线改成钉 `{1,1,0}` 退出码 + `{1,1,0}` FAIL。
-4. **真引擎探针默认 skip**：`CUJ_RUN_PROBES=1` 才跑（要拷文件进 demo/ + 起三次引擎）；
+4. **真引擎探针默认 skip**：`CUJ_RUN_PROBES=1` 才跑（要拷文件进临时工程 + 起三次引擎）；
    默认 `test:node` 只跑文档对账那 7 条。跳过是显式的，不假装通过。
 
 ---
@@ -618,7 +618,7 @@ MVP 之后立刻排 Phase 1.5 策略 A（构建期解析成规则集）与 Phase
 **MVP 总验收**（全部可自动断言）：
 
 ```
-demo 里 <ui-card class="card">：
+示例 App 里 <ui-card class="card">：
   0. 构建产物里 grep 不到 %COMP%，且 grep 得到 .card 的规则内容   ← 构建期通道通
   1. get_theme_color("font_color")            == 红
   2. get_theme_stylebox("panel").corner_radius == 12
@@ -630,7 +630,7 @@ demo 里 <ui-card class="card">：
   7. A 组件的 .card 不影响 B 组件的 .card
 ```
 
-**需实机确认（不能声称已验证）**：颜色/圆角/阴影/hover 过渡画出来对不对，必须 `pnpm demo:window` 人工看。
+**需实机确认（不能声称已验证）**：颜色/圆角/阴影/hover 过渡画出来对不对，必须开有头引擎人工看。
 
 ---
 
@@ -656,7 +656,7 @@ demo 里 <ui-card class="card">：
 8. **`%COMP%` 只在 Emulated 封装下存在**，`None` / `ShadowDom` 要分开处理
 9. **词汇表来源搞错（C7）** —— 从自定义 Theme 取会拿到空表
 10. **重构 `setStyle` 改坏既有行为** —— Phase 2 把"既有 renderer.spec.ts 全绿"列为收尾断言
-11. **渲染表现无法验证** —— 逻辑断言 ≠ 画面对了，必须 `pnpm demo:window`
+11. **渲染表现无法验证** —— 逻辑断言 ≠ 画面对了，必须开有头引擎人工看
 12. **`styleUrls` 的两处静默（C15）** —— 文件不存在静默通过、scss 报错 rc=0；用户写了不生效比报错难查得多。Phase 1.5 必须把两者变硬失败（注意：内联本身是好的，别重做）
 13. ~~**构建期插件被用户 `viteConfig` 顶掉**~~ —— 占位符搬到运行时后这条风险自动消失：
     插件负责的是“输入能不能读”，顶掉了最多是少一道前置校验，`%COMP%` 仍会被运行时填对
@@ -680,14 +680,16 @@ demo 里 <ui-card class="card">：
 探针 README：`/workspace/godot-test/tools/css-probes/README.md`（本文件的 C1–C14 全部出自它）。
 
 ```bash
-cd /workspace/godot-test
-cp tools/css-probes/probe_*.{js,tscn} godot-angular/demo/
-cd godot-angular
-./bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64 --headless --path demo --import >/dev/null
+# 探针只需要一个能跑的 Godot 工程：用临时空工程，不往仓库目录里拷文件
+BIN=./bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+probe_dir=$(mktemp -d)
+cp /workspace/godot-test/tools/css-probes/probe_*.{js,tscn} "$probe_dir/"
+printf '[application]\n\nconfig/name="cuj_probe"\n' > "$probe_dir/project.godot"
+"$BIN" --headless --path "$probe_dir" --import >/dev/null
 for p in theme theme2 runtime; do
-  ./bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64 --headless --path demo res://probe_$p.tscn --quit-after 200
+  "$BIN" --headless --path "$probe_dir" res://probe_$p.tscn --quit-after 200
 done
-rm godot-angular/demo/probe_*.{js,tscn} godot-angular/demo/probe_*.js.uid
+rm -rf "$probe_dir"
 ```
 
 ## 附录 B · 已核对的源码坐标

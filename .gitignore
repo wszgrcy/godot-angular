@@ -2,10 +2,9 @@ node_modules
 .godot
 .angular
 
-# 构建产物：dist 是发布物（`npm pack` 的 tarball 也落在这里，消费方就装它），
-# demo/dist* 与 test-app/dist* 是各 builder target 的产物目录
+# 构建产物：dist 是发布物（test-app 靠 `link:../dist` 软链它），
+# test-app/dist* 是各 builder target 的产物目录
 dist
-demo/dist*/
 test-app/dist*/
 
 # GodotJS 引擎二进制（175 MB/个，不进版本库；放置位置见 bin/README.md）
@@ -14,13 +13,11 @@ bin/*
 
 
 # GodotJS 官方类型（pnpm gen:typings 生成，可重生成，勿提交）
-demo/typings/
 test-app/typings/
 packages/library/typings/
 packages/builder/typings/
 .tmp/
 
 # Godot 生成的 JS 类声明（可重生成，且会引用已删除的旧入口）
-demo/gen/
 test-app/gen/
 /coverage

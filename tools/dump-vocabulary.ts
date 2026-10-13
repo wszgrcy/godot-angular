@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -26,8 +27,8 @@ function resolveBin(): string {
 const PROBE_JS = "cuj_vocabulary_probe.js";
 const PROBE_TSCN = "cuj_vocabulary_probe.tscn";
 
-function run(bin: string, args: string[]): { status: number | null; stdout: string } {
-  const result = spawnSync(bin, ["--headless", "--path", "demo", ...args], {
+function run(bin: string, projectDir: string, args: string[]): { status: number | null; stdout: string } {
+  const result = spawnSync(bin, ["--headless", "--path", projectDir, ...args], {
     cwd: repoRoot,
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
@@ -49,14 +50,17 @@ function extractJson(stdout: string): unknown {
 
 function main(): void {
   const bin = resolveBin();
-  const demoDir = join(repoRoot, "demo");
+  // 探针只需要一个能跑起来的 Godot 工程，不需要仓库里任何一个工程的内容 —— 用临时空工程，
+  // 免得往工作区里拷文件（引擎会顺手生成 .uid，清理不干净就是脏状态）。
+  const scratch = mkdtempSync(join(tmpdir(), "cuj-vocabulary-"));
+  writeFileSync(join(scratch, "project.godot"), '[application]\n\nconfig/name="cuj_vocabulary"\n', "utf8");
 
-  copyFileSync(join(toolsDir, "vocabulary-probe.js"), join(demoDir, PROBE_JS));
-  copyFileSync(join(toolsDir, "vocabulary-probe.tscn"), join(demoDir, PROBE_TSCN));
+  copyFileSync(join(toolsDir, "vocabulary-probe.js"), join(scratch, PROBE_JS));
+  copyFileSync(join(toolsDir, "vocabulary-probe.tscn"), join(scratch, PROBE_TSCN));
 
   try {
-    run(bin, ["--import"]);
-    const { stdout } = run(bin, [`res://${PROBE_TSCN}`, "--quit-after", "200"]);
+    run(bin, scratch, ["--import"]);
+    const { stdout } = run(bin, scratch, [`res://${PROBE_TSCN}`, "--quit-after", "200"]);
     const payload = extractJson(stdout) as {
       engine: string;
       fallbackFontSize: number;
@@ -92,9 +96,7 @@ export const VOCABULARY_META = {
     );
     console.log(`词汇表已写入 packages/css/vocabulary.data.ts（${classCount} 个类，引擎 ${payload.engine}）`);
   } finally {
-    for (const file of [PROBE_JS, PROBE_TSCN, `${PROBE_JS}.uid`, `${PROBE_TSCN}.uid`]) {
-      rmSync(join(demoDir, file), { force: true });
-    }
+    rmSync(scratch, { recursive: true, force: true });
   }
 }
 

@@ -78,16 +78,15 @@ dist/                    ← **发布物**（ng-packagr 的库 + vite 的 builde
   fesm2022/ types/         库入口
   builder/                 builders.json + 两个 builder（含生成的 schema.json）+ vitest 两侧产物
   package.json             由 packages/library/package.json 生成
-  godot-angular-<ver>.tgz  `npm pack` 的产物（就在被打包的目录里，npm 会排除同名文件）
+                           ← `test-app/` 就靠 `"godot-angular": "link:../dist"` 软链它
 
-demo/                    ← **模板**：Godot 工程 + 独立 Angular 工作区，整个目录可复制走
 test-app/                ← **核心测试**：只吃发布物，不接触源码
 tools/                   构建脚本（见第 12 节）
 bin/                     引擎二进制（gitignore，放置说明见 bin/README.md）
 docs/                    本文 + css-plan.md
 ```
 
-根 `angular.json` 只有 `library`；demo 与 test-app 的 target 在各自的 `angular.json`。
+根 `angular.json` 只有 `library`；test-app 的 target 在它自己的 `angular.json`。
 纯 Node 测试的配置是根目录 `vitest.node.config.mts`；引擎测试**没有** vitest 配置文件，
 配置由 builder 从 `angular.json` 生成。
 
@@ -140,15 +139,35 @@ tsx tools/vite-build.ts   # vite preserveModules → dist/builder（会 rm dist/
 tsx tools/gen-schema.ts   # schema 写进 dist/builder/，必须在 vite-build 之后
 tsx tools/build-cli-schema.ts  # 往 dist/package.json 的 exports 追加 config/schema.json
 tsx tools/gen-html-data.ts     # 编辑器补全用的 html data
-cd dist && npm pack       # tgz 落在 dist 里（消费方就装它）
-pnpm --filter demo build  # 此时 godot-angular:application 才能解析到
+pnpm --filter test-app test  # 此时 builder 才能按包名解析到（消费方视角的端到端）
 ```
 
-⚠ tgz 住在 `dist/` 里，而 `build:lib`（ng-packagr 的 `deleteDestPath`）会先洗 `dist`。
-所以**单跑 `pnpm build:lib` 之后工作区处于"没有 tgz"的空窗**：这期间任何
-`pnpm install` 都会在解析阶段失败（pnpm 跑脚本前的隐式 install 也算，症状是
-`sh: 1: ng: not found` 这种 `.bin` 被削掉后的怪错）。补一句 `pnpm build` 就好；
-`refresh` / `build` / `test` 都以 pack 收尾，按根脚本走不会撞上。
+消费方（`test-app/`）写的是 `"godot-angular": "link:../dist"`，pnpm 的 **`link:` 协议**
+（`node_modules/godot-angular` 就是指向 `../dist` 的软链）。没有 pack / 重命名这一步，
+也就没有"文件名里那个版本号每次升版都要回来改一行"；锁文件里只记 `version: link:../dist`，
+**既不记版本号也不记校验和**，所以 `dist/package.json` 升版连 `--frozen-lockfile` 都不用放宽。
+
+`link:` 比 `file:../dist`（目录型，install 时复制）好在两处，这两处都是实测：
+
+- **`pnpm install` 根本不碰 `dist/`**：不读、不复制、不解析。`dist` 不存在也照装（软链先
+  建着，build 完就通了），所以干净 clone 不再需要"先 `--filter .` 装根工程、build 完再装
+  一遂"那套两步式。
+- **重建即生效**：软链是活的，`pnpm build` 之后不需要再 `pnpm install`。`refresh` 就是 `build`。
+
+⚠ 三个得知道的：
+
+1. `link:` **不会装目标包的 `dependencies`**：`dist/package.json` 里那些依赖是从
+   `<root>/node_modules`（根 `devDependencies`）解析的。所以**改发布物的 dependencies
+   时必须同步根 devDeps**，否则 builder 运行期才 module not found。（当前已核对：
+   `packages/library/package.json` 的 dependencies 全部能在根 devDeps 找到。）
+2. 软链会被解成 realpath（`<root>/dist/...`），所以库里的 `import "@angular/core"` 会从根
+   `node_modules` 解析，而不是 test-app 那份 —— 单例靠 builder vite 配置里的
+   `resolve.dedupe: ["@angular/core"]` 兜（`preserveSymlinks` 选项可覆盖）。
+3. 测的是 `dist/` 目录本身，不是 `npm pack` 的 tarball，所以 `.npmignore`（发布物里那份）
+   漏没漏东西这条路测不出来。真要 publish 前验一手，`cd dist && npm pack` 把 tgz 装上跑一遍。
+
+⚠ `build:lib`（ng-packagr 的 `deleteDestPath`）会先洗 `dist`，这期间软链是悬空的；
+但 `pnpm install` 不受影响（见上），只是别在 build 中途跑 `pnpm test`。
 
 ### CJS / ESM 的分界线：Godot 会不会直接加载它
 
@@ -156,7 +175,7 @@ pnpm --filter demo build  # 此时 godot-angular:application 才能解析到
 
 | 产物 | 谁加载 | 格式 |
 | --- | --- | --- |
-| `demo/dist*/**.js` | Godot 直接当 Script 跑 | **必 CJS** |
+| `test-app/dist*/**.js` | Godot 直接当 Script 跑 | **必 CJS** |
 | `dist/builder/**.mjs` | Angular CLI（`require(path)`）/ Node | ESM |
 | `dist/fesm2022/*.mjs` | vite / rollup 打包时读 | ESM |
 
@@ -175,10 +194,10 @@ pnpm --filter demo build  # 此时 godot-angular:application 才能解析到
 `angular.json` 里写的是 `"builder": "godot-angular:vitest"`，而 Angular CLI 解析 builder
 走的是**纯 Node 包解析**（`node-modules-architect-host.ts` 里
 `localRequire.resolve(packageName + '/package.json', { paths: [basePath] })`），**不读
-tsconfig**。`basePath` 是**使用方**的工程目录，所以这条需求由 `demo/` 与 `test-app/` 各自
-node_modules 里那份 tarball 满足，跟仓库根无关。产物侧同理：builder 里的
+tsconfig**。`basePath` 是**使用方**的工程目录，所以这条需求由 `test-app/`
+自己 node_modules 里那份指向 `dist/` 的软链（`"godot-angular": "link:../dist"`）满足，跟仓库根无关。产物侧同理：builder 里的
 `import "godot-angular/css"` 在打包时故意保持 external，跑起来由使用方解析（包内自引用
-命中自己），实测 `pnpm --filter demo build` 里 css-plugin 正常干活。
+命中自己），实测 `pnpm --filter test-app test` 里 css-plugin 正常干活。
 
 仓库内唯一还需要"按包名找到类型"的地方是 `packages/builder` 的 `tsc`，而且只有三个站点：
 `vite/css-plugin.ts` 引 `godot-angular/css`，`vitest/runtime/index.ts` 引
@@ -194,14 +213,19 @@ devDependency `"godot-angular": "link:./dist"`，现在改成 `packages/builder/
 - 指 `dist/types` 而不是指回源码，保住了软链时代唯一的实质好处：类型消费的是外部用户
   真正拿到的那份产物（含 `exports` 映射），exports 写错当场就炸。
 
+⚠ 上面那条"干净 clone 里 `dist` 不存在 → 悬空软链 → 失败拖到 typecheck 才报 TS2307"在
+消费方一侧仍然存在（`test-app` 就是 `link:../dist`），现在的兼法是“根脚本先重建”：
+`pnpm test` 走 `refresh`（= `build`），`pnpm typecheck` 也把 `pnpm run build` 排在最前面，
+所以两个入口都不会在"没构建"的状态下跑。单跑 `pnpm typecheck:builder` 不在此列。
+
 `paths` 只列本包自己 import 的那三个就够：产物内部的互引（`testing.d.ts` → `core` → `css`）
 发生在 `dist/` 里面，由 `dist/package.json` 的 `exports` 自引用解析掉（实测
 `--traceResolution`：`Entering conditional exports`）。注意别拿它当"能编译就行"的依据：
 `skipLibCheck: true` 会把 .d.ts 内部的解析失败盖掉，所以这里是用 `--listFiles` 确认四个
 `.d.ts` 真的进了 program，而不是只看退出码。
 
-两个消费方 `angular.json` 的 `$schema` 指向 `./node_modules/godot-angular/...`（它们自己装的那份）：
-`demo/` 是给人整个目录复制走的模板，`../node_modules` 在复制出去之后就不存在了。
+消费方 `angular.json` 的 `$schema` 指向 `./node_modules/godot-angular/...`（它自己装的那份），
+不写 `../node_modules`：工程目录得能独立存在，`../node_modules` 在仓库之外就不存在了。
 
 ---
 
@@ -220,7 +244,7 @@ devDependency `"godot-angular": "link:./dist"`，现在改成 `packages/builder/
 三个承重的实现约束（改构建前先看）：
 
 1. **`preserveEntrySignatures: "strict"`**。不开则 rollup 会把入口的具名导出当无用代码摇掉——
-   demo 的 `create` 和整个 `App` 组件凭空消失，产物从 308 kB 缩到 206 kB，**一个错都不报**。
+   入口的 `create` 和整个 `App` 组件凭空消失，产物从 308 kB 缩到 206 kB，**一个错都不报**。
 2. **`require("./chunk")` 必须改写成 `res://` 绝对路径**。GodotJS 把相对 require 解析成
    `res:/chunk`（单斜杠）然后找不到。`godotRequirePlugin` 在 `renderChunk` 阶段替换，
    并**断言替换次数**——模式没命中就报错，不静默放行。
@@ -251,7 +275,7 @@ vitest 漏加"。
 实测：`ng build` 对 `.ts` 里的类型错误、模板里的未知属性、`strictTemplates: true` 一律
 **不报错**（analog 插件的 diagnostics 没有接到 builder 的错误通道）。因此：
 
-- 类型检查靠 `pnpm typecheck`（根脚本，逐包 `tsc --noEmit`）与编辑器；
+- 类型检查靠 `pnpm typecheck`（根脚本，先 `pnpm run build` 再逐包 `tsc --noEmit`）与编辑器；
 - 模板诊断不会以编译错误的形式出现，写错模板往往在运行时才暴露；
 - 最典型的例子是自闭合标签：`<Label />` 会让该组件的 AOT 定义静默缺失，构建成功，
   运行时才报 "needs to be compiled using the JIT compiler"。
@@ -272,7 +296,7 @@ polyfill import，也关不掉它。
 成功，只是默默没换。必须走 `resolveId`（analog 插件已实现，builder 直接把选项透传给它）。
 
 **每个 builder target 独占一个 `outputPath`。** 构建是 `emptyOutDir` 的，两个 target 共用
-一个目录会互相抹掉（实测跑完 `pnpm test` 再跑 demo 就找不到 `main.js`）。
+一个目录会互相抹掉（实测跑完 `pnpm test` 再构建应用入口就找不到 `main.js`）。
 
 **未暴露的 vite 能力走 `viteConfig`。** 用户配置叠加在 builder 之上，plugins 是**追加**
 不是替换——builder 自己的 polyfill / res:// require / ICU 那几个承重插件顶不掉。
@@ -281,54 +305,46 @@ polyfill import，也关不掉它。
 
 ## 5. 工作区与发布物
 
-**分发状态：尚未发布到 npm**（`npm view godot-angular` 返回 404）。对外分发单位是
-`dist/godot-angular-<ver>.tgz`，由 `pnpm build` 产出。README 面向使用者写的是
-`npm install godot-angular`，发布后即为真实行为；在那之前，仓库内的 `demo/` 与 `test-app/`
-用 `file:../dist/godot-angular-<ver>.tgz` 装本地产物，因此 `demo/` 直接复制出去时，
-**需要把 `godot-angular` 那行依赖改成版本号**（或先 `pnpm build` 后指向 tgz 路径）。
+**分发状态：尚未发布到 npm**（`npm view godot-angular` 返回 404）。对外分发单位就是
+`dist/`（发布时 `cd dist && npm publish`，或先 `npm pack` 出 tgz）。README 面向使用者写的是
+`npm install godot-angular`，发布后即为真实行为；在那之前，仓库内的 `test-app/`
+用 `link:../dist` 软链本地产物。
 
-`demo/` 与 `test-app/` 是**两个独立的 Angular 工作区 + 两个独立的 Godot 工程**，
-各自一份 `angular.json`，都只通过 `file:../dist/godot-angular-*.tgz` 用库 ——
-**它们碰不到源码**。为什么必须这样：
+`test-app/` 是**独立的 Angular 工作区 + 独立的 Godot 工程**，自己一份 `angular.json`，
+只通过 `link:../dist` 用库 —— **它碰不到源码**。为什么必须这样：
 
-- 做 builder 的项目不能又当 builder 的使用方，否则"发布物自不自足"永远测不到
-  （软链时代 `dist/` 里少一个文件也没人知道）。装 tarball 之后，"用户只拿到发布物"
-  那条路是日常在跑的，不是 publish 之后才发现。
-- `demo/` 是给人复制走的模板（clone → install → F5），里面不该有测试基础设施；
-  核心测试全在 `test-app/`。
+- 做 builder 的项目不能又当 builder 的使用方，否则"发布物自不自足"永远测不到。
+  `link:../dist` 吃的是**构建产物**，`packages/` 源码依旧碰不到：`dist/` 里少一个文件
+  当场就炸。但它测的是 `dist/` 目录，**测不到 `npm pack` 那一层**（见上一节），
+  真要 publish，发布前手动装一次 tgz 验。
+- 测试基础设施全在 `test-app/`，`packages/` 里不养另一套入端测试。
 
-根脚本一律 `pnpm --filter demo|test-app <task>` 进去执行。
+根脚本一律 `pnpm --filter test-app <task>` 进去执行。
 
-### 为什么第一步是 `pnpm bootstrap` 而不是 `pnpm install`
+### 第一步就是 `pnpm install`
 
-`demo/` 与 `test-app/` 依赖的是发布物 `file:../dist/godot-angular-<ver>.tgz`，而它跟
-`dist/` 里其余东西一样是构建产物、不进版本库。干净 clone 里那个 tgz 不存在，
-`pnpm install` 会在解析阶段失败；而 tgz 又得靠 node_modules 里的 ng-packagr 才建得出来
-—— 没依赖无法构建、没构建无法安装。`bootstrap` 从中间剪断：
+以前要先 `pnpm install --filter .` 再 build 再装一遂，是因为消费方依赖的是
+`dist/` 这个构建产物，而 pnpm 解析阶段就要读它；干净 clone 里它不存在，install 直接挂。
+改成 `link:../dist` 之后这事没了：pnpm 对 `link:` 只是建个软链，**不要求目标存在**
+（实测：`rm -rf dist` 后 `pnpm install` 照样 Done）。所以干净 clone 就是：
 
 ```bash
-pnpm install --filter .   # 只装根工程：不解析那两个消费方，tgz 缺席也无所谓
-pnpm run gen:typings      # 引擎 .d.ts（被 gitignore）
-pnpm run build         # dist/ 与 dist/godot-angular-<ver>.tgz
-pnpm install              # 此时 tgz 已在，全工作区一次装齐
+pnpm install          # 消费方软链指向不存在的 dist 也无所谓
+pnpm run gen:typings  # 引擎 .d.ts（被 gitignore）
+pnpm run build        # dist/：软链落地，消费方立刻看得到
 ```
 
-装过一次之后就恢复正常手感：日常 `pnpm install` / `pnpm refresh`，`bootstrap` 只在
-**首次**或换了引擎版本时跑。（`pnpm install --filter .` 不会改写 lockfile，实测过。）
+日常手感：改了库/ builder 就 `pnpm refresh`（= `pnpm build`），**不需要重安装**。
 
-⚠ 本机 pnpm store 里若已有同内容的包，缺 tgz 的 `pnpm install` 也可能"看起来成功"
-（实测：从缓存解出目录，构建照跑）。判断干净环境行为时别把 store 命中当成通过。
+### 根脚本自带"重新构建"
 
-### 根脚本自带"重新构建 + 安装"
-
-`demo` / `test-app` 不读 `packages/` 源码，它们 `node_modules` 里的是 `dist/*.tgz`
-解出来的那份。所以根层的 `test` / `test:fast` / `build` / `pages` 一律先跑
-`refresh`（= 重编库 + 重编 builder + `npm pack` + `pnpm install`）再干活——
+`test-app` 不读 `packages/` 源码，它通过软链吃 `dist/` 那份产物。所以根层的
+`test` 一律先跑 `refresh`（= 重编库 + 重编 builder）再干活——
 **根脚本不存在"跑了个旧构建"这种状态**。
 
 ⚠ 现状：`test` 与 `test:fast` 的脚本内容目前**完全相同**（都含 `refresh`），
 "只改了 spec 就不重建"的快路径尚未实现。要分步控制，直接
-`cd test-app && npx ng test`（或 `ng run demo:pages`），但得自己保证 `pnpm refresh` 过了。
+`cd test-app && npx ng test`，但得自己保证 `pnpm refresh` 过了。
 
 ### 测试工具是自举的
 
@@ -342,14 +358,13 @@ pnpm install              # 此时 tgz 已在，全工作区一次装齐
 
 ### 只有两层
 
-引擎真机（test-app + demo 两份入口）与纯 Node，**没有第三层“假引擎”测试**。
+引擎真机（test-app 那份入口）与纯 Node，**没有第三层“假引擎”测试**。
 | 层 | 位置 | 规模 | 能证明什么 |
 | --- | --- | --- | --- |
 | 引擎真机 spec | `test-app/src/tests/engine/*.spec.ts` | 611 项 / 34 文件 | 真 GodotJS 进程里跑真 vitest：模板 / 变更检测 / 信号 / 表单 / 容器真实布局 / ClassDB 怪癖，以及 CSS 文本进 `get_theme_*` 出的值语法穷举 |
-| 引擎真机 spec（demo） | `demo/src/tests/engine/*.spec.ts` | 1 项 | 跑真 demo 整棵树（含只有真引擎才会算的容器布局） |
 | 纯 Node | `packages/library/polyfills/test/`、`packages/builder/vite/test/` | 95 项 / 9 文件 | 我们自己那套 rAF / 帧驱动的语义、builder 选项解析与产物改写（临时目录造夹具，不碰仓库源码） |
 
-引擎层里 `demo-app.spec.ts` 跑的是**真 demo 整棵树**，其余 spec 用内联小组件验单个机制。
+引擎层里 `app-sample.spec.ts` 跑的是**示例 App 的整棵树**，其余 spec 用内联小组件验单个机制。
 
 ### 为什么只有引擎一层（不要 Node 替身层）
 
@@ -509,7 +524,7 @@ worktree 打架，全是脏状态），以及让每个使用方手抄一份场�
 **为什么不能直接用 vitest 自带的 v8 provider。** 两个理由都是硬的：
 
 1. v8 provider 靠 CDP 采样，GodotJS 的 V8 没开 inspector，也没有能连的地址；
-2. 更要紧的是**引擎里跑的不是源码**。test-app 装的是 `dist/*.tgz` 解出来的发布物，引擎执行
+2. 更要紧的是**引擎里跑的不是源码**。test-app 通过软链吃的是 `dist/` 那份发布物，引擎执行
    的是 `node_modules/godot-angular/fesm2022/*.mjs`。不管 v8 的字节码偏移还是 istanbul 的
    statementMap，都得先落到**真正被执行的那份代码**上，否则拿到的数字与跑过的代码无关。
 
@@ -673,9 +688,9 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     不静默吞。
 12. 对已有父节点的节点再 `add_child`，引擎只打 ERROR 不抛异常，渲染器必须自己先摘。
 13. 改了 `.js` 但引擎不重新加载 → 什么都不打印，需要 `--import` 刷缓存。
-    `pnpm demo` / `pnpm test` 用入口哈希戳自动处理了（`shared/godot-bin.ts` 的 `ensureImported`）。
-14. `OS.has_cmdline_arg` 没暴露，命令行开关用 `OS.get_environment()` 传（demo 的
-    `CUJ_MODE=snapshot`）。
+    `pnpm test` 用入口哈希戳自动处理了（`shared/godot-bin.ts` 的 `ensureImported`）。
+14. `OS.has_cmdline_arg` 没暴露，给入口脚本传开关只能用 `OS.get_environment()`
+    走环境变量（引擎 argv 里没有能读的口子）。
 15. **库必须用 ngc + `compilationMode: "partial"` 编译，不能用裸 `tsc`**。裸 tsc 不生成
     Angular 库元数据，消费方 AOT 认不出依赖里的 `@Directive`，报 NG2012。
 16. 无显示环境（CI / 无头）下 `DisplayServer` 全是 dummy 值：`screen_get_size()` → `(0,0)`、
@@ -714,7 +729,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
    TS6059 的真元凶是 `rootDir` 而不是 `paths`，noEmit 下 `rootDir` 纯属空转。
 10. **css 是二级入口，只能用包名引**。library / builder 里写 `from "../css/parser"` 不会
     报错，但 css 源码会被卷进库的 fesm 产物，`./css` 这个入口白设（只能靠约定）。
-11. 改完库一定要确认构建真的过了：构建失败时 `dist/` 保留旧产物，下游（引擎 spec / demo）
+11. 改完库一定要确认构建真的过了：构建失败时 `dist/` 保留旧产物，下游（引擎 spec）
     会**静默跑旧代码**。别把构建输出 `>/dev/null` 掉再根据结果下结论。
 12. `--check-only` 在引用 autoload 的项目里用不了这类"单独编译一个文件"的坑同理适用于这里：
     任何"只编译目标文件、不带上依赖"的工具，先确认它给不给解析包名说明符。
@@ -733,14 +748,14 @@ Linux 与 Windows 都必须能跑，差异全部集中在 `tools/` 与 `packages
   （不走宿主 FS 的不敏感匹配），所以 `.tscn` / `require()` 里的写法必须与磁盘一致。
 - 引擎二进制按 `<workspaceRoot>/bin/<平台目录>/<可执行文件>` 预置（仅检索工作区根目录，
   不向上级目录搜索），`GODOT_BIN` / `engine.godotBin` 可覆盖，且两者指**目录**时会自动按平台表
-  补子目录与文件名 —— 所以 `demo/angular.json` 写一份 `"../bin"` 两个平台都能用。
+  补子目录与文件名 —— 所以 `test-app/angular.json` 写一份 `"../bin"` 两个平台都能用。
   平台映射表在 `packages/builder/shared/godot-bin.ts` 的 `BIN_TABLE`。
 - Windows 上 `pnpm` 是 `pnpm.cmd`，`spawnSync` 要带 `shell: isWin`。
 - 从 `import.meta.url` 取路径只用 `fileURLToPath`，**不要** `.pathname`
   （Windows 上给 `/C:/...`，fs 不认）。
 - 消费方 `node_modules/godot-angular` 那一层链接（tarball 解出来的目录）全部交给 pnpm，
   跨平台（含 Windows junction）由它自己处理，不手写 `symlinkSync`；仓库根不挂软链。
-- 根脚本用 `pnpm --filter demo <task>` 而不是 `cd demo && ...`，两个 shell 都对。
+- 根脚本用 `pnpm --filter test-app <task>` 而不是 `cd test-app && ...`，两个 shell 都对。
 
 平台支持现状：
 
@@ -759,23 +774,18 @@ Linux 与 Windows 都必须能跑，差异全部集中在 `tools/` 与 `packages
 # （Windows 换成 bin\windows-editor-4.6.1-v8\godot.windows.editor.x86_64.exe）
 GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 
-# demo（打印节点树）
-CUJ_MODE=snapshot "$GODOT" --headless --path demo
-
-# 多入口示例（场景是位置参数，不是 --scene）
-"$GODOT" --headless --path demo res://pages.tscn
-
 # 引擎真机 spec：**不要直接跑 res://engine_vitest.tscn**，它要宿主先起 WS server。
 # 正确入口是 pnpm test（它会构建 + 拉引擎 + 跑 + 关闭）
 
-# 开真窗口（需要显示环境）
-"$GODOT" --path demo
+# 手上有一个自建工程（README 快速开始那份形状）时，直接按工程目录跑：
+"$GODOT" --path <工程目录>                        # 开真窗口（需要显示环境）
+"$GODOT" --headless --path <工程目录> res://<场景>.tscn   # 场景是位置参数，不是 --scene
 ```
 
-改了 `demo/dist/*.js` 之后引擎**什么都不打印**，是脚本资源缓存没刷新。自动戳没生效时手动兜底：
+改了产物 `*.js` 之后引擎**什么都不打印**，是脚本资源缓存没刷新。自动戳没生效时手动兜底：
 
 ```bash
-"$GODOT" --headless --path demo --import
+"$GODOT" --headless --path <工程目录> --import
 ```
 
 ---
@@ -787,10 +797,9 @@ CUJ_MODE=snapshot "$GODOT" --headless --path demo
 | `tools/vite-build.ts` | 构建 `packages/builder`（vite preserveModules → `dist/builder`） |
 | `tools/gen-schema.ts` | 读官方 CLI schema + valibot 形状，生成两个 builder 的 `schema.json` |
 | `tools/build-cli-schema.ts` | 把本包 builder 挂进 `dist/builder/config/schema.json` 的 target 分支 |
-| `tools/gen-typings.ts` | 调引擎 `--generate-types`，同步四处 `typings/`（对外即 `npx godot-typings`） |
+| `tools/gen-typings.ts` | 调引擎 `--generate-types`，同步三处 `typings/`（对外即 `npx godot-typings`） |
 | `tools/gen-html-data.ts` | 生成 VSCode 用的 html data（模板补全） |
 | `tools/check-schema`（`pnpm check:schema`） | 断言生成的 schema 与形状源一致 |
-| `tools/run-demo.ts` | 用引擎跑 demo 并打印节点树（`--window` 开真窗口） |
 | `tools/dump-vocabulary.ts` | 从引擎导出 Godot 主题词汇表 → `packages/css/vocabulary.data.ts` |
 
 `pnpm gen:typings` 跑的是引擎自带的 codegen（不是第三方工具，也不是
@@ -801,9 +810,9 @@ godot --headless --editor --path <工程> --generate-types
 ```
 
 两个实测才知道的点：`--editor` 不能省（只给 `--generate-types` 会被当普通参数忽略，
-直接去跑主场景）；产物只跟引擎版本有关，跟工程内容无关（空工程生成的与 demo 工程生成的
-逐字节相同），所以工具用一个临时空工程。它把 18 个 `.d.ts` 同步到 `demo/typings`、
-`test-app/typings`、`packages/library/typings`、`packages/builder/typings` 四处，
+直接去跑主场景）；产物只跟引擎版本有关，跟工程内容无关（空工程生成的与真实工程生成的
+逐字节相同），所以工具用一个临时空工程。它把 18 个 `.d.ts` 同步到
+`test-app/typings`、`packages/library/typings`、`packages/builder/typings` 三处，
 **换引擎版本后要重跑**。
 
 类型进 program 的方式是 `typeRoots` + `types`（不是 `/// <reference>`）：
