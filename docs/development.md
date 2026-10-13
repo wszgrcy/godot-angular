@@ -69,6 +69,7 @@ packages/builder/        ← 构建相关（不是包，没有 package.json）
     transport.ts           WebSocketPeer 通道（STATE_OPEN===1 等怪癖都在这）
   shared/godot-bin.ts      二进制定位（只探工作区根的 bin/）+ --import 缓存戳
   shared/coverage.ts       构建期插桩与覆盖率 remap provider
+  shared/engine-port.ts    端口口径：配置值是起始值，被占则 +1（监听先于构建，端口得先定下来）
 
   ⚠ vitest/node 与 vitest/runtime 里的 regexp-codec.ts 是**一对**，
     两边没有依赖关系（一个跑宿主 vitest，一个跑引擎 V8），改一边必须改另一边。

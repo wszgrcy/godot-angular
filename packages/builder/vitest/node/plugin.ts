@@ -8,9 +8,20 @@ import { ensureImported, requireGodotBin } from "../../shared/godot-bin.js";
 import { GodotPoolWorker } from "./pool-worker.js";
 import { GodotVitestSession } from "./session.js";
 
-export interface GodotEngineVitestOptions extends Partial<EngineOptions> {
-  /** WS 监听地址，缺省 127.0.0.1 */
-  host?: string;
+/** 引擎侧选项：端口与超时不在此列，它们属于会话，见 `session` 字段 */
+export type GodotEngineLaunchOptions = Partial<
+  Omit<EngineOptions, "port" | "connectTimeout">
+>;
+
+export interface GodotEngineVitestOptions extends GodotEngineLaunchOptions {
+  /**
+   * 已 `start()` 的宿主会话。端口在它 start 的那一刻就定了（起始值被占则已自增），
+   * 写进产物的、宿主监听的、启动引擎时传的都是同一个 `session.port`。
+   *
+   * 为什么由调用方创建而不是插件内部：顺序必须是“开监听 → 构建 → 启动引擎”，
+   * 端口晚一步确定就来不及写进产物，而插件挂钩子时构建已经跑完了。
+   */
+  session: GodotVitestSession;
   /** spec 文件 glob（相对 workspaceRoot），直接用作 vitest 的 `include`；不传则用调用方配的 `test.include` */
   specInclude?: string[];
   exclude?: string[];
@@ -23,9 +34,8 @@ export interface GodotEngineVitestOptions extends Partial<EngineOptions> {
  * 使用自定义 pool 而不是 browser provider：引擎中 fetch / XHR / 动态 import 全不可用，
  * 无法获取 vitest 那个 `/__vitest_test__/` 页面和它的模块图，provider 换不掉这一层地基。
  */
-export function godotEngineTest(options: GodotEngineVitestOptions = {}): Plugin {
-  // 18781：避开手写 runner 使用的 18780。
-  const port = options.port ?? 18781;
+export function godotEngineTest(options: GodotEngineVitestOptions): Plugin {
+  const { session } = options;
   let child: ChildProcess | undefined;
 
   return {
@@ -38,12 +48,6 @@ export function godotEngineTest(options: GodotEngineVitestOptions = {}): Plugin 
 
     configureVitest(context: VitestPluginContext): void {
       const { project } = context;
-      const session = new GodotVitestSession({
-        port,
-        host: options.host,
-        connectTimeout: options.connectTimeout,
-      });
-
       const poolRunner: PoolRunnerInitializer = {
         name: "godot",
         // 引擎只有一个常驻 worker，所有 PoolWorker 都是它的代理，不传递序号
@@ -61,9 +65,10 @@ export function godotEngineTest(options: GodotEngineVitestOptions = {}): Plugin 
       }
       if (options.exclude) project.config.exclude = options.exclude;
 
+
       void session
         .start()
-        .then(() => launchEngine(options, port))
+        .then(() => launchEngine(options, session.port))
         .then((proc: ChildProcess | undefined) => {
           child = proc;
         })
@@ -93,7 +98,7 @@ function terminate(proc: ChildProcess | undefined): void {
 
 /** 拉起引擎进程。返回 undefined 表示按配置不应由宿主启动。 */
 async function launchEngine(
-  options: GodotEngineVitestOptions,
+  options: GodotEngineLaunchOptions,
   port: number,
 ): Promise<ChildProcess | undefined> {
   if (options.noLaunch || !options.projectPath || !options.scene) return undefined;

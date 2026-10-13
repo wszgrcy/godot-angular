@@ -12,11 +12,11 @@ import { startupGodotVitest, type GodotVitestSession } from "./index";
 export interface GodotVitestSceneDeps {
   /** spec 清单（虚拟模块提供） */
   modules: Record<string, () => Promise<unknown>>;
-  /** 宿主未通过环境变量指定端口时的缺省值 */
+  /** 构建时写入的缺省端口：仅当宿主没通过 CUJ_WS_PORT 传入口时才用得上（手工启动引擎那条链路） */
   defaultPort: number;
 }
 
-/** 读取环境变量（宿主将端口传入的通道），获取失败则返回空串 */
+/** 读取环境变量（宿主将本次实际端口传入的通道），获取失败则返回空串 */
 function readEnv(name: string): string {
   try {
     return String(OS.get_environment(name) ?? "");

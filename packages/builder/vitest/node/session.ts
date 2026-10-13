@@ -1,5 +1,6 @@
 import { parse as flatParse, stringify as flatStringify } from "flatted";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
+import { PORT_RETRIES, startPort } from "../../shared/engine-port.js";
 import { packContext } from "./regexp-codec.js";
 
 /** 修改协议时需同步修改 `vitest/runtime/index.ts` 中的同名常量。 */
@@ -45,9 +46,26 @@ export class GodotVitestSession {
   private ready: Deferred = createDeferred();
   private readonly listeners = new Set<MessageListener>();
 
+  private boundPort: number | undefined;
+
   constructor(
-    private readonly options: { port: number; host?: string; connectTimeout?: number },
+    private readonly options: {
+      /** 起始端口，被占用则 +1 继续试 */
+      port?: number;
+      host?: string;
+      connectTimeout?: number;
+      /** 占用时最多再试几个；noLaunch（引擎自己读产物里的端口）下传 0，换了端口引擎就连不上 */
+      portTries?: number;
+    },
   ) {}
+
+  /**
+   * 实际监听的端口。端口会因“起始值被占”而自增，所以启动引擎、写进产物的缺省端口
+   * 都必须读这里，不能读配置里那个起始值。
+   */
+  get port(): number {
+    return this.boundPort ?? startPort(this.options.port);
+  }
 
   retain(): void {
     this.references += 1;
@@ -64,24 +82,46 @@ export class GodotVitestSession {
   }
 
   private listen(): Promise<void> {
-    const { port, host = "127.0.0.1" } = this.options;
-    return new Promise((resolve, reject) => {
-      const server = new WebSocketServer({ port, host });
-      this.server = server;
-      server.once("listening", () => {
-        process.stdout.write(`[cuj-vitest] 已监听 ws://${host}:${port}，等待引擎连接\n`);
-        resolve();
+    const host = this.options.host ?? "127.0.0.1";
+    // 重听沿用首次绑定到的端口：换了端口，引擎那边已经拿到的 CUJ_WS_PORT 就作废了
+    const start = this.boundPort ?? startPort(this.options.port);
+    const tries = this.options.portTries ?? PORT_RETRIES;
+
+    const attempt = (port: number, left: number): Promise<void> =>
+      new Promise((resolve, reject) => {
+        const server = new WebSocketServer({ port, host });
+        this.server = server;
+        // 只有“开不起来”属于 start() 的失败；开始监听之后的错误不能反过来拆掉正在用的服务
+        let listening = false;
+        server.once("listening", () => {
+          listening = true;
+          this.boundPort = port;
+          process.stdout.write(`[cuj-vitest] 已监听 ws://${host}:${String(port)}，等待引擎连接\n`);
+          resolve();
+        });
+        server.once("error", (err: Error) => {
+          if (listening) return;
+          server.close();
+          // 起始端口被占就 +1 再试：这个监听先于构建开起来，自增后的端口才是写进产物那个
+          if (left > 0 && (err as NodeJS.ErrnoException).code === "EADDRINUSE") {
+            attempt(port + 1, left - 1).then(resolve, reject);
+            return;
+          }
+          // 失败的这次监听不能留下：否则 start() 永远返回同一个 rejection，重试无门
+          this.startPromise = undefined;
+          reject(
+            new Error(
+              `监听 ${host}:${String(port)} 失败：${err.message}。` +
+                (left > 0
+                  ? "已自增重试仍未拿到可用端口，请确认没有未退出的测试进程。"
+                  : "引擎自行启动时端口不能换（它只读产物里写死的值），请释放该端口或改 engine.port。"),
+            ),
+          );
+        });
+        server.on("connection", (socket) => this.onConnection(socket));
       });
-      server.once("error", (err: Error) => {
-        reject(
-          new Error(
-            `监听 ${host}:${port} 失败：${err.message}。若端口被占用请更换 port，` +
-              `并同步修改引擎侧 startupGodotVitest 的 port。`,
-          ),
-        );
-      });
-      server.on("connection", (socket) => this.onConnection(socket));
-    });
+
+    return attempt(start, tries);
   }
 
   private onConnection(socket: WebSocket): void {
@@ -154,8 +194,8 @@ export class GodotVitestSession {
       const timer = setTimeout(() => {
         reject(
           new Error(
-            `引擎在 ${timeout}ms 内未连接。请确认引擎已以 --headless 启动测试场景，` +
-              `且 startupGodotVitest 的 port 与此处一致。`,
+            `引擎在 ${timeout}ms 内未连接（本端 ws://${this.options.host ?? "127.0.0.1"}:${String(this.port)}）。`
+              + `请确认引擎已以 --headless 启动测试场景，且 startupGodotVitest 的 port 与此处一致。`,
           ),
         );
       }, timeout);

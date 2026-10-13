@@ -45,7 +45,6 @@
             "engine": {
               "projectPath": ".",
               "scene": "res://engine_vitest.tscn",
-              "port": 18781,
               "connectTimeout": 30000,
               "godotBin": "../bin"
             }

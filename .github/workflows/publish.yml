@@ -13,13 +13,23 @@ permissions:
 
 env:
   GODOTJS_TAG: v1.1.0.beta1-4.6.1
-  GODOTJS_ASSET: linux-editor-4.6.1-v8.zip
-  GODOT_BIN_PATH: bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 
 jobs:
   test:
-    name: test
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ubuntu
+            os: ubuntu-latest
+            godotjs_asset: linux-editor-4.6.1-v8.zip
+            godot_bin: bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+          - name: windows
+            os: windows-latest
+            godotjs_asset: windows-editor-4.6.1-v8.zip
+            godot_bin: bin/windows-editor-4.6.1-v8/godot.windows.editor.x86_64.exe
 
     steps:
       - name: pull-code
@@ -36,12 +46,16 @@ jobs:
           cache: pnpm
 
       - name: godot-engine
+        shell: bash
+        env:
+          GODOTJS_ASSET: ${{ matrix.godotjs_asset }}
+          GODOT_BIN_PATH: ${{ matrix.godot_bin }}
         run: |
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/godotjs.zip" \
             "https://github.com/godotjs/GodotJS/releases/download/${GODOTJS_TAG}/${GODOTJS_ASSET}"
           mkdir -p bin
           unzip -q "$RUNNER_TEMP/godotjs.zip" -d bin
-          chmod +x "$GODOT_BIN_PATH"
+          [ "$RUNNER_OS" = "Windows" ] || chmod +x "$GODOT_BIN_PATH"
           version="$("$GODOT_BIN_PATH" --headless --version | head -n1)"
           echo "GodotJS $version"
 
@@ -64,6 +78,9 @@ jobs:
     name: publish
     needs: test
     runs-on: ubuntu-latest
+    env:
+      GODOTJS_ASSET: linux-editor-4.6.1-v8.zip
+      GODOT_BIN_PATH: bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 
     steps:
       - name: init

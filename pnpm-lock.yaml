@@ -2374,7 +2374,7 @@ packages:
     engines: {node: '>=20.20.0'}
 
   godot-angular@file:godot-angular-0.0.0.tgz:
-    resolution: {integrity: sha512-9WkHrdIqf+F1lwDZxvYQwdStgd2aUwwZv4iy06bB/OhMo25lKVY4Jh26GKCPXVH3T8ESQdeYk1qVM2eDXiTIUA==, tarball: file:godot-angular-0.0.0.tgz}
+    resolution: {integrity: sha512-8T/iOm6nMqGeLZT/UQJEXJJyPUoGyVxVbChx9vsBxDRQYv4kdeZUxdPC/AYFLxOxOzNl1KtEV4zzGa62GXdDdQ==, tarball: file:godot-angular-0.0.0.tgz}
     version: 0.0.0
     hasBin: true
     peerDependencies:

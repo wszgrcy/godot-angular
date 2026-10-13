@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { DEFAULT_ENGINE_PORT } from "../shared/engine-port";
 
 /* ------------------------------------------------------------------ *
  * 子形状
@@ -172,8 +173,15 @@ export const engineOptionsSchema = v.object({
     v.description("引擎中要执行的场景，如 res://engine_vitest.tscn。"),
   ),
   port: v.optional(
-    v.pipe(v.number(), v.description("宿主 WebSocket 端口。")),
-    18781,
+    v.pipe(
+      v.number(),
+      v.description(
+        "宿主 WebSocket 端口的起始值（默认 18781）。监听先于构建开起来，该端口被占用则 +1 继续试，"
+          + "真正绑定的那个同时写进产物、用于宿主监听、并在启动引擎时经 CUJ_WS_PORT 传入，三方始终一致。"
+          + "启用 skipBuild 时产物不会重建，端口钉在配置值上不自增。",
+      ),
+    ),
+    DEFAULT_ENGINE_PORT,
   ),
   connectTimeout: v.optional(
     v.pipe(v.number(), v.description("等待引擎连接的时间上限（毫秒）。")),

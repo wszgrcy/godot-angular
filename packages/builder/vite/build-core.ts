@@ -62,10 +62,9 @@ export function resolveEntries(
       onlyFiles: true,
     }).sort();
     if (found.length === 0) {
-      throw new Error(
-        `入口 glob 未匹配到任何文件：${p.glob}` +
-          `（input: ${p.input === "" ? workspaceRoot : inputRoot}）`,
-      );
+      // 路径转 posix：报错要能直接复制去命令行，也不能同一条消息里两种分隔符混着
+      const shown = toPosix(p.input === "" ? workspaceRoot : inputRoot);
+      throw new Error(`入口 glob 未匹配到任何文件：${p.glob}（input: ${shown}）`);
     }
     for (const rel of found) {
       // name 会作为 rollup 的 input 键与 [name] 使用，只认 /

@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { globSync } from "tinyglobby";
+import { startPort } from "../../shared/engine-port";
 import { COVERAGE_ENV } from "../../shared/coverage";
 import { parseOptions } from "../../shared/parse-options";
 import { runGodotViteBuild, type GodotViteBuildInternals } from "../../vite/build-core";
@@ -39,56 +40,118 @@ const builder: Builder<RawVitestOptions & JsonObject> =
     const options = parseOptions(vitestOptionsSchema, raw, "vitest");
     const coverage = resolveCoverageOptions(options.coverage);
 
-    if (!options.skipBuild) {
-      // 清单不落盘：提前 glob 一次只为“未匹配到时提前退出”，真正的清单由虚拟模块在
-      // load 阶段给出（两边共用同一个 collectSpecFiles，不会漂移）
-      const files = collectSpecFiles(context.workspaceRoot, options.specInclude, options.exclude);
-      if (files.length === 0) {
-        context.logger.error(`specInclude 未匹配到任何文件：${options.specInclude.join(", ")}`);
-        return { success: false };
+    // 先开服务器再构建：端口得先于构建定下来，才能写进引擎侧的产物。
+    // skipRun 只构建不跑测，没有宿主在场，产物里只能写配置里那个起始端口。
+    const session = options.skipRun ? undefined : await openSession(options);
+    const port = session?.port ?? startPort(options.engine.port);
+    try {
+      if (!options.skipBuild) {
+        // 清单不落盘：提前 glob 一次只为“未匹配到时提前退出”，真正的清单由虚拟模块在
+        // load 阶段给出（两边共用同一个 collectSpecFiles，不会漂移）
+        const files = collectSpecFiles(context.workspaceRoot, options.specInclude, options.exclude);
+        if (files.length === 0) {
+          context.logger.error(`specInclude 未匹配到任何文件：${options.specInclude.join(", ")}`);
+          return { success: false };
+        }
+        context.logger.info(`spec 清单（虚拟模块，不落盘）：${files.length} 个文件`);
+        const built = await runGodotViteBuild(
+          {
+            ...options,
+            entries: options.entries ?? [],
+            // 入口也是虚拟的：使用方不需要（也不应该）自行编写场景脚本
+            inputOverride: { [VITEST_ENTRY_NAME]: VITEST_ENTRY_SPECIFIER },
+            extraPlugins: [
+              vitestEntryPlugin({
+                workspaceRoot: context.workspaceRoot,
+                patterns: options.specInclude,
+                ignore: options.exclude,
+                // 已绑定端口（起始值被占时自增过）：产物与监听、引擎三方始织同一个值
+                defaultPort: port,
+              }),
+              ...(coverage.enabled
+                ? coverageInstrumentPlugins(
+                    coveragePluginOptions(
+                      coverage,
+                      context.workspaceRoot,
+                      options.sourceMap,
+                      context.logger.info.bind(context.logger),
+                    ),
+                  )
+                : []),
+            ],
+          },
+          context,
+        );
+        if (!built.success) return built;
+      } else if (coverage.enabled) {
+        context.logger.warn(
+          "已启用 coverage 但同时启用了 skipBuild：产物未重新插桩，覆盖率报告将为空或来自上一次构建。",
+        );
       }
-      context.logger.info(`spec 清单（虚拟模块，不落盘）：${files.length} 个文件`);
-      const built = await runGodotViteBuild(
-        {
-          ...options,
-          entries: options.entries ?? [],
-          // 入口也是虚拟的：使用方不需要（也不应该）自行编写场景脚本
-          inputOverride: { [VITEST_ENTRY_NAME]: VITEST_ENTRY_SPECIFIER },
-          extraPlugins: [
-            vitestEntryPlugin({
-              workspaceRoot: context.workspaceRoot,
-              patterns: options.specInclude,
-              ignore: options.exclude,
-              defaultPort: options.engine.port,
-            }),
-            ...(coverage.enabled
-              ? coverageInstrumentPlugins(
-                  coveragePluginOptions(
-                    coverage,
-                    context.workspaceRoot,
-                    options.sourceMap,
-                    context.logger.info.bind(context.logger),
-                  ),
-                )
-              : []),
-          ],
-        },
-        context,
-      );
-      if (!built.success) return built;
-    } else if (coverage.enabled) {
-      context.logger.warn(
-        "已启用 coverage 但同时启用了 skipBuild：产物未重新插桩，覆盖率报告将为空或来自上一次构建。",
-      );
-    }
 
-    if (options.skipRun) {
-      context.logger.info("skipRun: true —— 仅执行构建，测试需自行运行。");
-      return { success: true };
-    }
+      if (options.skipRun) {
+        context.logger.info("skipRun: true —— 仅执行构建，测试需自行运行。");
+        return { success: true };
+      }
 
-    return runVitest(options, context);
+      return await runVitest(options, context, session!);
+    } finally {
+      // 正常路径下会话已由 pool 释放（引用计数归零），此处只是兜底：构建报错、
+      // startVitest 未启动成功时，不能把一个端口白白占着。
+      await session?.release();
+    }
   });
+
+/* ------------------------------------------------------------------ *
+ * 宿主会话（端口在这里定下来）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 宿主侧会话在 builder 里只用得到这几个成员，抽出来避开跨目录的类依赖
+ * （会话类本身是运行时从 `../node/index.mjs` 加载的，见 `loadNodeModule`）。
+ */
+interface EngineSession {
+  /** 已绑定的真实端口 */
+  readonly port: number;
+  start(): Promise<void>;
+  release(): Promise<void>;
+}
+
+/**
+ * 开监听并等它绑定完成。整个流程里会话只创建这一次，后续构建、启动引擎、vitest 插件
+ * 用的都是这一个对象与它的 `port`。
+ */
+async function openSession(options: VitestOptions): Promise<EngineSession> {
+  const { GodotVitestSession } = await loadNodeModule();
+  const session = new GodotVitestSession({
+    port: options.engine.port,
+    connectTimeout: options.engine.connectTimeout,
+    // skipBuild 时产物是上一次构建的，里面写死的端口不会跟着自增走，只能钉在配置值上
+    portTries: options.skipBuild ? 0 : undefined,
+  });
+  await session.start();
+  return session;
+}
+
+/**
+ * 宿主侧模块只能运行时动态加载：路径拼接为 `string`（而不是字面量），TS 不会解析它
+ * （源树中该位置是 .ts），打包器也无法静态解析，于是不会将 ESM 插件内联进构建产物。
+ * 运行时从 dist/builder/vitest/build/ 解析到 dist/builder/vitest/node/index.mjs。
+ */
+async function loadNodeModule(): Promise<NodeEntry> {
+  const specifier = "../node/index.mjs" as string;
+  return (await import(specifier)) as unknown as NodeEntry;
+}
+
+interface NodeEntry {
+  GodotVitestSession: new (options: {
+    port?: number;
+    host?: string;
+    connectTimeout?: number;
+    portTries?: number;
+  }) => EngineSession;
+  godotEngineTest: (options: Record<string, unknown>) => unknown;
+}
 
 /**
  * 在进程内运行 vitest。配置全部由参数生成（`config: false` 表示不使用外部 vitest 配置），
@@ -97,14 +160,9 @@ const builder: Builder<RawVitestOptions & JsonObject> =
 async function runVitest(
   options: GodotVitestBuildOptions,
   context: BuilderContextLike,
+  session: EngineSession,
 ): Promise<{ success: boolean }> {
-  // 路径拼接为 `string`（而不是字面量）：TS 不会解析它（源树中该位置是 .ts），
-  // 打包器也无法静态解析，不会将 ESM 插件内联进 CJS 产物。运行时从
-  // dist/builder/vitest/build/ 解析到 dist/builder/vitest/node/index.mjs。
-  const specifier = "../node/index.mjs" as string;
-  const { godotEngineTest } = (await import(specifier)) as unknown as {
-    godotEngineTest: (o: Record<string, unknown>) => unknown;
-  };
+  const { godotEngineTest } = await loadNodeModule();
   const { startVitest } = (await import("vitest/node")) as typeof import("vitest/node");
 
   const engine = options.engine;
@@ -141,13 +199,12 @@ async function runVitest(
     {
       plugins: [
         godotEngineTest({
-          port: engine.port,
-          host: "127.0.0.1",
+          // 构建之前就已开好的那一个：插件不再自行新建，也不再选端口，只负责启动引擎与派活
+          session,
           projectPath: engine.projectPath,
           scene: engine.scene,
           godotBin: engine.godotBin,
           noLaunch: engine.noLaunch,
-          connectTimeout: engine.connectTimeout,
           // glob 的唯一来源就是 angular.json 的 specInclude。同进程，直接传参，不经磁盘。
           specInclude: options.specInclude,
         }),

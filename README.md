@@ -422,7 +422,7 @@ godot --headless --path . res://pages.tscn
     "engine": {
       "projectPath": ".",                 // 指定后自动启动引擎；noLaunch: true 时自行启动
       "scene": "res://engine_vitest.tscn",
-      "port": 18781,
+      "port": 18781,                     // 起始端口，被占用则 +1（可省略）
       "connectTimeout": 30000
     }
   }
@@ -514,7 +514,7 @@ ng test --reporters=json
 | --- | --- |
 | `specInclude` | 必填。测试文件 glob，相对 workspaceRoot |
 | `exclude` | 排除的测试文件 glob |
-| `engine` | 必填。`projectPath`、`scene`、`port`、`connectTimeout`、`godotBin`、`noLaunch` |
+| `engine` | 必填。`projectPath`、`scene`、`port`（起始端口，被占则 +1）、`connectTimeout`、`godotBin`、`noLaunch` |
 | `skipRun` / `skipBuild` | 仅构建不执行 / 仅执行不构建 |
 | `reporters` / `filter` / `fileFilters` | 透传 vitest |
 | `coverage` | `true` 或配置对象：`enabled`、`include`、`exclude`、`instrument`、`sourceRoot`、`reportsDirectory`、`reporter`、`thresholds`、`reportOnFailure` |
@@ -572,7 +572,7 @@ ng test --reporters=json
 | 界面不更新 | `_process` 中未调用 `tick()`，或模板读取的状态不是 signal |
 | `NG0201` / `NG0402` 无详细信息 | 生产构建移除开发期错误说明，使用 development 配置重建 |
 | 表单可显示但无法回写，且无报错 | 缺少 `NG_VALUE_ACCESSOR` provider，或缺少 `[ngModelOptions]="{standalone: true}"` |
-| `ng test` 等待引擎连接超时 | `engine.projectPath` 或 `engine.scene` 配置错误，或端口被占用 |
+| `ng test` 等待引擎连接超时 | `engine.projectPath` 或 `engine.scene` 配置错误；端口会自增避开占用，连续 20 个都不可用时才会报错 |
 | 直接运行 `res://engine_vitest.tscn` 无输出 | 该场景需要宿主先启动服务，应通过 `ng test` 执行 |
 | `angular.json` 中某选项无效果 | 选项名拼写错误，未识别的选项被忽略且不报错 |
 

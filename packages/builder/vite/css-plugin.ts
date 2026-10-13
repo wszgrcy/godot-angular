@@ -3,7 +3,7 @@ import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { exactRegex, makeIdFiltersToMatchWithQuery } from "@rolldown/pluginutils";
 import type { Plugin, ResolvedConfig } from "vite";
 import { buildRuleSets } from "godot-angular/css";
-import { withoutQuery } from "../shared/path";
+import { toPosix, withoutQuery } from "../shared/path";
 
 /** 全局样式表进入产物的载体模块（由 polyfill 入口以副作用 import 引入） */
 export const GLOBAL_CSS_VIRTUAL = "virtual:godot-angular/css-global";
@@ -396,7 +396,9 @@ export function cssGlobalStylesPlugin(options: CssPluginOptions = {}): Plugin {
 function relativeModule(id: string, config?: ResolvedConfig): string {
   const root = config?.root;
   const clean = withoutQuery(id);
-  if (root && clean.startsWith(root)) return relative(root, clean) || clean;
+  // 报错与日志里的路径一律 posix：Windows 上 node:path 给的是反斜杠，同一条消息里
+  // `src\a.ts` 与 `src/a.ts` 混着出现既难看也没法直接复制去命令行用
+  if (root && clean.startsWith(root)) return toPosix(relative(root, clean)) || clean;
   return clean;
 }
 
