@@ -16,7 +16,7 @@
     "@angular/common": "22.2.1",
     "@angular/core": "22.2.1",
     "@angular/forms": "22.2.1",
-    "godot-angular": "file:../dist/godot-angular-0.0.0.tgz",
+    "godot-angular": "file:../godot-angular-0.0.0.tgz",
     "rxjs": "7.8.2",
     "tslib": "2.8.1"
   },

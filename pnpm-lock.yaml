@@ -314,8 +314,8 @@ importers:
         specifier: 22.2.1
         version: 22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(@angular/platform-browser@22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)))(rxjs@7.8.2)
       godot-angular:
-        specifier: file:../dist/godot-angular-0.0.0.tgz
-        version: file:dist/godot-angular-0.0.0.tgz(c38e788fe1063254edb3394b3dd45dbb)
+        specifier: file:../godot-angular-0.0.0.tgz
+        version: file:godot-angular-0.0.0.tgz
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
@@ -354,8 +354,8 @@ importers:
         specifier: 22.2.1
         version: 22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(@angular/platform-browser@22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)))(rxjs@7.8.2)
       godot-angular:
-        specifier: file:../dist/godot-angular-0.0.0.tgz
-        version: file:dist/godot-angular-0.0.0.tgz(c38e788fe1063254edb3394b3dd45dbb)
+        specifier: file:../godot-angular-0.0.0.tgz
+        version: file:godot-angular-0.0.0.tgz
       rxjs:
         specifier: 7.8.2
         version: 7.8.2
@@ -2373,34 +2373,10 @@ packages:
     resolution: {integrity: sha512-X6fBC0pmImC70gvX2zm56go9hx0MyoGVdG0tUCkg/D+Xnh5TJsOZ7iDbOdI3PvmtrDxnu1YdDufpK2QJX1Meqw==}
     engines: {node: '>=20.20.0'}
 
-  godot-angular@file:dist/godot-angular-0.0.0.tgz:
-    resolution: {integrity: sha512-oqk+Ir/UiSU4/aGITlDSPRr+Y6I4snZaMnj8O/TT7Z0zJpM/Tqd54wjsHqMDgVdWpq4xco9EJHF7n65JLpJ77w==, tarball: file:dist/godot-angular-0.0.0.tgz}
+  godot-angular@file:godot-angular-0.0.0.tgz:
+    resolution: {integrity: sha512-rsECRXLaytH8x+DUK2SPzZleA8V7RDVIBW4vcHJibAKv4l8mF8aOnUaHgNt+bfQdhsKks7UNqbKMabEXoOZpDg==, tarball: file:godot-angular-0.0.0.tgz}
     version: 0.0.0
-    hasBin: true
-    peerDependencies:
-      '@angular/common': ^22.0.0
-      '@angular/core': ^22.0.0
-      '@angular/forms': ^22.0.0
-      '@vitest/coverage-istanbul': ^4.1.0
-      birpc: ^4.0.0
-      istanbul-lib-instrument: ^6.0.0
-      rxjs: ^7.4.0
-      rxjs-for-await: ^1.0.0
-      typescript: ^5.0.0 || ^6.0.0
-      vitest: ^4.0.0
-    peerDependenciesMeta:
-      '@angular/forms':
-        optional: true
-      '@vitest/coverage-istanbul':
-        optional: true
-      birpc:
-        optional: true
-      istanbul-lib-instrument:
-        optional: true
-      typescript:
-        optional: true
-      vitest:
-        optional: true
+    engines: {node: ^22.22.3 || ^24.15.0 || >=26.0.0}
 
   graceful-fs@4.2.11:
     resolution: {integrity: sha512-RbJ5/jmFcNNCcDV5o9eTnBLJ/HszWV0P73bc+Ff4nS/rJj+YaS6IGyiOL0VoBYX+l1Wrl3k63h/KrH+nhJ0XvQ==}
@@ -4935,73 +4911,7 @@ snapshots:
     dependencies:
       resolve-pkg-maps: 1.0.0
 
-  godot-angular@file:dist/godot-angular-0.0.0.tgz(c38e788fe1063254edb3394b3dd45dbb):
-    dependencies:
-      '@analogjs/vite-plugin-angular': 2.8.0(@angular/build@22.2.1(@angular/compiler-cli@22.2.1(@angular/compiler@22.2.1)(typescript@6.0.3))(@angular/compiler@22.2.1)(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(@angular/platform-browser@22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)))(@types/node@22.20.5)(istanbul-lib-instrument@6.0.3(supports-color@8.1.1))(less@4.9.1(supports-color@8.1.1))(ng-packagr@22.2.4(@angular/compiler-cli@22.2.1(@angular/compiler@22.2.1)(typescript@6.0.3))(supports-color@8.1.1)(tslib@2.8.1)(typescript@6.0.3))(postcss@8.5.29)(rollup@4.64.0)(supports-color@8.1.1)(tslib@2.8.1)(tsx@4.23.15)(typescript@6.0.3)(vitest@4.1.11))(@emnapi/core@1.11.3)(@emnapi/runtime@1.11.3)(vite@8.3.0(@types/node@22.20.5)(esbuild@0.28.2)(less@4.9.1(supports-color@8.1.1))(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.15))
-      '@angular-devkit/architect': 0.2202.1(chokidar@5.0.0)
-      '@angular-devkit/core': 22.2.1(chokidar@5.0.0)
-      '@angular/build': 22.2.1(@angular/compiler-cli@22.2.1(@angular/compiler@22.2.1)(typescript@6.0.3))(@angular/compiler@22.2.1)(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(@angular/platform-browser@22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)))(@types/node@22.20.5)(istanbul-lib-instrument@6.0.3(supports-color@8.1.1))(less@4.9.1(supports-color@8.1.1))(ng-packagr@22.2.4(@angular/compiler-cli@22.2.1(@angular/compiler@22.2.1)(typescript@6.0.3))(supports-color@8.1.1)(tslib@2.8.1)(typescript@6.0.3))(postcss@8.5.29)(rollup@4.64.0)(supports-color@8.1.1)(tslib@2.8.1)(tsx@4.23.15)(typescript@6.0.3)(vitest@4.1.11)
-      '@angular/common': 22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2)
-      '@angular/core': 22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)
-      '@babel/core': 8.0.5
-      '@babel/plugin-transform-unicode-regex': 8.0.1(@babel/core@8.0.5)
-      '@nberlette/utf8': 0.4.1
-      '@rolldown/pluginutils': 1.0.1
-      abortcontroller-polyfill: 1.7.8
-      commander: 15.0.0
-      event-target-shim: 6.0.2
-      flatted: 3.4.4
-      is-relative: 1.0.0
-      magic-string: 0.30.21
-      normalize-path: 3.0.0
-      picomatch: 4.0.7
-      rxjs: 7.8.2
-      rxjs-for-await: 1.0.0(rxjs@7.8.2)
-      tinyglobby: 0.2.17
-      tslib: 2.8.1
-      valibot: 1.5.0(typescript@6.0.3)
-      vite: 8.3.0(@types/node@22.20.5)(esbuild@0.28.2)(less@4.9.1(supports-color@8.1.1))(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.15)
-      ws: 8.22.0
-    optionalDependencies:
-      '@angular/forms': 22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(@angular/platform-browser@22.2.1(@angular/common@22.2.1(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@22.2.1(@angular/compiler@22.2.1)(rxjs@7.8.2)))(rxjs@7.8.2)
-      '@vitest/coverage-istanbul': 4.1.11(supports-color@8.1.1)(vitest@4.1.11)
-      birpc: 4.2.0
-      istanbul-lib-instrument: 6.0.3(supports-color@8.1.1)
-      typescript: 6.0.3
-      vitest: 4.1.11(@types/node@22.20.5)(@vitest/coverage-istanbul@4.1.11)(happy-dom@15.11.7)(vite@8.3.0(@types/node@22.20.5)(esbuild@0.28.2)(less@4.9.1(supports-color@8.1.1))(sass-embedded@1.104.1)(sass@1.104.1)(tsx@4.23.15))
-    transitivePeerDependencies:
-      - '@angular-devkit/build-angular'
-      - '@angular/compiler'
-      - '@angular/compiler-cli'
-      - '@angular/localize'
-      - '@angular/platform-browser'
-      - '@angular/platform-server'
-      - '@angular/service-worker'
-      - '@angular/ssr'
-      - '@emnapi/core'
-      - '@emnapi/runtime'
-      - '@types/node'
-      - '@vitejs/devtools'
-      - bufferutil
-      - chokidar
-      - esbuild
-      - jiti
-      - karma
-      - kerberos
-      - less
-      - ng-packagr
-      - postcss
-      - rollup
-      - sass
-      - sass-embedded
-      - stylus
-      - sugarss
-      - supports-color
-      - tailwindcss
-      - terser
-      - tsx
-      - utf-8-validate
-      - yaml
+  godot-angular@file:godot-angular-0.0.0.tgz: {}
 
   graceful-fs@4.2.11:
     optional: true

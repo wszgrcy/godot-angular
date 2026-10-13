@@ -1,5 +1,5 @@
 {
-  "name": "godot-angular-workspace",
+  "name": "godot-angular",
   "private": true,
   "version": "0.0.0",
   "description": "Run Angular inside Godot (GodotJS / V8) by rendering Control subclasses",
