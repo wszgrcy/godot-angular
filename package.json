@@ -12,7 +12,7 @@
     "gen:html-data": "tsx tools/gen-html-data.ts",
     "build:builder": "tsx tools/vite-build.ts && tsx tools/gen-schema.ts && tsx tools/build-cli-schema.ts",
     "build": "pnpm run build:lib && pnpm run build:builder && pnpm run gen:html-data",
-    "refresh": "pnpm run build && npm pack && pnpm install",
+    "refresh": "pnpm run build && npm pack && pnpm install --update-checksums",
     "bootstrap": "pnpm install --filter . && pnpm run gen:typings && pnpm run build && pnpm install",
     "setup:ci": "pnpm install --frozen-lockfile --filter . && pnpm run gen:typings && pnpm run refresh",
     "gen:schema": "tsx tools/gen-schema.ts",
