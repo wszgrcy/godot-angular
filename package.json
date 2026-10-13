@@ -14,7 +14,7 @@
     "build": "pnpm run build:lib && pnpm run build:builder && pnpm run gen:html-data",
     "refresh": "pnpm run build && npm pack && pnpm install",
     "bootstrap": "pnpm install --filter . && pnpm run gen:typings && pnpm run build && pnpm install",
-    "setup:ci": "pnpm install --frozen-lockfile --filter . && pnpm run gen:typings && pnpm run build && pnpm install --no-frozen-lockfile --update-checksums",
+    "setup:ci": "pnpm install --frozen-lockfile --filter . && pnpm run gen:typings && pnpm run refresh",
     "gen:schema": "tsx tools/gen-schema.ts",
     "dump:vocabulary": "tsx tools/dump-vocabulary.ts",
     "gen:typings": "tsx tools/gen-typings.ts",
