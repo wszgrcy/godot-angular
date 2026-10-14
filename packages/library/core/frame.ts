@@ -1,4 +1,4 @@
-/** `godot-angular/polyfills` 挂载到 globalThis 上的句柄键。 */
+/** 构建器补丁模块（`builder/vite/polyfills.ts`）挂到 globalThis 上的句柄键。 */
 const CUJ_FRAME_KEY = "__CUJ_FRAME__";
 
 export interface GodotFrameClock {
@@ -18,8 +18,8 @@ export function frameClock(): GodotFrameClock {
   const clock = (globalThis as Record<string, unknown>)[CUJ_FRAME_KEY] as GodotFrameClock | undefined;
   if (!clock) {
     throw new Error(
-      "[godot-angular] 帧钟未安装：入口缺少 `import \"godot-angular/polyfills\"`，或未排在最前面。" +
-        "builder 默认会前置这一行；手写入口（或手工拼装 bundle）时，它必须是第一条 import。",
+      "[godot-angular] 帧钟未安装：构建器的补丁模块未先于本入口求值。" +
+        "builder 会自动前置它；手写入口（或手工拼装 bundle）时，第一条 import 必须是它。",
     );
   }
   return clock;

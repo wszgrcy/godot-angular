@@ -15,6 +15,7 @@ import {
   ɵINJECTOR_SCOPE,
   ɵinternalCreateApplication,
 } from "@angular/core";
+import { GODOT_LOCATION_PROVIDERS } from "./location-providers";
 import { GodotRendererFactory } from "./renderer";
 import { GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 import { bindWindowEnvironment } from "./css-env";
@@ -26,9 +27,6 @@ import type { Node } from "godot";
 // 平台层也不应出现 useFactory / inject 这类运行期构造。
 export const GODOT_PLATFORM_PROVIDERS: StaticProvider[] = [
   { provide: PLATFORM_ID, useValue: "godot" },
-  // 不 provide DOCUMENT：core 中那个 DOCUMENT 是没有默认 factory 的裸 token，而
-  // inject(DOCUMENT) 全部出现在 hydration / i18n 路径里，两条路径都不使用，
-  // 因此不会被注入。确实需要时（接入 hydration 或引入 platform-browser 服务）再在此提供。
 ];
 
 /** 将 Angular 错误输出到 Godot 控制台（引擎中没有 window.onerror，不输出则完全静默）。 */
@@ -100,6 +98,9 @@ export class GodotAngularApp {
 /** 应用级 provider：不包含仅运行期可得的 GODOT_ROOT，该项由 bootstrapGodotApp 补充 */
 export const GODOT_APP_PROVIDERS: (Provider | EnvironmentProviders)[] = [
   provideZonelessChangeDetection(),
+  // PlatformLocation / ViewportScroller：浏览器里由 BrowserModule 给，
+  // Godot 侧的替身见 location.ts。
+  ...GODOT_LOCATION_PROVIDERS,
   // Environment Injector 必须标记为 root scope，否则所有 providedIn:'root'
   // 的服务（PendingTasksInternal 等）均报 NG0201。浏览器平台由 BrowserModule 提供这一项。
   { provide: ɵINJECTOR_SCOPE, useValue: "root" },

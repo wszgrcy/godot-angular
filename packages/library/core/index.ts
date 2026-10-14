@@ -33,9 +33,18 @@ export { bindPseudoClasses, hasPseudoBinder, warnUnboundPseudoClasses } from "./
 // readEnvironment 单独留出，供不用 bootstrap 时手动读一次环境。
 export { bindWindowEnvironment, readEnvironment } from "./css-env";
 export { GODOT_PLATFORM_PROVIDERS } from "./bootstrap";
+// 路由 / Location 在 Godot 侧的地基：PlatformLocation（内存历史栈）与空 ViewportScroller。
+// GODOT_APP_PROVIDERS 与 GodotTestingModule 都已带上，使用方一般不需要自己接；
+// 单独给 TestBed 换起始 URL 时才直接引这一组。
+// 实现与接线分两个文件：历史栈是纯逻辑（Node 侧直接断言），provider 数组才依赖 DI。
+export {
+  GODOT_INITIAL_URL,
+  GodotPlatformLocation,
+} from "./location";
+export { GODOT_LOCATION_PROVIDERS } from "./location-providers";
 // GODOT_ROOT 需要导出：它是“取得自身所在的 Godot 父节点”的唯一口径，
 // 组件里 `inject(GODOT_ROOT)` 是实际用法（bootstrapGodotApp 已把它 provide 进去）。
-export { GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
+export { GODOT_HEADLESS, GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 // 仅面对测试：warnOnce 是全局去重的，不清表则“确实告警了”这类断言会依赖用例顺序。
 // 产品代码不应调用它（它存在的唯一理由是隔离）。
 export { resetWarnOnce } from "./warn";

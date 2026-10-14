@@ -10,6 +10,8 @@ import {
 import { TestBed, TestComponentRenderer } from "@angular/core/testing";
 import { Control, Vector2 } from "godot";
 import {
+  GODOT_HEADLESS,
+  GODOT_LOCATION_PROVIDERS,
   GODOT_PLATFORM_PROVIDERS,
   GODOT_ROOT,
   STYLE_RUNTIME,
@@ -43,6 +45,9 @@ class GodotTestComponentRenderer extends TestComponentRenderer {
   providers: [
     provideZonelessChangeDetection(),
     { provide: ɵINJECTOR_SCOPE, useValue: "root" },
+    // 路由 / Location 的地基。用例里 `provideRouter(routes)` 就能直接跑，不需要每个 spec
+    // 自己补 PlatformLocation；起始 URL 想换的用例再单独 provide GODOT_INITIAL_URL。
+    ...GODOT_LOCATION_PROVIDERS,
     // 使用 useFactory 而不是 useClass：core 由 tsc 编译产出，类上没有 ɵfac，
     // useClass 会使 DI 找不到工厂而报 NG2003。
     { provide: RendererFactory2, useFactory: () => new GodotRendererFactory(), deps: [] },
@@ -51,6 +56,9 @@ class GodotTestComponentRenderer extends TestComponentRenderer {
     // 而“作用域不外泄”正是这一层要验证的内容，状态不干净就无法验证。
     { provide: STYLE_RUNTIME, useFactory: () => new StyleRuntime(), deps: [] },
     { provide: GODOT_ROOT, useFactory: () => currentRoot, deps: [] },
+    // 引擎测试进程真的跑在 `--headless` 下，所以这里主动声明，而不是让库去探测
+    // DisplayServer.get_name()：无头下没有可命名的窗口，写标题只会多一行引擎错误。
+    { provide: GODOT_HEADLESS, useValue: true },
     { provide: TestComponentRenderer, useClass: GodotTestComponentRenderer },
     { provide: ErrorHandler, useClass: GodotErrorHandler },
     { provide: APP_ID, useValue: "godot-test" },

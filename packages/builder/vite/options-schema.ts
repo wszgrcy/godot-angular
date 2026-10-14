@@ -253,8 +253,8 @@ export const sharedOptionFields = {
       v.array(v.string()),
       v.description(
         '额外追加的 polyfill 说明符（只能追加，不能替换）。builder 始终先生成一个虚拟入口，'
-          + '其首行固定为 import "godot-angular/polyfills"（本包唯一带副作用的入口，'
-          + 'Angular 在模块求值期即要求环境就绪），本选项的每一项都追加在其后。'
+          + '其首行固定引入构建器自带的补丁模块（本包唯一带副作用的模块，Angular 在模块'
+          + '求值期即要求环境就绪），本选项的每一项都追加在其后。'
           + '不提供关闭必带项的开关：该项属于结构要求，而非可选项。',
       ),
     ),

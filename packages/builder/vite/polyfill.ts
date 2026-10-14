@@ -5,17 +5,21 @@ import { exactRegex } from "@rolldown/pluginutils";
 export const POLYFILL_ENTRY_NAME = "cuj-polyfill";
 /** 虚拟入口的说明符（rollup input 的键值） */
 export const POLYFILL_ENTRY_SPECIFIER = "virtual:godot-angular/polyfill-entry";
-/** 无论用户配了什么，这一个永远在最前面 */
-export const MANDATORY_POLYFILL = "godot-angular/polyfills";
-
-/** 用户 polyfills 里去掉重复项；必带项由本插件负责，不接受用户传 */
-export function polyfillExtras(specifiers: string[]): string[] {
-  return [...new Set(specifiers)].filter((s) => s !== MANDATORY_POLYFILL);
-}
+/**
+ * 必带补丁模块的说明符。
+ *
+ * 走包名子路径而不是绝对路径：`./builder/*` 已在 `package.json` 的 exports 里导出，而绝对
+ * 路径会被 vite 识别成“落在 godot-angular 包内”，转而拿它去查 exports（`./polyfills` 未导出，
+ * 直接报错）。
+ *
+ * 不用 `import`：本模块是 Node 侧的构建器代码，把补丁引进来会在构建进程里就改掉
+ * `globalThis`，那是不该有的副作用。
+ */
+export const MANDATORY_POLYFILL_SPECIFIER = "godot-angular/builder/vite/polyfills.mjs";
 
 /**
  * polyfill 的**一个**插件，管两头：
- *   输入侧 resolveId + load → 产出虚拟入口；
+ *   输入侧 resolveId + load → 产出虚拟入口，首行固定引入构建器的补丁模块；
  *   输出侧 generateBundle → 把 require 写回每个入口顶部。
  *
  * enforce 只能给一个值，取 "pre"：resolveId 必须抢在 vite 核心解析之前。id 不加 `\0`
@@ -37,7 +41,7 @@ export function polyfillPlugin(options: { resRoot: string; extras: string[] }): 
       filter: { id: exactRegex(POLYFILL_ENTRY_SPECIFIER) },
       handler() {
         // 只能是纯 JS（虚拟模块没有 transform 兜底），而且一行 import 就够
-        return [MANDATORY_POLYFILL, ...options.extras]
+        return [MANDATORY_POLYFILL_SPECIFIER, ...options.extras]
           .map((spec) => `import ${JSON.stringify(spec)};`)
           .join("\n");
       },
