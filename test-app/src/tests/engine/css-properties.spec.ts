@@ -23,11 +23,11 @@ class FakeBackend implements StyleBackend {
   warned: string[] = [];
   /** 这个假节点上“存在”的属性——按类名给出，L3 的落点判断完全依赖它 */
   private static readonly PROPS: Record<string, string[]> = {
-    Control: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
-    Label: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "horizontal_alignment"],
-    Button: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "horizontal_alignment"],
-    BoxContainer: ["alignment", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
-    VBoxContainer: ["alignment", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
+    Control: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "mouse_default_cursor_shape", "layout_direction"],
+    Label: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "horizontal_alignment", "text_overrun_behavior", "autowrap_mode", "mouse_default_cursor_shape", "layout_direction"],
+    Button: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "alignment"],
+    BoxContainer: ["alignment", "vertical", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
+    VBoxContainer: ["alignment", "vertical", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
     MarginContainer: [],
     // 只有 stretch_ratio、没有两个轴的类：验证 setGrow 中逐轴的落点判断
     HalfFlags: ["size_flags_stretch_ratio"],
@@ -253,6 +253,12 @@ describe("L3 布局属性（只做翻译提示）", () => {
     expect(space.backend.warned.join("\n")).toContain("BEGIN / CENTER / END");
   });
 
+  it("justify-content 仅作用于容器：Button 的 alignment 是文本对齐，不在此接管", () => {
+    const r = apply("Button", "justify-content", "center");
+    expect(r.calls).toEqual([]);
+    expect(r.backend.warned.join("\n")).toContain("不是容器");
+  });
+
   it("flex: n → size_flags 加 EXPAND 并设 stretch_ratio", () => {
     const { backend } = apply("VBoxContainer", "flex", "2");
     expect(backend.nodeNumbers).toMatchObject({
@@ -272,6 +278,18 @@ describe("L3 布局属性（只做翻译提示）", () => {
     const bad = apply("VBoxContainer", "text-align", "center");
     expect(bad.calls).toEqual([]);
     expect(bad.backend.warned.join("\n")).toContain("horizontal_alignment");
+  });
+
+  it("text-align 在 Button / LineEdit 上回退到 alignment（容器类除外）", () => {
+    // Button、LineEdit 的同义属性叫 alignment，两个枚举取值一致
+    expect(apply("Button", "text-align", "center").calls).toEqual(["node:alignment:1"]);
+    // FlowContainer 也有 alignment，但那是布局对齐，不属于 text-align
+    expect(apply("FlowContainer", "text-align", "center").calls).toEqual([]);
+  });
+
+  it("RichTextLabel：正文色与正文字号不带 font_ 前缀，由别名表接住", () => {
+    expect(apply("RichTextLabel", "color", "red").calls).toEqual(["color:default_color"]);
+    expect(apply("RichTextLabel", "font-size", "20px").calls).toEqual(["font_size:normal_font_size:20"]);
   });
 });
 
@@ -475,5 +493,169 @@ describe("落点缺失的逐个属性（每个属性自己那条告警）", () =
     // 两个轴都在 → 置 SIZE_EXPAND 并写 ratio
     expect(apply("Label", "flex", "2").calls).toContain("node:size_flags_stretch_ratio:2");
     expect(apply("Label", "visibility", "hidden").calls).toContain("node:visible:false");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * 新增映射：gap 的两轴、单边边框颜色、光标、文本裁切、换行策略、书写方向
+ * ------------------------------------------------------------------ */
+
+describe("gap 家族（行轴与列轴）", () => {
+  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+    [...r.warnings, ...r.backend.warned].join("");
+
+  /** 需要预设节点属性（如 BoxContainer.vertical）时走这个入口 */
+  function applyWith(cssType: string, name: string, value: string, numbers: Record<string, number>) {
+    const target = node(cssType);
+    const backend = new FakeBackend(target);
+    Object.assign(backend.nodeNumbers, numbers);
+    const warnings: string[] = [];
+    applyCssProperty(
+      target,
+      name,
+      value,
+      { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`) },
+      warnings,
+    );
+    return { backend, warnings, calls: backend.calls };
+  }
+
+  it("双轴容器：column-gap → h_separation，row-gap → v_separation", () => {
+    expect(apply("GridContainer", "column-gap", "6px").calls).toEqual(["constant:h_separation:6"]);
+    expect(apply("GridContainer", "row-gap", "4px").calls).toEqual(["constant:v_separation:4"]);
+    // gap 的两值写法：行在前、列在后（CSS 轴序与 h/v 相反）
+    expect(apply("GridContainer", "gap", "4px 6px").calls).toEqual([
+      "constant:h_separation:6",
+      "constant:v_separation:4",
+    ]);
+  });
+
+  it("单轴容器：BoxContainer 只有一个 separation，另一轴输出告警", () => {
+    // HBoxContainer（vertical = 0）：列间距即 separation，行间距无落点
+    expect(applyWith("BoxContainer", "column-gap", "8px", {}).calls).toEqual(["constant:separation:8"]);
+    const rowOnHBox = applyWith("BoxContainer", "row-gap", "8px", {});
+    expect(rowOnHBox.calls).toEqual([]);
+    expect(warned(rowOnHBox)).toContain("无落点");
+    // VBoxContainer（vertical = 1）：轴向相反
+    expect(applyWith("VBoxContainer", "row-gap", "8px", { vertical: 1 }).calls).toEqual(["constant:separation:8"]);
+    const colOnVBox = applyWith("VBoxContainer", "column-gap", "8px", { vertical: 1 });
+    expect(colOnVBox.calls).toEqual([]);
+    expect(warned(colOnVBox)).toContain("无落点");
+    // `gap: 8px` 两轴同值：单轴容器仅写入一次，且不告警
+    expect(applyWith("VBoxContainer", "gap", "8px", { vertical: 1 }).calls).toEqual(["constant:separation:8"]);
+    expect(warned(applyWith("VBoxContainer", "gap", "8px", { vertical: 1 }))).toBe("");
+    // 两个取值不相等时，无法落地的另一轴必须输出告警
+    expect(warned(applyWith("VBoxContainer", "gap", "4px 6px", { vertical: 1 }))).toContain("column-gap");
+  });
+
+  it("不具备间距常量的类：三者均输出告警且不写入", () => {
+    for (const name of ["gap", "row-gap", "column-gap"]) {
+      const r = apply("Label", name, "8px");
+      expect(r.calls, name).toEqual([]);
+      expect(warned(r), name).toContain("separation");
+    }
+  });
+
+  it("取值不合法：说明期望的长度个数", () => {
+    expect(warned(apply("GridContainer", "gap", "a b c"))).toContain("期望 1–2 个长度");
+    expect(warned(apply("GridContainer", "row-gap", "thick"))).toContain("row-gap");
+  });
+});
+
+describe("边框单边颜色（Godot 四边同色）", () => {
+  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+    [...r.warnings, ...r.backend.warned].join("");
+
+  it("写入 border_color，同时说明其作用于整圈", () => {
+    for (const side of ["top", "right", "bottom", "left"]) {
+      const r = apply("Button", `border-${side}-color`, "red");
+      expect(r.backend.styleboxMutations.map((m) => m.what), side).toContain(
+        "borderColor(1,0,0,1)",
+      );
+      expect(warned(r), side).toContain("四边同色");
+    }
+  });
+
+  it("不绘制 stylebox 的类：输出各自的告警，而非静默成功", () => {
+    const r = apply("VBoxContainer", "border-top-color", "red");
+    expect(r.calls).toEqual([]);
+    expect(warned(r)).toContain("border-top-color");
+  });
+});
+
+describe("caret-color", () => {
+  it("落在 LineEdit 的 caret_color theme 色上", () => {
+    expect(apply("LineEdit", "caret-color", "red").calls).toEqual(["color:caret_color"]);
+  });
+
+  it("不具备 caret_color 的类：输出词汇表告警，不写入无效 override", () => {
+    const r = apply("Label", "caret-color", "red");
+    expect(r.calls).toEqual([]);
+    expect(r.backend.warned.join("\n")).toContain("词汇表中不存在");
+  });
+});
+
+describe("文本与交互（L3）", () => {
+  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+    [...r.warnings, ...r.backend.warned].join("");
+
+  it("cursor → mouse_default_cursor_shape 的枚举值", () => {
+    expect(apply("Label", "cursor", "pointer").calls).toEqual(["node:mouse_default_cursor_shape:2"]);
+    expect(apply("Label", "cursor", "text").calls).toEqual(["node:mouse_default_cursor_shape:1"]);
+    expect(apply("Label", "cursor", "not-allowed").calls).toEqual(["node:mouse_default_cursor_shape:8"]);
+    // 候选列表取首个；大小写不敏感
+    expect(apply("Label", "cursor", "Pointer, auto").calls).toEqual(["node:mouse_default_cursor_shape:2"]);
+    const unknown = apply("Label", "cursor", "zoom-in");
+    expect(unknown.calls).toEqual([]);
+    expect(warned(unknown)).toContain("无对应取值");
+  });
+
+  it("text-overflow → text_overrun_behavior（clip 1 / ellipsis 3）", () => {
+    expect(apply("Label", "text-overflow", "clip").calls).toEqual(["node:text_overrun_behavior:1"]);
+    expect(apply("Label", "text-overflow", "ellipsis").calls).toEqual(["node:text_overrun_behavior:3"]);
+    // 自定义省略号字符串无落点（引擎固定用 …）
+    const custom = apply("Label", "text-overflow", 'ellipsis "…"');
+    expect(custom.calls).toEqual(["node:text_overrun_behavior:3"]);
+    expect(warned(custom)).toContain("自定义省略号");
+    expect(warned(apply("Label", "text-overflow", "fade"))).toContain("无对应取值");
+    // 不具备该属性的类不写入
+    expect(apply("MarginContainer", "text-overflow", "ellipsis").calls).toEqual([]);
+  });
+
+  it("white-space → autowrap_mode（nowrap 0 / normal 2 / break-all 3）", () => {
+    expect(apply("Label", "white-space", "nowrap").calls).toEqual(["node:autowrap_mode:0"]);
+    expect(apply("Label", "white-space", "normal").calls).toEqual(["node:autowrap_mode:2"]);
+    expect(apply("Label", "white-space", "break-all").calls).toEqual(["node:autowrap_mode:3"]);
+    expect(warned(apply("Label", "white-space", "collapse"))).toContain("无对应取值");
+  });
+
+  it("direction → layout_direction（ltr 2 / rtl 3）", () => {
+    expect(apply("Label", "direction", "rtl").calls).toEqual(["node:layout_direction:3"]);
+    expect(apply("Label", "direction", "ltr").calls).toEqual(["node:layout_direction:2"]);
+    expect(warned(apply("Label", "direction", "rtl-vertical"))).toContain("无对应取值");
+    // inherit / initial 属于全局关键字，在进入属性表前即被拦截（Godot 的 theme 无 unset）
+    const kw = apply("Label", "direction", "inherit");
+    expect(kw.calls).toEqual([]);
+    expect(warned(kw)).toContain("无落点");
+  });
+});
+
+describe("新增属性均在属性表中，且承诺级别标记正确", () => {
+  it("L1：caret-color / border-*-color 是等价支持", () => {
+    expect(isAppearanceProperty("caret-color")).toBe(true);
+    expect(isAppearanceProperty("border-top-color")).toBe(true);
+  });
+
+  it("L3：gap 家族与文本类只做翻译提示", () => {
+    for (const name of ["row-gap", "column-gap", "cursor", "text-overflow", "white-space", "direction"]) {
+      expect(cssPropertyNames(), name).toContain(name);
+      expect(isAppearanceProperty(name), name).toBe(false);
+    }
+  });
+
+  it("此前无法识别的常见写法，现在要么有落点、要么有明确说明", () => {
+    for (const name of ["max-width", "max-height", "background-image", "align-self", "order", "word-spacing"]) {
+      expect(cssPropertyNames(), name).toContain(name);
+    }
   });
 });
