@@ -13,14 +13,6 @@
     "url": "git+https://github.com/wszgrcy/godot-angular.git"
   },
   "exports": {
-    "./forms": {
-      "types": "./types/godot-angular-forms.d.ts",
-      "default": "./fesm2022/godot-angular-forms.mjs"
-    },
-    "./testing": {
-      "types": "./types/godot-angular-testing.d.ts",
-      "default": "./fesm2022/godot-angular-testing.mjs"
-    },
     "./vitest": {
       "types": "./builder/vitest/node/index.d.ts",
       "default": "./builder/vitest/node/index.mjs"
@@ -30,8 +22,7 @@
       "default": "./builder/vitest/runtime/index.mjs"
     },
     "./builders.json": "./builder/builders.json",
-    "./builder/*": "./builder/*",
-    "./package.json": "./package.json"
+    "./builder/*": "./builder/*"
   },
   "sideEffects": true,
   "dependencies": {
