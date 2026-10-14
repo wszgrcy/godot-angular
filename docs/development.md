@@ -41,8 +41,6 @@ packages/library/        ← **一个包，多个入口**（ng-packagr，发布�
     bootstrap.ts           平台 & 应用 provider、GodotAngularApp.tick()
     css-runtime.ts         StyleRuntime：把纯包的 Cascade 接到帧末与节点树
     style-target.ts        CSS 声明 → Godot theme 落点（实现 css 包的 StyleBackend）
-  polyfills/             → godot-angular/polyfills   裸 V8 补齐 + rAF 帧驱动（唯一副作用入口）
-    test/                  rAF / 帧驱动 polyfill 的纯 Node 单测
   forms/                 → godot-angular/forms        输入控件的 CVA **指令**
     base.ts                GodotControlBase / GodotValueAccessorBase / GodotMouseDisabledBase
   testing/               → godot-angular/testing      TestBed 环境（引擎）/ 节点查询 / spy
@@ -114,7 +112,6 @@ forms / testing 里 `from "godot-angular/core"` 会被当成引用一个不存�
 | 入口 | 内容 | 为什么单独一个入口 |
 | --- | --- | --- |
 | `godot-angular/core` | 运行时 | 不含表单。**纯导出**：导入它不会改任何全局。样式运行时（StyleRuntime / applyStyle）也在这里：bootstrap 与 renderer 直接依赖它们，拆出去只会多一个"该导入哪边"的问题，产物一字节不少 |
-| `godot-angular/polyfills` | 裸 V8 环境补丁 + 帧钟 | 本包**唯一**带副作用的入口。它零依赖 core 入口，才能被钉在依赖图最底下——Angular 在求值期就读裸 `performance`，而 GodotJS 是 CJS、rollup 把 require 全提到顶部，书写顺序在产物里不算数 |
 | `godot-angular/forms` | CVA 指令 | 合进 core 入口会把 `@angular/forms`（约 380 kB）塞进每个产物 |
 | `godot-angular/css` | CSS 子集的纯逻辑层（解析 / 级联 / 词表） | 构建期（builder 的 css-plugin）与运行期共用同一份，独立入口才能两边按包名引 |
 | `godot-angular/testing` | 引擎侧测试工具 | 不进 app 产物 |
@@ -199,9 +196,10 @@ tsconfig**。`basePath` 是**使用方**的工程目录，所以这条需求由 
 `import "godot-angular/css"` 在打包时故意保持 external，跑起来由使用方解析（包内自引用
 命中自己），实测 `pnpm --filter test-app test` 里 css-plugin 正常干活。
 
-仓库内唯一还需要"按包名找到类型"的地方是 `packages/builder` 的 `tsc`，而且只有三个站点：
+仓库内唯一还需要"按包名找到类型"的地方是 `packages/builder` 的 `tsc`，而且只有两个站点：
 `vite/css-plugin.ts` 引 `godot-angular/css`，`vitest/runtime/index.ts` 引
-`godot-angular/polyfills` 与 `godot-angular/testing`（`vitest/build/virtual-entry.ts` 里那个
+`godot-angular/testing`（帧钟不再按包名引：补丁模块已住在 `vite/polyfills.ts`，相对路径就
+到）。`vitest/build/virtual-entry.ts` 里那个
 `godot-angular/vitest/runtime` 是写给用户产物的字符串，不是本包的 import）。它过去靠根
 devDependency `"godot-angular": "link:./dist"`，现在改成 `packages/builder/tsconfig.json`
 的 `paths` 按这三个说明符指到 `dist/types/*.d.ts`——删掉任一条，`tsc` 就在对应那行报
@@ -286,10 +284,10 @@ vitest 漏加"。
 
 见第 2 节"构建顺序"。补充两条链路上的行为：
 
-**polyfill 是虚拟入口。** builder 生成一个只含 `import "godot-angular/polyfills";`（加上
-`polyfills` 选项追加的项）的虚拟模块，作为额外入口参与构建，再在产物层把
+**polyfill 是虚拟入口。** builder 生成一个只含 `import "godot-angular/builder/vite/polyfills.mjs";`
+（加上 `polyfills` 选项追加的项）的虚拟模块，作为额外入口参与构建，再在产物层把
 `require(那个 chunk)` 钉到每个业务入口的第一行。因此使用方不需要在自己的源码里写任何
-polyfill import，也关不掉它。
+polyfill import，也关不掉它。补丁实现本身是构建器的普通文件（`vite/polyfills.ts`），不是库入口。
 
 **`fileReplacements` 不能用 vite `resolve.alias` 实现。** alias 比的是**未解析的说明符**
 （`./env`），而 `fileReplacements` 给的是文件路径，正则永远不命中，且不报错——构建照样
@@ -665,7 +663,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 7. 裸 V8 缺 `document` `window` `navigator` `location` `requestAnimationFrame`
    `queueMicrotask` `performance` `Event` `EventTarget` `Intl` `fetch` `structuredClone`
    `localStorage` `process` `Buffer`（有 `setTimeout`/`Promise`/`Proxy`/`Map`/`Set`）。
-   `godot-angular/polyfills` 只补**真被读到**的四项：`queueMicrotask`（调度器直接调用）、
+   补丁模块（`builder/vite/polyfills.ts`）只补**真被读到**的四项：`queueMicrotask`（调度器直接调用）、
    `requestAnimationFrame`（zoneless + 帧钟）、`performance`（`performance?.mark?.()` 的
    可选链**挡不住未声明的标识符**）、`document`（`getDocument()` 拿不到就 NG0210）。
    `navigator` `location` `structuredClone` `MutationObserver` `PerformanceObserver` 一类
@@ -696,6 +694,52 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 16. 无显示环境（CI / 无头）下 `DisplayServer` 全是 dummy 值：`screen_get_size()` → `(0,0)`、
     `is_dark_mode()` 恒 false。媒体查询的测试只能断言"注入值 → 命中/不命中"，真实窗口尺寸
     与系统暗色模式属**待实机确认**，不许在汇报里说成已验证。
+17. **引擎对"未处理的 promise rejection"的口径比浏览器宽**。一个 promise 在 reject 的那一
+    瞬间手上没有处理器，就刷一行 `unhandled promise rejection`，**不看下一句有没有接**。
+    最小复现：`const p = Promise.reject(new Error("x")); p.catch(() => {});` 在引擎里照样
+    报错，浏览器控制台则是静默的。
+
+    靠异常控制流的库会撞上它：`@angular/router` 试匹配候选路由时抛 `NoMatch`，下一句就被
+    `catch`，但每次导航仍多一行 `unhandled promise rejection: NoMatch`。**不影响行为**，
+    导航结果在 `test-app/src/tests/engine/router.spec.ts` 里逐条断言过。看到这类日志先查
+    同一条链路上的断言到底有没有失败，别被它带偏。
+18. **Godot 信号不携带事件对象**。`BaseButton.pressed()` / `button_down()` / `focus_entered()`
+    零参数，引擎文档里括号内就是空的；DOM 那种“每个监听器都收到一个 MouseEvent”在 Godot
+    不存在。但“谁触发的”仍然知道：`Callable` 绑在具体节点上，模板里每个元素有自己的闭包。
+    需要真的输入事件（坐标 / 双击 / 修饰键）时去绑 `Control.gui_input(event: InputEvent)`，
+    那个信号确实递 `InputEvent`——只是 `pressed` 把它丢掉了。
+
+    结论：**`$event` 的实参个数永远等于引擎信号的参数个数，不做任何补偿**。`pressed()` 零参数
+    就是 `undefined`。曾经为了 `RouterLink` 补过一个事件对象，但那是拿全局语义换一个小功能：
+    库内 `css-pseudo` 驱动 `:checked` 用的就是 `args !== undefined` 这类“信号到底递没递东西”
+    的判断，凭空多一个参数就是改变已有行为。
+
+    `RouterLink` 因此**不支持**，两条退路都实测过：
+
+    - 继承覆写 `onClick` 不行。`core/src/render3/features/inherit_definition_feature.ts` 的
+      `inheritHostBindings` 是**合并**（先跑 `superHostBindings(rf, ctx)` 再跑子类那份），
+      没有覆盖机制；报错在 Angular 生成的 `RouterLink_click_HostBindingHandler` 里，根本
+      进不到 `onClick`。实测：子类已 `override onClick`，仍原样抛 `reading 'button'`。
+      另外 `RouterLink` 的 `router` / `route` 是 `private`，子类连 `this.router` 都拿不到。
+    - 自己写一个 `[routerLink]` 替身指令能跳转，但 `RouterLinkActive` 会失效：它靠
+      `@ContentChildren(RouterLink)` 找链接，而 `di.ts` 的 `locateDirectiveOrProvider` 用
+      `def.type === token` **精确相等**匹配，不走 `instanceof`，子类与替身都查不到。
+
+19. **GodotJS 缺的宿主 API 比想象的多**，实测 `typeof` 全是 `undefined`：`URL`、
+    `URLSearchParams`、`atob`、`TextEncoder`、`TextDecoder`。V8 只提供 ECMAScript，这些都是
+    宿主 API（Node / 浏览器各自自己给的）。后果：`new URL("/detail/7")` 直接
+    `TypeError: g.URL is not a constructor`，`atob("aGVsbG8=")` 直接 ReferenceError。
+
+    ⚠ 这类缺口很容易漏：手写解析时 `new TextEncoder()` 写在函数里、只在编码非 ASCII 时才碰，
+    路径全 ASCII 就永远撞不到；换成真库后它变成**加载期**行为，缺口才暴露。“测试没红”
+    不等于“没用到”。
+
+    现在补的：`atob` 在 `builder/vite/atob-shim.ts`，实现取 `base-64`（MIT、零依赖），
+    不手写 —— 手写第一版在合法输入上全对，却在畸形路径上静默出错，是拿 Node 原生 `atob`
+    差分才拓出来的（见第 9 节第 17 条）。`URL` / `URLSearchParams` 在 `polyfills`（装
+    `whatwg-url-minimum`，见第 9 节第 17 条）。`TextEncoder` / `TextDecoder` 引擎测试运行时
+    会装（`@nberlette/utf8`，vitest 消息编解码要用），但库自己不再需要它们，所以没进
+    `polyfills` —— 没有真实消费者的补丁不补。
 
 ---
 
@@ -737,6 +781,138 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     `:host { … }` 会收到一行“伪类 ":host" 在 Godot 侧无对应落点，整条选择器已忽略”的**误报**
     （实测）。运行时 `:host` 是真的能落地（Angular 编译成 `[_nghost-*]` 属性选择器，
     `css-angular.spec.ts` 里有断言）。要消除误报得让 lint 认得 `:host`，而不是去掉运行时支持。
+14. **`DOCUMENT` 不需要 provide**（与直觉相反）。它是 `@angular/core` 里一个无 factory 的
+    裸 token，浏览器下由 `platformBrowser` 提供（`platform-browser` 的 `provide: DOCUMENT`），
+    看起来像“不用 BrowserModule 就必须自己补”的那一类。但本项目的装配链里**没人**
+    `inject(DOCUMENT)`：
+
+    - `Title`（唯一会注入它的常规消费者）只被 `DefaultTitleStrategy` 用，而 `route.title`
+      已改走 `GodotTitleStrategy`；
+    - `PathLocationStrategy` 的 `href ?? getBaseHrefFromDOM() ?? inject(DOCUMENT).location` 走
+      `??`，而 `GodotPlatformLocation.getBaseHrefFromDOM()` 返回**空串**（非 nullish），
+      链路到它就断了；
+    - `ViewportScroller` 的默认工厂确实 `inject(DOCUMENT)`，但我们给的是 `ɵNullViewportScroller`。
+
+    实测：删掉 provider 后引擎全套 634 条全绿。另注意区分两条独立的路：`globalThis.document`
+    （polyfills 装的，给“源码里直接写 `document`”）与 `DOCUMENT`（DI token）互不相干，
+    前者存在不代表后者有值。
+15. **`new InjectionToken(name, { factory })` 会隐式 `providedIn: 'root'`**（core 里
+    `InjectionToken` 构造：`providedIn: options.providedIn || 'root'`）。两个后果：
+
+    - 好处：带 factory 的 token 在真实应用注入器里总能解出默认值，不需要谁去 provide。
+    - 坑：**裸 `Injector.create` / `createEnvironmentInjector` 解不出它**（root 作用域不在那条链上），
+      报 NG0201。所以“token 的默认值”这类断言在 Node 侧用裸注入器测不了，只能在真应用 /
+      TestBed 里验。曾试图在 `packages/library/core/test/` 里用 `Injector.create({providers: []})`
+      断言默认值，就是撞的这个。
+16. **TestBed 有两层注入器，跳 token 比实例会翻车**。`{ provide: A, useExisting: B }`（写在
+    模块 / 环境 provider 里）+ `B` 自身 `providedIn: 'root'` 时，`TestBed.inject(A)` 与
+    `TestBed.inject(B)` 可能落在不同层，拿到两个不同实例——而且**是否翻车取决于同文件里
+    前面跑过哪些用例**（实测：单独跑绿，前面多两个用例就红）。要断“是不是单例服务”，
+    只比同一个 token 两次：`inject(A) === inject(A)`。
+
+17. **URL 解析直接交给现成的规范实现，不要手写**。曾经手写过一份“标准子集”，拿参考实现
+    对拍只对上 **51/100**：漏了 dot-segment 折叠、相对 base 目录解析、`?q=1#frag` 里
+    fragment 被留在 search、空 `?`/`#` 该视为“没有这段”、percent 编码。手写看着自洽，
+    但“测试没红”只能说明测过的那几条对。现在 `location.ts` 只拼基准 URL + 切三段。
+
+    用的是 **`whatwg-url-minimum`**（whatwg-url 的衍化版）：零依赖、215KB，而原版 15.x 要
+    tr46 + webidl-conversions + punycode 约 440KB。拿原版对拍过 **24222 条**（手挑 + 模糊
+    生成，含非 ASCII），逐条一致。它仍带 IDNA 表，以 base64 内嵌、**加载期**就解，所以
+    `atob` 得先有。
+
+    三个已踩过的坑：
+
+    a) **`atob` 必须比 `whatwg-url-minimum` 先跑，而“先”很难表达**。库在**模块求值期**就要
+       `atob`（原版是要 `TextEncoder`），而一个模块的语句永远排在它所有 import 之后 —— 赋值
+       写在引它的文件里，永远跑在库后面。
+
+       最终形态很普通：补丁与 shim 都是构建器自己的文件，`builder/vite/polyfills.ts` 开头两行
+
+       ```ts
+       import "./atob-shim";                                            // 必须是第一行
+       import { URL, URLSearchParams } from "whatwg-url-minimum";
+       ```
+
+       两者同属一个模块的同级 import，按书写顺序求值。产物里：
+
+       ```js
+       //#region ../dist/builder/vite/atob-shim.mjs          ← 第 1 行
+       //#region .../whatwg-url-minimum.mjs                 ← 第 43 行
+       //#region ../dist/builder/vite/polyfills.mjs         ← 第 1822 行
+       ```
+
+       之前踩的坑全部源于补丁当时是**库的二级入口**，而库入口内部造不出这条边：
+
+       | 写法 | 结果 | 为什么 |
+       | --- | --- | --- |
+       | 同入口内 `import "./atob"`（文件带副作用） | 引擎 `no tests` | ng-packagr 把同入口模块展平进一个 fesm，外部 import 被提到最顶，atob 赋值落在第 21 行 |
+       | 同入口内 `import { fn } from "./atob"` + 本模块赋值 | 引擎 `no tests` | 同上。函数从哪来不影响 —— 赋值动作仍在被展平的那个模块体里 |
+       | 构建器虚拟入口里写语句 | 引擎 `no tests` | rolldown 出 CJS 时把 `require()` 提到 chunk 体之前，语句落在后面 |
+       | 构建器第二个虚拟模块 | 引擎 `no tests` | 只有一个引用者 → 被内联进补丁 chunk，一个内联一个外部，层级错位 |
+       | atob 当第二个 rollup input | 引擎 `no tests` | 确实独立成 chunk 了，但 rolldown 排外部 require 不跟随 import 书写顺序，polyfills 反而在前 |
+
+       一句话规则：**顺序按 import 图走，但前提是两者在同一层级** —— 同为外部依赖，或同被
+       内联进一个 chunk。一个内联一个外部就会反过来。要 A 先于 B，就得让 B 依赖 A，
+       而不是赌打包器对平级 chunk 的排序。
+
+       一个必须守住的细节：`atob-shim.ts` 的依赖只能往下长，不能反过来让 `polyfills.ts`
+       多一条指向它的额外路径 —— shim 及其依赖（`base-64`）靠“被 atob-shim 依赖”这条边
+       跟着排在 `whatwg-url-minimum` 前面，边在，顺序就在。
+
+       顺序最终靠 `build-core.ts` 的 `output.manualChunks` 钉死，而不是靠“谁 import 谁”：
+
+       ```ts
+       // atob 补丁单独一个 chunk；补丁模块与 whatwg-url-minimum 另一个
+       if (POLYFILL_CHUNK_RE.test(id)) return "godot-atob";
+       return URL_CHUNK_RE.test(id) ? "godot-polyfills" : undefined;
+       ```
+
+       产物里 `chunks/godot-polyfills.js` 第一行就是 `require("chunks/godot-atob.js")`，
+       外部 require 一律提升到 chunk 体之前，而 `whatwg-url-minimum` 内联在同一 chunk 的体里
+       —— atob 先装，库后求值，边和顺序都是声明出来的。
+
+       为什么不用一个 manual chunk 把三个全装进去（已试，会挂）：rolldown 在 manual chunk
+       **内部不保持 import 书写顺序**，实测排成 `[whatwg-url, base-64, atob-shim, polyfills]`，
+       库反而第一个求值 → `atob is not defined`。分成两个 chunk 才能把顺序交给依赖边。
+
+       为什么不能靠“某个入口 import 一下补丁模块”（也已试）：那条边确实能把 `polyfills` 撑成
+       共享 chunk、凑出正确布局，但它是巧合，引擎入口会多出一条看着重复的
+       `require("chunks/polyfills.js")`，下一个人完全有理由把它当冗余删掉 —— 删了就 `no tests`。
+       补丁模块现在**不导出任何东西**，取用一律走 `globalThis.__CUJ_FRAME__`（库主入口与
+       引擎测试运行时同此），没有“从副作用模块 import API”这回事。
+
+    b) **`whatwg-url` 钉在 15.x，不要升 16+**。16 起多了依赖 `@exodus/bytes`，它加载期就
+       `new TextDecoder("latin1")` 并读 `globalThis.atob`，而 utf8 那份 TextDecoder 只认
+       utf-8，实测 `TypeError: The encoding label provided ('latin1') is invalid`。15.x 的
+       加载期依赖只有 `TextEncoder` 与 `TextDecoder("utf-8")`。
+
+    c) **`bare-url` 用不了**，它不是纯 JS：`binding.js` 就一行 `require.addon()`，真正解析
+       URL 的 `url_parse()` 在 `binding.c` 里（`index.js:387` 直接 `binding.parse(...)`），
+       没有 JS 兜底；删掉 C 与 prebuilds 后连 `require('bare-path')` / `Bare.platform` 都
+       过不去（实测依次报 `Cannot find module 'bare-path'` → `Bare is not defined`）。
+
+    剩下两处刻意偏离（都在 Angular 递不出的输入上）：authority 后的空 path 归一成 `/`
+    （合成 scheme 非特殊协议，规范允许空 path）；规范解不出的输入（非法主机名）按
+    `URL` 的语义抛，与浏览器 `pushState` 抛 DOMException 一致。
+
+    代价：`whatwg-url-minimum` 约 **215KB 源码**、零依赖（大头仍是内嵌的 IDNA 表，合成
+    origin 其实用不到，但拆不掉）。`location.spec.ts` 里的期望表由参考实现生成，不手写；
+    换掉 URL 实现时它就是回归线。
+
+18. **自己实现宿主 API 时，差分测试必须含畸形输入**。`atob` 的第一版是手写的位循环，
+    合法 base64 全对，却与规范有 10 处分歧 —— 全部在畸形路径上：中段 padding
+    （`aGVsbG8=Zm8`）、开头 padding、长度模 4 余 1（`a`、`abcde`）被静默解成错误结果，
+    而 `\f` 没归入要剥的 ASCII 空白（容易漏的那个，集合是 TAB / LF / FF / CR / 空格，
+    **不含** `\v`）。
+
+    现在用的是社区那个 `btoa/atob` gist 的算法（去掉 UMD 与 `btoa`），它靠一条结构正则
+    把上述畸形输入全拒掉。拿 Node 原生 `atob` 差分：**合法 400/400 + 边界 39 条零分歧**。
+    差分测试在 `packages/builder/test/atob-shim.spec.ts`，Node 自带原生 `atob`，所以参考
+    实现是免费的 —— 能拿宿主已有的规范实现做参考时，就不要手写期望值。
+
+19. **`polyfills` 选项目前只接受能直接解析的说明符**。extras 被原样写进虚拟入口，而虚拟模块
+    没有目录基准，写 `./src/foo.js` 会报 `UNRESOLVED_IMPORT`（实测）。绝对路径、包名可用；
+    相对路径待修（应在 `build-core` 里按 workspaceRoot 解析后再传）。
 
 ---
 

@@ -3,9 +3,8 @@ import { parseOptions } from "../../shared/parse-options";
 import { applicationOptionsSchema } from "../options-schema";
 import { filterMatches, filterOf, handlerOf } from "./hook";
 import {
-  MANDATORY_POLYFILL,
+  MANDATORY_POLYFILL_SPECIFIER,
   POLYFILL_ENTRY_SPECIFIER,
-  polyfillExtras,
   polyfillPlugin,
 } from "../polyfill";
 
@@ -31,22 +30,15 @@ describe("parseOptions", () => {
     expect(o.polyfills).toEqual([]);
   });
 
-  it("polyfills 只能追加：必带项不会被替换掉，重复项被收掉", () => {
-    expect(polyfillExtras(["a", "b"])).toEqual(["a", "b"]);
-    // 用户把必带项写进来也不重复（它由虚拟入口自己第一行保证）
-    expect(polyfillExtras([MANDATORY_POLYFILL, "a", "a"])).toEqual(["a"]);
-    expect(polyfillExtras([])).toEqual([]);
-  });
-
   it("虚拟 polyfill 入口：必带项永远第一行，追加项接在后", () => {
-    const plugin = polyfillPlugin({ resRoot: "res://dist", extras: polyfillExtras(["a", "b"]) });
+    const plugin = polyfillPlugin({ resRoot: "res://dist", extras: ["a", "b"] });
     const resolveId = handlerOf<(id: string) => string | null>(plugin.resolveId);
     const load = handlerOf<(id: string) => string>(plugin.load);
     const id = resolveId(POLYFILL_ENTRY_SPECIFIER);
     expect(id).toBeTruthy();
     const code = load(id as string) as string;
     const lines = code.split("\n");
-    expect(lines[0]).toBe(`import ${JSON.stringify(MANDATORY_POLYFILL)};`);
+    expect(lines[0]).toBe(`import ${JSON.stringify(MANDATORY_POLYFILL_SPECIFIER)};`);
     expect(lines[1]).toBe('import "a";');
     expect(lines[2]).toBe('import "b";');
     // 必须是纯 JS：虚拟模块没有 transform 兜底，带类型标注会直接报错

@@ -24,7 +24,6 @@
       // 产物内部的互引（testing.d.ts → core → css）不用在这里列：它们靠 dist/package.json
       // 的 exports 自引用解析（实测 --traceResolution），多写一条 core 映射是多余的。
       "godot-angular/css": ["../../dist/types/godot-angular-css.d.ts"],
-      "godot-angular/polyfills": ["../../dist/types/godot-angular-polyfills.d.ts"],
       "godot-angular/testing": ["../../dist/types/godot-angular-testing.d.ts"]
     }
   },

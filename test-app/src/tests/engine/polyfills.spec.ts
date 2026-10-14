@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
-import {
-  CUJ_FRAME_KEY,
-  installGodotPolyfills,
-  resumeFrameCallbacks,
-  runFrameCallbacks,
-  stopFrameCallbacks,
-} from "godot-angular/polyfills";
 import { awaitFrames } from "godot-angular/testing";
 
 const g = globalThis as any;
+
+/**
+ * 补丁已不再是库的公开入口，这里只断言引擎运行时**实际看到的东西**：全局成员与帧钟句柄。
+ * 帧驱动通过句柄拿，而不是 import 模块 —— 跟主入口 `core/frame.ts` 走的是同一条路径。
+ */
+const CUJ_FRAME_KEY = "__CUJ_FRAME__";
+const clock = () => g[CUJ_FRAME_KEY] as {
+  run(deltaMs: number): void;
+  stop(): void;
+  resume(): void;
+};
 
 describe("装出来的东西", () => {
   it("Godot 没有 document，装的是空占位（故意不填内容）", () => {
@@ -16,28 +20,43 @@ describe("装出来的东西", () => {
     expect(Object.keys(g.document)).toEqual([]);
   });
 
+  it("atob 在引擎里可用且与规范语义一致（GodotJS 原生没有）", () => {
+    expect(typeof g.atob).toBe("function");
+    expect(g.atob("aGVsbG8=")).toBe("hello");
+    // 空白被忽略（含 `\f`）；每个返回字符的 code unit 就是一个字节
+    expect(g.atob("aGVs\nbG8 ")).toBe("hello");
+    expect(g.atob("aGVs\fbG8=")).toBe("hello");
+    expect(g.atob("/+j/").charCodeAt(0)).toBe(0xff);
+    // 中段 padding 必须拒，不能静默解出错误结果
+    let threw = false;
+    try {
+      g.atob("aGVsbG8=Zm8");
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    threw = false;
+    try {
+      g.atob("!!!!");
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
+
   it("帧钟句柄钉成只读，赋值不会把帧驱动换掉", () => {
-    const clock = g[CUJ_FRAME_KEY];
-    expect(typeof clock.run).toBe("function");
-    expect(typeof clock.stop).toBe("function");
-    expect(typeof clock.resume).toBe("function");
-    expect(Object.isFrozen(clock)).toBe(true);
-    const run = clock.run;
+    const handle = clock();
+    expect(typeof handle.run).toBe("function");
+    expect(typeof handle.stop).toBe("function");
+    expect(typeof handle.resume).toBe("function");
+    expect(Object.isFrozen(handle)).toBe(true);
+    const run = handle.run;
     try {
       g[CUJ_FRAME_KEY] = {};
     } catch {
       // 非严格模式下赋值静默失败，严格模式抛 —— 两种都算"没换掉"
     }
     expect(g[CUJ_FRAME_KEY].run).toBe(run);
-  });
-
-  it("installGodotPolyfills 幂等：再装一次不覆盖已装好的实现", () => {
-    const raf = g.requestAnimationFrame;
-    const perf = g.performance;
-    installGodotPolyfills();
-    installGodotPolyfills();
-    expect(g.requestAnimationFrame).toBe(raf);
-    expect(g.performance).toBe(perf);
   });
 
   it("performance.now 给有限数，mark/measure 是可叫的空操作", () => {
@@ -119,12 +138,12 @@ describe("帧驱动", () => {
     try {
       let pending = 0;
       g.requestAnimationFrame(() => pending++);
-      stopFrameCallbacks();
+      clock().stop();
       expect(g.requestAnimationFrame(() => pending++)).toBe(-1);
       await awaitFrames(2);
       expect(pending).toBe(0);
     } finally {
-      resumeFrameCallbacks();
+      clock().resume();
     }
     let after = 0;
     g.requestAnimationFrame(() => after++);
@@ -138,7 +157,7 @@ describe("帧驱动", () => {
       g.performance = { now: () => Number.NaN };
       const seen: number[] = [];
       g.requestAnimationFrame((t: number) => seen.push(t));
-      runFrameCallbacks(16);
+      clock().run(16);
       expect(seen.length).toBe(1);
       expect(Number.isFinite(seen[0])).toBe(true);
       expect(seen[0]).toBeGreaterThan(0);

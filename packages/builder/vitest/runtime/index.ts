@@ -5,9 +5,19 @@ export const CUJ_VITEST_PROTOCOL_VERSION = 1;
 // import 会被提升，因此这些垫片只能位于被排在前面的独立模块中。
 import "./setup";
 import { parse as flatParse, stringify as flatStringify } from "flatted";
-// 帧钟从补丁入口获取：rAF 队列定义在那里，主入口不 re-export 它。
-// 这条 import 同时把“环境先于一切”固化为依赖关系（该模块零依赖主入口）。
-import { runFrameCallbacks } from "godot-angular/polyfills";
+/**
+ * 测试运行时的帧泵。应用构建里这一泵在库内（`core/bootstrap.ts` 的 `GodotAngularApp.tick`，
+ * 由 Godot 脚本的 `_process(delta)` 每帧调），引擎测试没有那个 `_process`，帧由 vitest
+ * 自己驱动，所以在这里泵同一个句柄。两边读的都是补丁装的 `globalThis.__CUJ_FRAME__`。
+ */
+function pumpFrameClock(deltaMs: number): void {
+  const clock = (globalThis as unknown as { __CUJ_FRAME__?: { run(delta: number): void } })
+    .__CUJ_FRAME__;
+  if (!clock) {
+    throw new Error("[godot-angular] 帧钟未安装：补丁模块未先于测试运行时求值");
+  }
+  clock.run(deltaMs);
+}
 // builder 消费库只能经过发布出去的公开 API（库的二级入口之间靠包名互引），
 // 看上去像“自己 import 自己”，但那是 ng-packagr 重写依赖的唯一入口。
 import { pumpEngineFrames, setEngineSceneRoot } from "godot-angular/testing";
@@ -114,7 +124,7 @@ export function startupGodotVitest(options: GodotVitestOptions): GodotVitestSess
       pumpEngineFrames();
       // 再泵 rAF 队列：zoneless 排 CD 是 setTimeout(0) 与 rAF 赛跑，rAF 这一侧不响应
       // 就会表现为“慢一帧”而不是“不刷”，测试容易侥幸通过。帧泵由运行时统一驱动。
-      runFrameCallbacks(16);
+      pumpFrameClock(16);
       channel.poll();
       if (finished) return;
       if (!helloSent && channel.connected) {

@@ -14,14 +14,14 @@ import {
 } from "@angular/core";
 import { ComponentFixture, ComponentFixtureAutoDetect, TestBed } from "@angular/core/testing";
 import { beforeEach, describe, expect, it } from "vitest";
-import { Color, Label } from "godot";
+import { Button, Color, Label } from "godot";
 import {
   awaitFrames,
   findAllNodes,
   initGodotTestEnvironment,
   nodeTexts,
 } from "godot-angular/testing";
-import { bootstrapGodotApp } from "godot-angular/core";
+import { bootstrapGodotApp, tryConnectGodotSignal } from "godot-angular/core";
 
 /**
  * Angular 组件在真实引擎中运行，写法就是标准 TestBed。区别仅在于 `nativeElement` 是引擎的
@@ -642,6 +642,90 @@ describe("null 与撤销：Angular 真正递下来的那几种", () => {
 
     const fixture = await render(NullInterpComp);
     expect(findAllNodes(fixture.nativeElement, "Label")[0].text).toBe("");
+  });
+});
+
+/**
+ * `$event` 的契约：**实参个数永远与引擎信号一致**，不做任何补偿。
+ *
+ * `BaseButton.pressed()` 零参数（引擎文档已确认），所以 `(click)` / `(pressed)` 的
+ * `$event` 就是 `undefined`。曾经为了 `RouterLink` 的 host listener 补过一个事件对象，
+ * 但那是拿全局语义换一个小功能，已推翻；结论与理由见 docs/development.md 第 18 条。
+ */
+describe("$event 的形状：实参个数永远跟着引擎信号走", () => {
+  beforeEach(() => initGodotTestEnvironment());
+
+  it("(pressed) 保持零参数，不被塞进事件对象", async () => {
+    @Component({
+      selector: "t-ev-native",
+      schemas: [NO_ERRORS_SCHEMA],
+      template: `<Button text="p" (pressed)="kind.set(kindOf($event))"></Button>`,
+    })
+    class NativeComp {
+      readonly kind = signal("?");
+      kindOf(v: unknown): string {
+        return typeof v;
+      }
+    }
+
+    const fixture = await render(NativeComp);
+    findAllNodes(fixture.nativeElement, "Button")[0].emit_signal("pressed");
+    await fixture.whenStable();
+    // 引擎没递东西，$event 就仍是 undefined：写引擎信号名的模板不该看到凭空多出的参数
+    expect(fixture.componentInstance.kind()).toBe("undefined");
+  });
+
+  it("(click) 落在零参数信号上时，$event 仍是 undefined（不伪造事件对象）", async () => {
+    @Component({
+      selector: "t-ev-dom",
+      schemas: [NO_ERRORS_SCHEMA],
+      template: `<Button text="c" (click)="kind.set(kindOf($event))"></Button>`,
+    })
+    class DomComp {
+      readonly kind = signal("?");
+      kindOf(v: unknown): string {
+        return typeof v;
+      }
+    }
+
+    const fixture = await render(DomComp);
+    findAllNodes(fixture.nativeElement, "Button")[0].emit_signal("pressed");
+    await fixture.whenStable();
+    // DOM 习惯名也不特殊对待：pressed 确实不携带 InputEvent，凭空造一个对象比诚实报 undefined 更坑
+    expect(fixture.componentInstance.kind()).toBe("undefined");
+  });
+
+  it("(change) 落在带参信号上时，$event 仍是引擎给的真值", async () => {
+    @Component({
+      selector: "t-ev-arg",
+      schemas: [NO_ERRORS_SCHEMA],
+      template: `<CheckBox text="k" (change)="last.set($any($event))"></CheckBox>`,
+    })
+    class ArgComp {
+      readonly last = signal<unknown>(null);
+    }
+
+    const fixture = await render(ArgComp);
+    findAllNodes(fixture.nativeElement, "CheckBox")[0].emit_signal("toggled", true);
+    await fixture.whenStable();
+    expect(fixture.componentInstance.last()).toBe(true);
+  });
+
+  it("tryConnectGodotSignal 的实参个数跟着引擎信号走", () => {
+    const button = new Button();
+    const seen: unknown[][] = [];
+    const offNative = tryConnectGodotSignal(button, "pressed", (...args) => seen.push(args));
+    const offDom = tryConnectGodotSignal(button, "click", (...args) => seen.push(args));
+    expect(offNative, "pressed 没接上").not.toBeNull();
+    expect(offDom, "click 没解析到 pressed").not.toBeNull();
+
+    button.emit_signal("pressed");
+    // 两个名字解析到同一个零参数信号，因此都是零个实参
+    expect(seen.map((a) => a.length)).toEqual([0, 0]);
+
+    offNative!();
+    offDom!();
+    button.free();
   });
 });
 

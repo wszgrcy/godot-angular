@@ -1,10 +1,12 @@
+import './atob-shim'
+import { URL as WhatWGURL, URLSearchParams as WhatWGURLSearchParams } from "whatwg-url-minimum";
+
+
+
 type RafCallback = (time: number) => void;
 
-/**
- * 帧钟句柄在全局上的键：主入口靠它取得 run / stop / resume。
- * 名称带 `__CUJ_` 前缀，避免与宿主中可能存在的同名成员冲突。
- */
-export const CUJ_FRAME_KEY = "__CUJ_FRAME__";
+
+const CUJ_FRAME_KEY = "__CUJ_FRAME__";
 
 const rafCallbacks = new Map<number, RafCallback>();
 let rafSeq = 1;
@@ -31,7 +33,7 @@ function frameTimestamp(deltaMs: number): number {
  * 由 Godot 的 `_process` 每帧调用一次，驱动 rAF 队列。
  * 时间戳在队列为空时也需要推进，因此该调用位于提前返回之前。
  */
-export function runFrameCallbacks(deltaMs: number): void {
+function runFrameCallbacks(deltaMs: number): void {
   if (pumpStopped) return;
   lastFrameTime = frameTimestamp(deltaMs);
   if (rafCallbacks.size === 0) return;
@@ -54,13 +56,13 @@ export function runFrameCallbacks(deltaMs: number): void {
  * 不停帧的后果是“销毁前注册的回调在销毁后一帧重新执行”，回调里访问已销毁的 signal /
  * 已移除的节点，报错位置与真实原因相距甚远。
  */
-export function stopFrameCallbacks(): void {
+function stopFrameCallbacks(): void {
   pumpStopped = true;
   rafCallbacks.clear();
 }
 
 /** 重新启动帧驱动：bootstrap 新应用时调用（引擎测试会反复创建 / 销毁应用，不能一停就无法恢复）。 */
-export function resumeFrameCallbacks(): void {
+function resumeFrameCallbacks(): void {
   pumpStopped = false;
 }
 
@@ -86,8 +88,13 @@ function cancelAnimationFrameShim(id: number): void {
  * 内容一概不填，空对象是有意为之：伪造得越接近真实，越容易使“绕过 Renderer2 直接访问
  * DOM”的代码看起来可运行、实际静默无效。`document.documentElement` 为 undefined 也使
  * Angular 的 `areAnimationSupported` 恒为假，动画路径整体失效而不是部分生效。
+ *
+ * 这里不用 DOM 的 `Document` 类型：构建器的编译范围不含 DOM lib，而本模块只需要
+ * “有个对象占住 globalThis.document”这一件事。
  */
-const documentStub = {} as Document;
+type DocumentStub = Record<string, unknown>;
+
+const documentStub: DocumentStub = {};
 
 let installed = false;
 
@@ -108,11 +115,13 @@ interface PatchedGlobals {
     clearMarks(): void;
     clearMeasures(): void;
   };
-  document?: Document;
+  document?: DocumentStub;
+  URL?: unknown;
+  URLSearchParams?: unknown;
 }
 
 /**
- * 只补「有真实消费者」的四项，幂等：重复调用仅安装一次。
+ * 只补「有真实消费者」的几项，幂等：重复调用仅安装一次。
  *
  * - `queueMicrotask`：Angular 调度器（effect / `watch` / 稳定通知）直接调用，GodotJS 没有。
  * - `requestAnimationFrame`：zoneless 调度器与库自己的帧钟。
@@ -120,6 +129,10 @@ interface PatchedGlobals {
  *   不保护未声明的标识符，standalone 组件定义期就会 ReferenceError。只有
  *   `typeof x !== "undefined"` 的写法才挡得住。
  * - `document`：见 `documentStub`。
+ * - `URL` / `URLSearchParams`：V8 两个都不给（`URL` 是宿主 API，Node / 浏览器自己给的）。
+ *   装的是 `whatwg-url-minimum`（whatwg-url 的衍化版，零依赖、215KB；原版还要 tr46 +
+ *   webidl-conversions + punycode，约 440KB）。与 `document` 那种空壳不同，它是跑完整规范的
+ *   **真实现**：拿 `whatwg-url` 对拍过 24222 条用例（含模糊生成的非 ASCII），逐条一致。
  *
  * `navigator` / `location` / `structuredClone` / `MutationObserver` / `PerformanceObserver` 一类
  * 浏览器全局不补：Angular 里读它们的位置要么被 `typeof` 挡住、要么已被 tree-shake 掉，
@@ -127,7 +140,7 @@ interface PatchedGlobals {
  * `Event` / `EventTarget` 的消费者是引擎测试运行时（abortcontroller-polyfill 与 vitest）而不是
  * Angular，因此装在那边：`builder/vitest/runtime/setup.ts`。
  */
-export function installGodotPolyfills(): void {
+function installGodotPolyfills(): void {
   if (installed) return;
   installed = true;
   const g = globalThis as unknown as PatchedGlobals;
@@ -147,14 +160,19 @@ export function installGodotPolyfills(): void {
     g.performance = {
       now: () => Date.now(),
       timeOrigin: Date.now(),
-      mark() {},
-      measure() {},
-      clearMarks() {},
-      clearMeasures() {},
+      mark() { },
+      measure() { },
+      clearMarks() { },
+      clearMeasures() { },
     };
   }
 
   if (g.document === undefined) g.document = documentStub;
+  if (typeof (g as any).URL !== "function") {
+    (g as any).URL = WhatWGURL;
+    (g as any).URLSearchParams = WhatWGURLSearchParams;
+  }
+
 
   // 帧钟句柄：主入口的 tick() 依赖它泵送队列。使用 defineProperty 设为只读，
   // 避免后续误赋值将整个帧驱动替换掉（那种缺陷只表现为“界面不刷新”）。
@@ -170,6 +188,5 @@ export function installGodotPolyfills(): void {
   });
 }
 
-// 唯一安装点。本模块零依赖主入口，因此它在产物里排在主入口 chunk 之前被 require，
-// “补丁先于 Angular”由依赖关系保证，而不是由书写顺序保证。
+// 唯一安装点。
 installGodotPolyfills();

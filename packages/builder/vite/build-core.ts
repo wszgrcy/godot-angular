@@ -20,7 +20,6 @@ import { budgetsPlugin } from "./budgets-plugin";
 import {
   POLYFILL_ENTRY_NAME,
   POLYFILL_ENTRY_SPECIFIER,
-  polyfillExtras,
   polyfillPlugin,
 } from "./polyfill";
 import { icuDowngradePlugin } from "./icu-downgrade";
@@ -74,7 +73,7 @@ export function resolveEntries(
       if (dup) {
         throw new Error(
           `入口名重复：${name}\n  ${dup}\n  ${file}\n` +
-            `两个模式匹配到不同文件却生成同名入口，请调整 input 或 output 使其区分。`,
+          `两个模式匹配到不同文件却生成同名入口，请调整 input 或 output 使其区分。`,
         );
       }
       taken.set(name, file);
@@ -299,10 +298,11 @@ async function prepareConfig(
     }
   }
   const entryCount = Object.keys(input).length;
-  // 补丁入口是**虚拟的、必带的**：内容第一行写定 `import "godot-angular/polyfills"`，
-  // 用户 polyfills 只能往后追加。它作为入口必然单独成文件且不会被摇树，随后由
-  // polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）同样适用此机制。
-  const extras = polyfillExtras(polyfills);
+  // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
+  // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
+  // 且不会被摇树，随后由 polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）
+  // 同样适用。
+  const extras = [...polyfills];
   // 全局样式表挂在补丁入口后面：那个入口的存在就是为了抢在 Angular 之前求值，
   // 而全局 CSS 必须在第一个组件创建前就已存在（application 层样式表）。
   const globalStyles = normalizeGlobalStyles(styles, context.workspaceRoot);
@@ -327,7 +327,7 @@ async function prepareConfig(
     // 无法补救——它在模块体内求值，早于本构建器的任何代码。
     define: { global: "globalThis", ...define },
     resolve: {
-      dedupe: ["@angular/core"],
+      dedupe: ["@angular/core", "@angular/common", "@angular/router", "@angular/platform-browser", "rxjs"],
       ...(preserveSymlinks === undefined ? {} : { preserveSymlinks }),
       ...(conditions?.length ? { conditions } : {}),
     },
@@ -361,11 +361,11 @@ async function prepareConfig(
       target: "es2022",
       ...(watch
         ? {
-            watch: {
-              buildDelay: 100,
-              ...(poll ? { usePolling: true, pollInterval: poll } : {}),
-            },
-          }
+          watch: {
+            buildDelay: 100,
+            ...(poll ? { usePolling: true, pollInterval: poll } : {}),
+          },
+        }
         : {}),
       rollupOptions: {
         // GodotJS 内建模块 + externalDependencies，产物里原样保留 require(...)

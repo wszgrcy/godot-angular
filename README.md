@@ -29,6 +29,7 @@ Label / Button / VBoxContainer …       真实 Godot 节点
 - [状态与变更检测](#状态与变更检测)
 - [表单](#表单)
 - [样式](#样式)
+- [路由](#路由)
 - [多入口与多场景](#多入口与多场景)
 - [单元测试](#单元测试)
 - [构建选项](#构建选项)
@@ -276,7 +277,17 @@ Godot signal 与 Angular signal 是两套互不相关的机制。本文档中 An
 | `(focus)` / `(blur)` | `focus_entered` / `focus_exited` |
 | `(button_down)` | `button_down`（引擎信号名，原样命中） |
 
-`$event` 为信号传递的第一个参数。`LineEdit` 的 `text_changed` 直接提供新文本，无需回读属性。
+`$event` 的规则只有一条：**实参个数永远与引擎信号一致**，不做任何补偿。
+`LineEdit.text_changed(new_text)` 的 `$event` 就是新文本，无需回读属性；
+`BaseButton.pressed()` 零参数，所以 `(click)` / `(pressed)` 的 `$event` 就是 `undefined`。
+
+Godot 信号不携带事件对象（对比 DOM：每个监听器都收到一个 `MouseEvent`）。但“谁触发的”仍然
+知道 —— `Callable` 绑在具体节点上，模板里每个元素有自己的闭包。需要真实输入事件（坐标 /
+双击 / 修饰键）时绑 `Control.gui_input(event: InputEvent)`，那个信号递的是真的 `InputEvent`；
+只是 `pressed` 把它丢掉了。
+
+代价是依赖 `$event.xxx` 的第三方指令用不了，目前已知只有 `RouterLink`（见[路由](#路由)）。
+曾经为了它补过一个事件对象，但那是拿全局语义换一个小功能，已推翻。
 
 无法解析的事件名被静默忽略。Angular 会为每个 `(...)` 绑定调用 `renderer.listen()`，指令的
 `@Output` 名称（`ngModelChange`、`textChange`）同样经过该路径，其行为与浏览器中
@@ -460,6 +471,128 @@ inject(STYLE_RUNTIME).setPseudoClass(node, "disabled", true);
 无显示环境（CI、无头模式）中 `Window.size` 为 `(0, 0)`、`is_dark_mode()` 恒为 `false`，媒体查询
 依赖注入值生效。真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
 
+## 路由
+
+`@angular/router` 原样可用，不需要改它一行。路由对平台的全部依赖收敛在三个 token 上，
+`provideGodotRouter` 提供 Godot 侧的实现：
+
+| token | 浏览器实现 | Godot 实现 |
+| --- | --- | --- |
+| `PlatformLocation` | `window.location` + `window.history` | 内存历史栈（`GodotPlatformLocation`） |
+| `ViewportScroller` | 浏览器视口 | 空实现（滚动属于 `ScrollContainer`，与视口无关） |
+| `TitleStrategy` | 写 `document.title` | 写窗口标题 |
+
+`DOCUMENT` 不在此列：它是 core 里无 factory 的裸 token，而当前装配链里没人 `inject(DOCUMENT)`
+（`route.title` 已改走 `GodotTitleStrategy`，`PathLocationStrategy` 的兜底读被
+`getBaseHrefFromDOM()` 返回的空串断在 `??` 上），所以不提供。
+
+安装 `@angular/router`（本包的可选 peer 依赖），然后像浏览器里一样配置：
+
+```ts
+// src/main.ts
+import { bootstrapGodotApp } from "godot-angular/core";
+import { provideGodotRouter } from "godot-angular/router";
+import { App } from "./app";
+
+_ready() {
+  bootstrapGodotApp(App, this, [
+    provideGodotRouter([
+      { path: "", component: Home },
+      { path: "detail/:id", component: Detail },
+    ]),
+  });
+}
+```
+
+```html
+<!-- src/app.html -->
+<VBoxContainer>
+  <Button text="首页" (click)="go('/')"></Button>
+  <Button text="详情" (click)="go('/detail', 7)"></Button>
+  <router-outlet></router-outlet>
+</VBoxContainer>
+```
+
+```ts
+// src/app.ts
+@Component({ /* … */ })
+export class App {
+  private readonly router = inject(Router);
+  go(...commands: unknown[]): void {
+    void this.router.navigate(commands);
+  }
+}
+```
+
+`router-outlet` 不是 Godot 类，渲染为一个**空的** `VBoxContainer`：它只是锚点，激活的页面插在
+它**后面**（与它平级），不是它的子节点。浏览器里也是这样 —— 路由内容本来就是
+`<router-outlet>` 的兄弟（所以才有 `router-outlet + *` 这种选择器），这里只是把同样的
+结构搬到了节点树上。
+
+`Router`、`Location`、`ActivatedRoute` 从 `@angular/router` 直接导入，用法与浏览器一致。
+`Location.back()` / `forward()` 有效。
+
+### routerLink 不支持
+
+`RouterLink` / `RouterLinkActive` 在 Godot 里用不了，跳转请写 `(click)="go(...)"` 加
+`router.navigate()`。原因：`RouterLink` 的 host listener 是
+`click: onClick($event.button, $event.ctrlKey, …)`，而 `Button.pressed()` 零参数，
+`$event` 为 `undefined`，读成员当场 TypeError。
+
+两条退路都实测过，都不通：
+
+- **继承覆写 `onClick` 救不了**。Angular 的 `inheritHostBindings` 是**合并**而非覆盖
+  （先跑 `superHostBindings(rf, ctx)` 再跑子类那份），报错在 Angular 生成的
+  `RouterLink_click_HostBindingHandler` 里，根本进不到 `onClick`。
+- **自己写一个同名指令会丢 `routerLinkActive`**。`RouterLinkActive` 靠
+  `@ContentChildren(RouterLink)` 找链接，而 Angular 匹配指令用的是 `def.type === token`
+  精确相等，不走 `instanceof`，子类与替身指令都查不到。
+
+这不是“差一步就能支持”：要支持就得给所有零参数信号伪造 `$event`，拿全局语义换一个小功能。
+
+### 路由的边界
+
+- **URL 不持久化**。历史栈活在内存里，进程结束即消失，重启从起始 URL 重新开始。
+- **起始 URL 由 `GODOT_INITIAL_URL` 声明**，默认 `/`。Godot 没有地址栏，“从哪个页面开始”
+  必须从外部进来（启动参数、配置、存档）：
+
+  ```ts
+  bootstrapGodotApp(App, root, [
+    provideGodotRouter(routes),
+    { provide: GODOT_INITIAL_URL, useValue: parseDeepLinkFromArgv() },
+  ]);
+  ```
+
+  它不只是“少写一次 `navigate`”：初始导航就是导航到这个地址，所以**路由表里没有空路径时
+  它是唯一入口** —— 不给则初始导航匹配不上，outlet 保持空（而不是先渲染再跳）。
+- **URL 解析就是 WHATWG 标准本身**：跑的是 `whatwg-url-minimum`（whatwg-url 的零依赖版，
+  拿原版对拍过 24222 条用例逐条一致），不是手写的子集。所以 `/a/../b` 折叠成 `/b`、
+  `about` 相对当前目录解析、`?q=1` 会丢掉锚点、需要编码的字符编一次不会二次编码 ——
+  与浏览器里 `history.pushState(url)` 同源。代价约 215KB 源码。
+- **`URL` / `URLSearchParams` 默认可用**。GodotJS 原生没有（V8 只给 ECMAScript），库会把它们
+  装到全局，用户代码解析启动参数 / 存档里的链接可以直接 `new URL(...)`。
+- **懒加载不可用**。`loadComponent` / `loadChildren` 依赖运行时动态 `import()`，GodotJS 不支持。
+- `withHashLocation()` 可用（URL 落在 `#` 上）；`withExperimentalPlatformNavigation()` 不可用，
+  它要浏览器的 Navigation API。
+- **参数变化要订阅 `paramMap` / `queryParamMap`**。只改参数时同一个组件实例被复用，
+  读 `snapshot` 的普通 getter 不会重跑变更检测——这是 Angular 的既有行为，与 Godot 无关。
+- `route.title` 写窗口标题。无显示环境（CI / `--headless` / 专用服务器）由 `GODOT_HEADLESS`
+  **主动声明**，库不去猜 `DisplayServer.get_name()`：猜错只多一行日志，靠猜永远不会在 CI
+  上被发现。默认 `false`（按有窗口处理），无显示时自己传：
+
+  ```ts
+  bootstrapGodotApp(App, root, [provideGodotRouter(routes), { provide: GODOT_HEADLESS, useValue: true }]);
+  ```
+
+  声明为无头后不碰窗口，但标题仍记录在 `GodotTitleStrategy.currentTitle`，组件可以把它
+  绑到标题栏 `Label` 上，因此无头下页面标题照样有地方显示。
+
+### 一条无害的输出
+
+| 输出 | 说明 |
+| --- | --- |
+| `unhandled promise rejection: NoMatch` | 引擎在 promise reject 的那一刻就打印，不看下一句有没有 `catch`。路由靠异常控制流试匹配候选路由，因此每次导航都会打一行。导航结果由测试逐条断言过 |
+
 ## 多入口与多场景
 
 一个 Angular 工作区可以产出多个场景脚本，共享同一份运行时：
@@ -571,7 +704,7 @@ ng test --reporters=json
 | `viteConfig` | vite 配置文件路径，叠加在本 builder 之上；`plugins` 为追加而非替换 |
 | `styles` | 全局样式表，构建期解析并编入产物，运行时作为 application 层样式参与级联。不接受 `bundleName` 与 `inject` |
 | `tsConfig` `outputPath` `optimization` `sourceMap` `define` | 与官方同名同义 |
-| `polyfills` | 追加的 polyfill 说明符，默认 `[]`。构建器始终先生成包含 `godot-angular/polyfills` 的入口，本选项的条目追加其后，无法关闭必带项 |
+| `polyfills` | 追加的 polyfill 说明符，默认 `[]`。构建器始终先生成一个入口，首行固定引入它自带的补丁模块（`builder/vite/polyfills.ts`），本选项的条目追加其后，无法关闭必带项。注意：只能写包名或绝对路径，`./xxx` 这种相对路径解析不了（虚拟入口无目录基准） |
 | `externalDependencies` | 不打入产物、运行时由外部提供的包。口径与官方一致，`godot` 固定为外部依赖 |
 | `fileReplacements` | 按文件替换，`{replace, with}` |
 | `assets` | 原样拷贝到产物目录（主题 `.tres`、字体、图标），不做 hash |
@@ -621,9 +754,10 @@ ng test --reporters=json
 | 路径 | 内容 |
 | --- | --- |
 | `godot-angular/core` | 运行时：`bootstrapGodotApp`、`GodotAngularApp`、`GODOT_ROOT`、`tryConnectGodotSignal`、`godotClass`、`GodotRenderer`、样式运行时（`StyleRuntime`、`STYLE_RUNTIME`、`applyStyle`、`clearStyle`）、解析工具（`resolveTag`、`resolveSignalName`、`nodeHasProperty`） |
-| `godot-angular/polyfills` | 运行环境补丁。由构建器自动注入，通常无需手动导入 |
+| `godot-angular/builder/vite/polyfills.mjs` | 运行环境补丁（`queueMicrotask` / `requestAnimationFrame` / `performance` / `document` / `URL` / `URLSearchParams` / `atob`）。**不是库入口**，属于构建器内部；由构建器自动注入，无需手动导入 |
 | `godot-angular/forms` | 表单指令与 `GodotControlBase`、`GodotValueAccessorBase` |
 | `godot-angular/css` | CSS 子集的纯逻辑层（解析、选择器、级联、词表） |
+| `godot-angular/router` | `provideGodotRouter`、`GodotTitleStrategy`，并转发 `GODOT_HEADLESS` / `GODOT_INITIAL_URL` / `GodotPlatformLocation`。需自行安装 `@angular/router` |
 | `godot-angular/testing` | 测试工具 |
 | `godot-angular/vitest` | 宿主侧 vitest 插件 |
 | `godot-angular/vitest/runtime` | 引擎侧 vitest worker |
@@ -635,8 +769,12 @@ ng test --reporters=json
 - 仅支持 zoneless 变更检测。`tick()` 是变更检测的驱动点。
 - 不支持运行时懒加载（路由 `loadComponent` 等）。运行环境的动态 `import()` 不受支持。
   构建期静态分包可用，运行时按需载入模块不可用。
+- 不支持 `RouterLink` / `RouterLinkActive`：它们的 host listener 要读 `$event.button`，
+  而 `Button.pressed()` 零参数。路由本身可用，跳转写 `router.navigate()`，见[路由](#路由)。
 - 不依赖 `document` 与 DOM API。`document` 仅为占位实现，不具备真实 DOM 语义。
   `navigator`、`location`、`fetch`、`structuredClone`、`MutationObserver` 等浏览器全局未提供。
+  `@angular/platform-browser` 的 `Browser` / `BrowserModule` 因此不可用；路由不依赖它们，
+  见[路由](#路由)。
 - 构建过程不执行类型检查。TypeScript 类型错误、模板中的未知属性、`strictTemplates` 均不会导致
   `ng build` 失败。类型检查需通过 `tsc --noEmit` 或编辑器完成。
 - `tsconfig` 的 `lib` 中不应包含 `dom`。
@@ -663,4 +801,8 @@ ng test --reporters=json
 | `ng test` 等待引擎连接超时 | `engine.projectPath` 或 `engine.scene` 配置错误；端口会自增避开占用，连续 20 个都不可用时才会报错 |
 | 直接运行 `res://engine_vitest.tscn` 无输出 | 该场景需要宿主先启动服务，应通过 `ng test` 执行 |
 | `angular.json` 中某选项无效果 | 选项名拼写错误，未识别的选项被忽略且不报错 |
+| 导航时刷 `unhandled promise rejection: NoMatch` | 引擎在 promise reject 当时就打印，不看下一句有无 `catch`。路由试匹配候选路由就靠这个异常，导航本身正常，见[路由](#路由) |
+| 导航后页面不切换，但 `Location.path()` 已变 | 用了 `platform-browser` 的 `BOOTSTRAP` 入口，而不是 `bootstrapGodotApp`；或初始导航未触发（`provideGodotRouter` 已自动处理） |
+| 只改路由参数时页面不更新 | 组件实例被复用，需订阅 `ActivatedRoute.paramMap`，不能只读 `snapshot` |
+| `routerLink` 点了没反应，或 `Cannot read properties of undefined (reading 'button')` | `RouterLink` 不支持（它的 host listener 要读 `$event.button`，而 `Button.pressed()` 零参数）。改用 `(click)="go(...)"` 加 `router.navigate()`，见[路由](#路由) |
 

@@ -8,6 +8,7 @@
       "godot-angular/core": ["./core/index.ts"],
       "godot-angular/forms": ["./forms/index.ts"],
       "godot-angular/testing": ["./testing/index.ts"],
+      "godot-angular/router": ["./router/index.ts"],
       "godot-angular/css": ["../css/index.ts"],
       "event-target-shim": ["../../node_modules/event-target-shim/index.d.ts"]
     }
