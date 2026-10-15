@@ -1,270 +1,18 @@
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { XMLParser } from "fast-xml-parser";
+import { collectFacts, controlChain, templateTags, chainOf, type EnumFact, type Facts, type PropFact, type SigFact } from "./lib/godot-facts.js";
 
 /**
  * 生成 VS Code 的 HTML custom data（`html.customData` 吃的那份 JSON），让写模板时对 Godot
  * 控件的标签 / 属性 / 信号有补全与悬浮说明。产物只有 `dist/html-data/godot.html-data.json`。
  *
- * 数据全部来自引擎自带的两个命令行开关，仓库里不留任何探针脚本：
- *   --dump-extension-api-with-docs → extension_api.json：类/继承/属性/信号/枚举 + 全部说明文字
- *   --doctool                      → doc/classes/*.xml ：属性→枚举名、默认值、is_bitfield
- * 两份都出自同一个二进制的 ClassDB，按「类 + 属性名」拼起来，版本必然一致。中间事实只在内存里，
- * 不落盘。
- *
- * 三个实测出来的坑，脚本里都绕过了：
- *   1. `--dump-extension-api-with-docs` 在写完文件之后才崩（上游 bug：`is_cmdline_mode` 里
- *      EditorNode 单例为 null），退出码非 0（实测 134，有时直接是被信号杀掉）。所以不能拿退出码
- *      判断成败，改成校验产物内容。
- *   2. dump 文件写在**当前工作目录**，`--path` 指别处并不会跟着走，所以 cwd 就是输出目录。
- *   3. 必须给一个项目目录，否则编辑器模式起不来。这里用临时目录里的空项目，不碰仓库内的工程目录。
- *
+ * 引擎导出与事实表在 `tools/lib/godot-facts.ts`（与 `gen-emmet-snippets.ts` 共用）。
  * 产物形态对着官方 customData.schema.json（version 恒为 1.1），写完自检重名。
  */
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT_FILE = join(ROOT, "dist", "html-data", "godot.html-data.json");
-
-const BIN_TABLE: Record<string, { dir: string; exe: string }> = {
-  "linux-x64": { dir: "linux-editor-4.6.1-v8", exe: "godot.linuxbsd.editor.x86_64" },
-  "win32-x64": { dir: "windows-editor-4.6.1-v8", exe: "godot.windows.editor.x86_64.exe" },
-};
-
-function resolveBin(): string {
-  const fromEnv = process.env.GODOT_BIN;
-  if (fromEnv && existsSync(fromEnv)) return fromEnv;
-  const hit = BIN_TABLE[`${process.platform}-${process.arch}`];
-  if (!hit)
-    throw new Error(`未预置 ${process.platform}-${process.arch} 的二进制表项，请通过 GODOT_BIN 指定`);
-  const candidate = join(ROOT, "bin", hit.dir, hit.exe);
-  if (!existsSync(candidate))
-    throw new Error(`未找到引擎二进制：${candidate}（或通过 GODOT_BIN 指定）`);
-  return candidate;
-}
-
-/* ------------------------------------------------------------------ *
- * 引擎导出的原始形状
- * ------------------------------------------------------------------ */
-
-interface RawApi {
-  header: { version_major: number; version_minor: number; version_full_name: string };
-  global_enums: RawEnum[];
-  classes: {
-    name: string;
-    inherits?: string;
-    is_instantiable?: boolean;
-    api_type?: string;
-    brief_description?: string;
-    description?: string;
-    enums?: RawEnum[];
-    properties?: { name: string; type: string; setter?: string; description?: string }[];
-    signals?: { name: string; arguments?: { name: string; type: string }[]; description?: string }[];
-  }[];
-}
-
-interface RawEnum {
-  name: string;
-  is_bitfield?: boolean;
-  values: { name: string; value: number; description?: string }[];
-}
-
-function runEngine(bin: string, cwd: string, args: string[]): { status: number | null; output: string } {
-  const result = spawnSync(bin, args, { cwd, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
-  return { status: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}` };
-}
-
-function readExtensionApi(dir: string, rawOutput: string): RawApi {
-  const file = join(dir, "extension_api.json");
-  // 崩溃发生在写文件之后，所以这里只认文件内容，不认退出码
-  if (!existsSync(file)) throw new Error(`未生成 extension_api.json。引擎输出：\n${rawOutput.slice(-2000)}`);
-  const api = JSON.parse(readFileSync(file, "utf8")) as RawApi;
-  if (!api.header || !Array.isArray(api.classes) || api.classes.length < 500) {
-    throw new Error(`extension_api.json 疑似不完整（类数 ${(api.classes ?? []).length}）`);
-  }
-  return api;
-}
-
-/** doctool 的 XML 只用来补 extension_api.json 缺的三样：属性→枚举名、默认值、is_bitfield */
-interface XmlMember {
-  enum?: string;
-  bitfield: boolean;
-  default?: string;
-}
-
-/** 类名 → 属性名 → 从 XML 读到的补充信息 */
-type XmlFacts = Map<string, Map<string, XmlMember>>;
-
-function readDocXml(root: string): XmlFacts {
-  const docDir = join(root, "doc");
-  if (!existsSync(docDir)) throw new Error(`--doctool 未生成 ${docDir}`);
-
-  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", parseTagValue: false, trimValues: true });
-  const out: XmlFacts = new Map();
-  const walk = (dir: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) walk(join(dir, entry.name));
-      else if (entry.name.endsWith(".xml")) {
-        const raw = readFileSync(join(dir, entry.name), "utf8");
-        // 内建类型（Vector4、PackedVector2Array 等）的文档里有 <constructor> 标签，fast-xml-parser
-        // 一律当原型污染抛错（v5 无开关）。Control 系类不会带这种标签；万一漏了，下面那条
-        // 「保留类必须能在 XML 里找到」的断言会直接报错，不会静默丢默认值。
-        if (raw.includes("<constructor")) continue;
-        const node = (parser.parse(raw) as { class?: unknown }).class as Record<string, unknown> | undefined;
-        if (!node) continue;
-        const name = String(node["@_name"] ?? "");
-        if (!name) continue;
-        const members = new Map<string, XmlMember>();
-        for (const m of asRecords((node.members as Record<string, unknown> | undefined)?.member)) {
-          const memberName = String(m["@_name"] ?? "");
-          if (!memberName) continue;
-          members.set(memberName, {
-            enum: m["@_enum"] === undefined ? undefined : String(m["@_enum"]),
-            bitfield: String(m["@_is_bitfield"]) === "true",
-            default: m["@_default"] === undefined ? undefined : String(m["@_default"]),
-          });
-        }
-        out.set(name, members);
-      }
-    }
-  };
-  walk(docDir);
-  if (out.size < 500) throw new Error(`doctool XML 解析结果过少（仅 ${out.size} 个类）`);
-  return out;
-}
-
-function asRecords(value: unknown): Record<string, unknown>[] {
-  if (value === undefined || value === null) return [];
-  return (Array.isArray(value) ? value : [value]) as Record<string, unknown>[];
-}
-
-/* ------------------------------------------------------------------ *
- * 拼成中间事实：只留 Control 系（含 Control 自己的祖先链 CanvasItem / Node / Object）
- * ------------------------------------------------------------------ */
-
-interface Fact {
-  parent: string;
-  /** 抽象基类（ScrollBar / Slider / Separator 等）为 false，模板里建不出节点 */
-  instantiable: boolean;
-  /** 编辑器专用控件，模板里用不了 */
-  editorOnly: boolean;
-  brief: string;
-  doc: string;
-  props: Record<string, PropFact>;
-  sigs: Record<string, SigFact>;
-}
-
-interface PropFact {
-  /** Godot 原生类型名：`int` / `String` / `Vector2` / `Texture2D` … */
-  type: string;
-  /** 没有 setter 的属性，写进模板不会生效 */
-  ro?: boolean;
-  /** 类内枚举形如 `Control.FocusMode`，全局枚举不带前缀 */
-  enum?: string;
-  bitfield?: boolean;
-  /** 引擎给的默认值原文（字符串带引号、枚举是数字、向量是 `Vector2(0, 0)`） */
-  default?: string;
-  doc: string;
-}
-
-interface SigFact {
-  args: { name: string; type: string }[];
-  doc: string;
-}
-
-interface EnumFact {
-  bitfield?: boolean;
-  values: { name: string; value: number; doc: string }[];
-}
-
-interface Facts {
-  engine: string;
-  /** 文档站版本号，用来拼 references 的 URL，如 `4.6` */
-  docsVersion: string;
-  classes: Record<string, Fact>;
-  /** 键：类内枚举 `Control.FocusMode`，全局枚举 `HorizontalAlignment` */
-  enums: Record<string, EnumFact>;
-}
-
-function buildFacts(api: RawApi, xml: XmlFacts): Facts {
-  const byName = new Map(api.classes.map((c) => [c.name, c]));
-  const parentOf = (name: string): string | undefined => byName.get(name)?.inherits;
-  const controlChain = chainOf(parentOf, "Control");
-  if (!controlChain.includes("Control")) throw new Error("extension_api.json 中未找到 Control 的继承链");
-
-  const keep = new Set<string>(controlChain);
-  for (const cls of api.classes) if (chainOf(parentOf, cls.name).includes("Control")) keep.add(cls.name);
-
-  const enums = new Map<string, EnumFact>();
-  for (const e of api.global_enums) enums.set(e.name, { bitfield: e.is_bitfield, values: e.values.map(enumValue) });
-  for (const cls of api.classes) for (const e of cls.enums ?? []) enums.set(`${cls.name}.${e.name}`, { bitfield: e.is_bitfield, values: e.values.map(enumValue) });
-
-  const classes: Record<string, Fact> = {};
-  const referenced = new Set<string>();
-  for (const name of [...keep].sort()) {
-    const cls = byName.get(name)!;
-    const xmlProps = xml.get(name);
-    if (!xmlProps && (cls.properties ?? []).length > 0) {
-      throw new Error(`${name} 在 doctool XML 中未找到，属性→枚举映射与默认值将缺失（请检查是否被 <constructor> 过滤排除）`);
-    }
-    const props: Record<string, PropFact> = {};
-    for (const p of cls.properties ?? []) {
-      const fromXml = xmlProps?.get(p.name);
-      const prop: PropFact = { type: p.type, doc: p.description ?? "" };
-      if (!p.setter) prop.ro = true;
-      if (fromXml?.enum) {
-        prop.enum = fromXml.enum;
-        referenced.add(fromXml.enum);
-      }
-      if (fromXml?.bitfield) prop.bitfield = true;
-      if (fromXml?.default !== undefined) prop.default = fromXml.default;
-      props[p.name] = prop;
-    }
-    const sigs: Record<string, SigFact> = {};
-    for (const s of cls.signals ?? []) {
-      sigs[s.name] = { args: (s.arguments ?? []).map((a) => ({ name: a.name, type: a.type })), doc: s.description ?? "" };
-    }
-    classes[name] = {
-      parent: cls.inherits ?? "",
-      instantiable: cls.is_instantiable !== false,
-      editorOnly: cls.api_type === "editor",
-      brief: cls.brief_description ?? "",
-      doc: cls.description ?? "",
-      props,
-      sigs,
-    };
-  }
-
-  for (const ref of referenced) if (!enums.has(ref)) throw new Error(`属性引用的枚举 ${ref} 在 extension_api.json 中未找到（两份产物可能不一致）`);
-  const usedEnums: Record<string, EnumFact> = {};
-  for (const ref of [...referenced].sort()) usedEnums[ref] = enums.get(ref)!;
-
-  return {
-    engine: api.header.version_full_name.replace(/^Godot Engine v?/, ""),
-    docsVersion: `${api.header.version_major}.${api.header.version_minor}`,
-    classes,
-    enums: usedEnums,
-  };
-}
-
-function enumValue(v: { name: string; value: number; description?: string }): { name: string; value: number; doc: string } {
-  return { name: v.name, value: v.value, doc: v.description ?? "" };
-}
-
-/** 沿继承链自下而上收齐类名（引擎每个类只声明自有成员） */
-function chainOf(parentOf: (name: string) => string | undefined, cls: string): string[] {
-  const chain: string[] = [];
-  const seen = new Set<string>();
-  let cur: string | undefined = cls;
-  while (cur && !seen.has(cur)) {
-    seen.add(cur);
-    chain.push(cur);
-    cur = parentOf(cur);
-  }
-  return chain;
-}
 
 /* ------------------------------------------------------------------ *
  * 产物结构
@@ -404,14 +152,15 @@ function attrPair(name: string, description: string, valueSet?: string): AttrDef
 }
 
 function buildHtmlData(facts: Facts): HtmlData {
-  const controlChain = chainOf((name) => facts.classes[name]?.parent, "Control");
-  const isGlobal = new Set(controlChain);
+  const globalChain = controlChain(facts);
+  const isGlobal = new Set(globalChain);
+
   /** Control 自己可以当标签用（`<Control>` 是个通用容器），它真正的祖先不是控件 */
-  const aboveControl = new Set(controlChain.filter((name) => name !== "Control"));
+  const aboveControl = new Set(globalChain.filter((name) => name !== "Control"));
 
   /** Control 及其祖先的成员 = 所有控件共有的那一层，只写一遍，落在 globalAttributes */
   const globalNames = new Set<string>();
-  for (const cls of controlChain) {
+  for (const cls of globalChain) {
     for (const name of Object.keys(facts.classes[cls].props)) globalNames.add(name);
     for (const name of Object.keys(facts.classes[cls].sigs)) globalNames.add(name);
   }
@@ -447,23 +196,20 @@ function buildHtmlData(facts: Facts): HtmlData {
   };
 
   const docBase = `https://docs.godotengine.org/en/${facts.docsVersion}/classes`;
-  const tags: TagDef[] = [];
-  for (const [name, cls] of Object.entries(facts.classes)) {
-    // 抽象基类与编辑器专用控件建不出节点；CanvasItem / Node / Object 不是控件
-    if (!cls.instantiable || cls.editorOnly || aboveControl.has(name)) continue;
+  const tags: TagDef[] = templateTags(facts).map((name) => {
+    const cls = facts.classes[name];
     const description = [bbcodeToMarkdown(cls.brief), bbcodeToMarkdown(cls.doc)].filter(Boolean);
     if (cls.parent && cls.parent !== "Object") description.push(`继承自 \`${cls.parent}\`。`);
-    tags.push({
+    return {
       name,
       description: description.length ? description.join("\n\n") : `Godot \`${name}\` 控件。`,
       attributes: attributesOf(name),
       references: [{ name: "Godot 文档", url: `${docBase}/class_${name.toLowerCase()}.html` }],
-    });
-  }
-  tags.sort((a, b) => a.name.localeCompare(b.name));
+    };
+  });
 
   const globalAttributes: AttrDef[] = [];
-  for (const cls of controlChain) {
+  for (const cls of globalChain) {
     const fact = facts.classes[cls];
     for (const [name, prop] of Object.entries(fact.props)) {
       globalAttributes.push(...attrPair(name, describeProp(facts, prop), valueSetOf(facts, prop, register)));
@@ -523,37 +269,18 @@ function validate(data: HtmlData): void {
 }
 
 function main(): void {
-  const bin = resolveBin();
-  const scratch = mkdtempSync(join(tmpdir(), "cuj-html-data-"));
-  writeFileSync(join(scratch, "project.godot"), '[application]\n\nconfig/name="cuj_html_data"\n', "utf8");
-  mkdirSync(join(scratch, ".godot"), { recursive: true });
+  const facts = collectFacts();
+  const data = buildHtmlData(facts);
+  validate(data);
 
-  try {
-    console.log(`[gen:html-data] 引擎 ${bin}`);
-    const apiRun = runEngine(bin, scratch, ["--headless", "--path", ".", "--dump-extension-api-with-docs"]);
-    const api = readExtensionApi(scratch, apiRun.output);
-    if (apiRun.status !== 0) {
-      console.log(`[gen:html-data] 注意：dump 进程退出码 ${apiRun.status}（上游在写完文件后崩溃，产物不受影响），已按内容校验通过`);
-    }
-
-    const docRun = runEngine(bin, scratch, ["--headless", "--path", ".", "--doctool", "."]);
-    if (docRun.status !== 0) throw new Error(`--doctool 退出码 ${docRun.status}：\n${docRun.output.slice(-2000)}`);
-
-    const facts = buildFacts(api, readDocXml(scratch));
-    const data = buildHtmlData(facts);
-    validate(data);
-
-    const json = `${JSON.stringify(data, null, 1)}\n`;
-    const attrCount = data.tags.reduce((n, t) => n + t.attributes.length, 0);
-    mkdirSync(dirname(OUT_FILE), { recursive: true });
-    writeFileSync(OUT_FILE, json, "utf8");
-    console.log(
-      `[gen:html-data] ${facts.engine} ｜ 标签 ${data.tags.length}（属性 ${attrCount}）` +
-        ` ｜ 全局属性 ${data.globalAttributes.length} ｜ 取值表 ${data.valueSets.length} ｜ ${(json.length / 1024).toFixed(0)} KB → ${OUT_FILE}`,
-    );
-  } finally {
-    rmSync(scratch, { recursive: true, force: true });
-  }
+  const json = `${JSON.stringify(data, null, 1)}\n`;
+  const attrCount = data.tags.reduce((n, t) => n + t.attributes.length, 0);
+  mkdirSync(dirname(OUT_FILE), { recursive: true });
+  writeFileSync(OUT_FILE, json, "utf8");
+  console.log(
+    `[gen:html-data] ${facts.engine} ｜ 标签 ${data.tags.length}（属性 ${attrCount}）` +
+      ` ｜ 全局属性 ${data.globalAttributes.length} ｜ 取值表 ${data.valueSets.length} ｜ ${(json.length / 1024).toFixed(0)} KB → ${OUT_FILE}`,
+  );
 }
 
 main();

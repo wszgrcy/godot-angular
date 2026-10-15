@@ -136,6 +136,7 @@ tsx tools/vite-build.ts   # vite preserveModules → dist/builder（会 rm dist/
 tsx tools/gen-schema.ts   # schema 写进 dist/builder/，必须在 vite-build 之后
 tsx tools/build-cli-schema.ts  # 往 dist/package.json 的 exports 追加 config/schema.json
 tsx tools/gen-html-data.ts     # 编辑器补全用的 html data
+tsx tools/gen-emmet-snippets.ts # Emmet 标签补全 snippets.json（两者共用一次引擎导出）
 pnpm --filter test-app test  # 此时 builder 才能按包名解析到（消费方视角的端到端）
 ```
 
@@ -998,8 +999,26 @@ GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 | `tools/build-cli-schema.ts` | 把本包 builder 挂进 `dist/builder/config/schema.json` 的 target 分支 |
 | `tools/gen-typings.ts` | 调引擎 `--generate-types`，同步三处 `typings/`（对外即 `npx godot-typings`） |
 | `tools/gen-html-data.ts` | 生成 VSCode 用的 html data（模板补全） |
+| `tools/gen-emmet-snippets.ts` | 生成 Emmet 的 `snippets.json`（模板里的标签展开） |
+| `tools/lib/godot-facts.ts` | 上面两个脚本共用的引擎导出 + Control 系事实表 |
 | `tools/check-schema`（`pnpm check:schema`） | 断言生成的 schema 与形状源一致 |
 | `tools/dump-vocabulary.ts` | 从引擎导出 Godot 主题词汇表 → `packages/css/vocabulary.data.ts` |
+
+两份编辑器补全产物都落在 `dist/` 里，消费方按**文件路径**吃（不是包入口，所以 `exports` 里没它们）：
+
+| 产物 | 谁吃 | 消费方 `.vscode/settings.json` |
+| --- | --- | --- |
+| `dist/html-data/godot.html-data.json` | VSCode `html.customData` | `"html.customData": ["./node_modules/godot-angular/html-data/godot.html-data.json"]` |
+| `dist/emmet/snippets.json` | Emmet | `"emmet.extensionsPath": ["./node_modules/godot-angular/emmet"]` |
+
+分工：html data 管属性 / 信号的补全与悬浮说明，Emmet 管标签骨架的展开（敲 `Button` 再 Tab →
+`<Button text="|"></Button>`）。两边标签全集同源（`tools/lib/godot-facts.ts`），不会一边有一边没有。
+
+⚠ Emmet 那份的**值是缩写而不是字面 HTML**（实测 emmet 2.4）：`resolveSnippets()` 拿
+`parseAbbreviation()` 解析 snippet 值，解析失败只 `warn` 不报错，展开静默退回成用户敲的那个
+标签名。所以 `<Button text="${1}"></Button>` 看着合理但完全不生效，必须写 `Button[text=${1}]`。
+生成脚本的自检靠「值里不得出现尖括号」钉住这条。另外 `extensionsPath` 改动后需重载窗口才生效，
+而补全列表里的实际排序 / 大小写行为只能在真编辑器里确认（无头环境测不了）。
 
 `pnpm gen:typings` 跑的是引擎自带的 codegen（不是第三方工具，也不是
 `--dump-extension-api` 那份 JSON 再加工）：

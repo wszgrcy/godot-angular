@@ -10,8 +10,9 @@
   "scripts": {
     "build:lib": "ng build library",
     "gen:html-data": "tsx tools/gen-html-data.ts",
+    "gen:emmet": "tsx tools/gen-emmet-snippets.ts",
     "build:builder": "tsx tools/vite-build.ts && tsx tools/gen-schema.ts && tsx tools/build-cli-schema.ts",
-    "build": "pnpm run build:lib && pnpm run build:builder && pnpm run gen:html-data",
+    "build": "pnpm run build:lib && pnpm run build:builder && pnpm run gen:html-data && pnpm run gen:emmet",
     "refresh": "pnpm run build",
     "gen:schema": "tsx tools/gen-schema.ts",
     "dump:vocabulary": "tsx tools/dump-vocabulary.ts",
