@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { GDIGNORE } from "../shared/gdignore";
 import { requireGodotBin } from "../shared/godot-bin";
 
 /** 一个待写入的文件：path 相对输出目录 */
@@ -59,8 +60,9 @@ declare module "godot" {
 /** @types 风格入口所在的子目录名，也是 tsconfig types: [...] 中那个名字 */
 export const ENTRY_DIR = "godot";
 
-/** Godot 依靠这个空文件将目录排除在资源导入之外；同时作为「这是生成目录」的标记 */
-export const GDIGNORE = ".gdignore";
+// 文件名定义在 shared/gdignore.ts（产物目录也用同一个标记）。此处转出，保持对外 API 不变：
+// 对 typings 目录它还有第二重身份——looksLikeTypingsDir 的「这确实是生成目录」判据。
+export { GDIGNORE };
 
 /**
  * @types 风格入口。库侧 tsconfig 使用 `typeRoots` + `types: ["godot"]` 命中

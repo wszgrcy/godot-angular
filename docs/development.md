@@ -1019,3 +1019,7 @@ godot --headless --editor --path <工程> --generate-types
 - 生成目录（`typings/`）必须留 `.gdignore`：重写是整目录删除，生成器靠
   `.gdignore` + `*.gen.d.ts` 认出"这确实是生成目录"，指到源码目录（或根目录）会直接拒绝
   而不是删掉它。
+- **引擎测试的产物目录必须留 `.gdignore`**（`vitest` builder 构建后自动补，见 `shared/gdignore.ts`）：
+  产物只由 `require()` 读取，缺了它时一次 `--import` 就为每个 chunk 生成 `.uid` 并写进
+  `uid_cache.bin`，而 chunk 名每次重建都可能变。必须在构建之后写（`deleteOutputPath` 会先清空目录）。
+  场景的 `ext_resource` 与 `require` 都是按路径直接读文件，不受 `.gdignore` 影响（已实测）。

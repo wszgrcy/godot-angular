@@ -5,6 +5,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { globSync } from "tinyglobby";
 import { startPort } from "../../shared/engine-port";
+import { writeGdignore } from "../../shared/gdignore";
 import { COVERAGE_ENV } from "../../shared/coverage";
 import { parseOptions } from "../../shared/parse-options";
 import { runGodotViteBuild, type GodotViteBuildInternals } from "../../vite/build-core";
@@ -83,6 +84,13 @@ const builder: Builder<RawVitestOptions & JsonObject> =
           context,
         );
         if (!built.success) return built;
+        writeGdignore(resolve(context.workspaceRoot, options.outputPath));
+        if (options.assets?.length) {
+          context.logger.warn(
+            "已配置 assets：产物目录带 .gdignore，Godot 不会导入其中的文件，需要资源导入的文件" +
+              "（字体 / 贴图 / 音频）将无法加载。只有 .tres 这类直接读取的资源不受影响。",
+          );
+        }
       } else if (coverage.enabled) {
         context.logger.warn(
           "已启用 coverage 但同时启用了 skipBuild：产物未重新插桩，覆盖率报告将为空或来自上一次构建。",
