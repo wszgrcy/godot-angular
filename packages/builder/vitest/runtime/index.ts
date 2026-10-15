@@ -1,9 +1,6 @@
 export const CUJ_VITEST_PROTOCOL_VERSION = 1;
 
-// 第一行必须是 ./setup：它负责安装 process / global / TextEncoder / AbortController 等
-// 垫片，而 ./worker → vite/module-runner 在**求值期**就使用 TextDecoder。
-// import 会被提升，因此这些垫片只能位于被排在前面的独立模块中。
-import "./setup";
+
 import { parse as flatParse, stringify as flatStringify } from "flatted";
 /**
  * 测试运行时的帧泵。应用构建里这一泵在库内（`core/bootstrap.ts` 的 `GodotAngularApp.tick`，

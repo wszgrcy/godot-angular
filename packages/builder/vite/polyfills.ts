@@ -1,3 +1,5 @@
+import "abortcontroller-polyfill/dist/abortcontroller-polyfill-only.js";
+
 import './atob-shim'
 import { URL as WhatWGURL, URLSearchParams as WhatWGURLSearchParams } from "whatwg-url-minimum";
 
@@ -120,26 +122,7 @@ interface PatchedGlobals {
   URLSearchParams?: unknown;
 }
 
-/**
- * 只补「有真实消费者」的几项，幂等：重复调用仅安装一次。
- *
- * - `queueMicrotask`：Angular 调度器（effect / `watch` / 稳定通知）直接调用，GodotJS 没有。
- * - `requestAnimationFrame`：zoneless 调度器与库自己的帧钟。
- * - `performance`：`performanceMarkFeature()` 里写的是 `performance?.mark?.(...)`，而可选链
- *   不保护未声明的标识符，standalone 组件定义期就会 ReferenceError。只有
- *   `typeof x !== "undefined"` 的写法才挡得住。
- * - `document`：见 `documentStub`。
- * - `URL` / `URLSearchParams`：V8 两个都不给（`URL` 是宿主 API，Node / 浏览器自己给的）。
- *   装的是 `whatwg-url-minimum`（whatwg-url 的衍化版，零依赖、215KB；原版还要 tr46 +
- *   webidl-conversions + punycode，约 440KB）。与 `document` 那种空壳不同，它是跑完整规范的
- *   **真实现**：拿 `whatwg-url` 对拍过 24222 条用例（含模糊生成的非 ASCII），逐条一致。
- *
- * `navigator` / `location` / `structuredClone` / `MutationObserver` / `PerformanceObserver` 一类
- * 浏览器全局不补：Angular 里读它们的位置要么被 `typeof` 挡住、要么已被 tree-shake 掉，
- * 而空实现只会让依赖它们的第三方库看起来能跑、实际静默失效。
- * `Event` / `EventTarget` 的消费者是引擎测试运行时（abortcontroller-polyfill 与 vitest）而不是
- * Angular，因此装在那边：`builder/vitest/runtime/setup.ts`。
- */
+
 function installGodotPolyfills(): void {
   if (installed) return;
   installed = true;
