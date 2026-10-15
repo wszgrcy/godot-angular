@@ -124,7 +124,7 @@ export default class Main extends Node {
   _ready(): void {
     const root = new Control();
     root.name = "AngularRoot";
-    root.size = new Vector2(1024, 768); // 需要跟随窗口时改用 set_anchors_preset(FULL_RECT)
+    root.size = new Vector2(1024, 768); // 需要跟随窗口时改用 set_anchors_and_offsets_preset(FULL_RECT)
     this.add_child(root);
     bootstrapGodotApp(App, root).then((app) => (this.app = app));
   }
@@ -557,12 +557,22 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与 `:host.on` 由 Angular 编译为宿主
 属性选择器。
 
-`@media` 支持 `width`、`height`、`aspect-ratio`、`orientation`、`prefers-color-scheme`。
-环境值由 `Window.size_changed` 与 `DisplayServer` 的主题变更回调自动注入，也可手动提供：
+`@media` 支持 `width`、`height`、`orientation`、`prefers-color-scheme`（`aspect-ratio` 这类
+特性不在环境键里，写了也不会命中）。自动注入只提供 `width` / `height` /
+`prefers-color-scheme`，`orientation` 与 `device-width` / `device-height` 需要自行注入：
 
 ```ts
 inject(STYLE_RUNTIME).setEnv({ width: 1280, height: 720, "prefers-color-scheme": "dark" });
 ```
+
+自动注入的宽高量的是**挂载点（`GODOT_ROOT`）自己占多大**，不是操作系统窗口多大：局部挂载
+就是局部断点。「快速开始」那个例子的挂载点是 1024×768，那么 `@media (max-width: 1100px)` 就会
+命中，不管窗口实际有多宽。两种情况退回量窗口：挂载点不是 `Control`，或它还没被布局过（尺寸 0）。
+
+量到的一律是**布局坐标系**（与 `Control.size` 同一坐标系），不是窗口物理像素：开了内容缩放时
+两者差一个缩放因子——基准 1280×720 的项目在 1920×1080 的窗口里布局宽度仍是 1280，断点按
+1280 写就对了，不要拿 `Window.size` 换算。挂载点铺满窗口（`PRESET_FULL_RECT`）时，它的 `size`
+与窗口视口逐位相等，两种量法等价。
 
 CSS 自定义属性（`--x`、`var(--x)`）已支持。
 
@@ -607,8 +617,10 @@ HBoxContainer Label {
 `add_theme_*_override` 与 `theme_type_variation` 按条目互斥：已写入 override 的条目在切换变体后
 仍返回 override 值。同一条目不应同时使用静态主题变体与运行时级联，默认全部使用运行时级联。
 
-无显示环境（CI、无头模式）中 `Window.size` 为 `(0, 0)`、`is_dark_mode()` 恒为 `false`，媒体查询
-依赖注入值生效。真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
+无显示环境（CI、无头模式）中根窗口是个 dummy 值：实测 `Window.size` 与 `get_visible_rect()` 均为
+`64×64`（4.6.1 与 4.8-dev6 一致），`DisplayServer.screen_get_size()` 为 `(0, 0)`，`is_dark_mode()`
+恒为 `false`。也就是说无头下媒体查询会静默落在**窄屏分支**（64 ≤ 任意 `max-width` 断点），要
+确定性结果就显式 `setEnv`。真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
 
 ## 路由
 

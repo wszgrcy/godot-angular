@@ -698,8 +698,12 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 15. **库必须用 ngc + `compilationMode: "partial"` 编译，不能用裸 `tsc`**。裸 tsc 不生成
     Angular 库元数据，消费方 AOT 认不出依赖里的 `@Directive`，报 NG2012。
 16. 无显示环境（CI / 无头）下 `DisplayServer` 全是 dummy 值：`screen_get_size()` → `(0,0)`、
-    `is_dark_mode()` 恒 false。媒体查询的测试只能断言"注入值 → 命中/不命中"，真实窗口尺寸
-    与系统暗色模式属**待实机确认**，不许在汇报里说成已验证。
+    `is_dark_mode()` 恒 false。根窗口自身也不是 `(0,0)` 而是 `64×64`（4.6.1 / 4.8-dev6 实测
+    一致），所以无头下媒体查询会静默落在窄屏分支。但**坐标系换算不依赖显示**：自己
+    `new Window()` 再设 `content_scale_*` 与 `size`，`get_visible_rect()` 与子 `Control.size`
+    在无头下就是真值，`css-media.spec.ts` 靠这个在 CI 里断言了内容缩放与挂载点区域（含
+    `Control.resized` 驱动的重算）。真实窗口拖拽尺寸
+    与系统暗色模式仍属**待实机确认**，不许在汇报里说成已验证。
 17. **引擎对"未处理的 promise rejection"的口径比浏览器宽**。一个 promise 在 reject 的那一
     瞬间手上没有处理器，就刷一行 `unhandled promise rejection`，**不看下一句有没有接**。
     最小复现：`const p = Promise.reject(new Error("x")); p.catch(() => {});` 在引擎里照样
