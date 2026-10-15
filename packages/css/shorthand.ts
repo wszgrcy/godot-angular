@@ -36,7 +36,6 @@ const SIDE_NAMES = ["top", "right", "bottom", "left"] as const;
 const PASSTHROUGH: ReadonlySet<string> = new Set([
   "color",
   "font-size",
-  "font",
   "background-color",
   "background-image",
   // Godot 的 StyleBoxFlat 只有一个 border_color（四边同色），拆成 border-*-color
@@ -283,6 +282,27 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
         longhands.push(["flex-basis", tokens[2]]);
         warnings.push("flex-basis 无落点（Godot 无 flex-basis 概念），已忽略");
       }
+      return { longhands, warnings };
+    }
+
+    // 来源：无
+    // `font: [style || variant || weight || stretch] <size>[/<line-height>] <family>`
+    // 仅字号有落点。字体族、字重与斜体在 Godot 中对应另一份 Font 资源，行高对应
+    // line_spacing（增量语义），三者均无法由该简写可靠推导。
+    case "font": {
+      const longhands: Longhand[] = [];
+      for (const token of splitValueTokens(trimmed)) {
+        // `14px/1.5` 的字号部分。取值必须带单位：`font: 700 14px sans-serif` 中的 `700` 为字重，
+        // 而本项目的长度解析器将无单位数字按 px 处理，不加此约束会将字重误判为字号
+        const head = token.split("/")[0];
+        if (longhands.length === 0 && /^[+-]?(?:\d+\.?\d*|\.\d+)(px|em|rem|%)$/i.test(head)) {
+          longhands.push(["font-size", head]);
+        }
+      }
+      if (!longhands.length) {
+        warnings.push(`font: "${trimmed}" 中没找到带单位的字号（如 font: 14px/1.5 sans-serif）`);
+      }
+      warnings.push("font 的字体族 / 字重 / 行高无落点（Godot 的字体是 Font 资源），已取字号");
       return { longhands, warnings };
     }
 

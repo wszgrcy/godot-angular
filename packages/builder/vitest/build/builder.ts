@@ -36,6 +36,8 @@ import {
  */
 type GodotVitestBuildOptions = VitestOptions & GodotViteBuildInternals;
 
+const TEST_POLYFILL_SPECIFIER = "godot-angular/builder/vite/test-polyfills.mjs";
+
 const builder: Builder<RawVitestOptions & JsonObject> =
   createBuilder<RawVitestOptions>(async (raw, context) => {
     const options = parseOptions(vitestOptionsSchema, raw, "vitest");
@@ -59,6 +61,7 @@ const builder: Builder<RawVitestOptions & JsonObject> =
           {
             ...options,
             entries: options.entries ?? [],
+            polyfills: [TEST_POLYFILL_SPECIFIER, ...options.polyfills],
             // 入口也是虚拟的：使用方不需要（也不应该）自行编写场景脚本
             inputOverride: { [VITEST_ENTRY_NAME]: VITEST_ENTRY_SPECIFIER },
             extraPlugins: [

@@ -407,13 +407,128 @@ export class AppStepper extends GodotControlBase<number> {
 ## 样式
 
 Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集编译到 `Theme`、`StyleBoxFlat` 与节点属性。
-支持范围分为三层：
+按支持程度，属性分为三类：第一类在 Godot 中有等价落点；第二类有落点但语义不完全等价，
+仅做转换提示；第三类没有落点，输出告警后忽略。下列清单与 `packages/css/runtime/properties.ts`
+中的属性表逐条对应，`css-sweep.spec.ts` 校验两者保持一致。
 
-| 层级 | 内容 | 支持情况 |
+### 等价落点的属性
+
+| 属性 | Godot 落点 |
+| --- | --- |
+| `color` | theme 颜色 `font_color`；处于 `:hover` 等状态时自动改用对应的状态项（如 `font_hover_color`） |
+| `caret-color` | theme 颜色 `caret_color`（LineEdit、TextEdit） |
+| `font-size` | theme 字号 `font_size` |
+| `opacity` | `CanvasItem.modulate.a` |
+| `background-color`、`background` | 该类实际绘制的 stylebox 的 `bg_color`（Button 为 `normal`，PanelContainer 为 `panel`） |
+| `border-color` | StyleBoxFlat 的 `border_color` |
+| `border-top-color` 等单边颜色 | 同上。Godot 的 StyleBoxFlat 只有一个 `border_color`，四边同色；单边属性名输出告警，并按整圈边框处理 |
+| `border-top-width` 等四边宽度 | StyleBoxFlat 的 `border_width_*`，四边相互独立 |
+| `border-top-left-radius` 等四角半径 | StyleBoxFlat 的 `corner_radius_*`，四角相互独立 |
+| `box-shadow` | StyleBoxFlat 的 `shadow_*` |
+| `padding`、`padding-top` 等 | StyleBoxFlat 的 `content_margin_*` |
+
+关于命名：`padding` 落在 `content_margin_*`，是命名差异而非语义差异。Godot 从内容视角命名
+（stylebox 内侧为内容预留的空白，增大即压缩内容可用空间），CSS 从盒子视角命名（边框以内
+的填充），两者指同一段距离。引擎另有 `expand_margin_*`，用于把绘制范围向外扩展到控件矩形
+之外，不影响尺寸下界与可点击区域，与 padding 无关，本包不使用。反向的对应关系同样存在：
+CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，MarginContainer 的 theme
+常量 `margin_*` 实际是它为子节点预留的内侧空白，语义上更接近 padding。
+
+简写属性在构建期展开为 longhand，级联因此定义在 longhand 上。参与展开的简写有：`border`、
+`border-width`、`border-style`、`border-radius`、`background`、`margin`、`padding`、`flex`、`font`。
+其中 `border-style` 仅识别 `solid` 与 `none`，其余线型无落点；`font` 仅提取字号，例如
+`font: 14px/1.5 sans-serif` 展开为 `font-size: 14px`，字体族、字重与行高无落点。
+
+### 仅做转换提示的属性
+
+这类属性有落点，但 Godot 的模型与 CSS 不同，落点为近似值（属性表中标记为 `level: 3`）。
+
+| 属性 | 落点与差异 |
+| --- | --- |
+| `width`、`min-width` | `custom_minimum_size.x`。Godot 只提供尺寸下界，不存在固定宽度；`%`、`em`、`rem` 输出告警并忽略 |
+| `height`、`min-height` | 同上，写入 `custom_minimum_size.y` |
+| `margin`、`margin-top` 等 | MarginContainer 的 theme 常量 `margin_*`。其他类不具备该常量，输出告警并忽略；本包不会为承载 margin 而向节点树插入容器 |
+| `gap`、`row-gap`、`column-gap` | BoxContainer 的 theme 常量 `separation`（单轴，轴向由 `vertical` 决定）；GridContainer、FlowContainer、ItemList 的 `h_separation` 与 `v_separation`。`gap: 4px 8px` 表示行间距 4px、列间距 8px |
+| `justify-content` | `BoxContainer.alignment`，仅支持 `flex-start`、`center`、`flex-end`；`space-between` 等取值输出告警。仅对容器类生效 |
+| `flex`、`flex-grow` | 置位 `size_flags_*` 的 `SIZE_EXPAND` 并写入 `size_flags_stretch_ratio`；`flex-basis` 与 `flex-shrink` 无落点 |
+| `visibility` | `CanvasItem.visible`；`hidden` 对应 `false` |
+| `text-align` | `horizontal_alignment`；不具备该属性的非容器类（Button、LineEdit）改用 `alignment` |
+| `cursor` | `Control.mouse_default_cursor_shape`。支持 `pointer`、`text`、`move`、`not-allowed`、`*-resize` 等关键字，表外取值输出告警 |
+| `text-overflow` | `Label.text_overrun_behavior`。`clip` 与 `ellipsis` 可用；自定义省略号字符串无落点，引擎固定使用 `…` |
+| `white-space` | `Label.autowrap_mode`。`nowrap`、`normal`、`pre`、`pre-wrap`、`break-all` 可用。Godot 不折叠空白，源码中的连续空格按原样绘制 |
+| `direction` | `Control.layout_direction`。`ltr` 与 `rtl` 可用；`inherit` 属于 CSS 全局关键字，在进入属性表之前即被拦截 |
+
+### 无落点的属性
+
+以下属性不会生效。其落点要么是节点树结构（由 Angular 持有，本包不予修改），要么在 Godot 中
+不存在对应概念。书写这些属性时输出一条说明原因的告警，不静默忽略。
+
+| 分组 | 属性 |
+| --- | --- |
+| 布局结构 | `display`、`flex-direction`、`flex-flow`、`flex-wrap`、`flex-basis`、`flex-shrink`、`align-items`、`align-self`、`align-content`、`justify-items`、`order`、`aspect-ratio`、`grid`、`grid-template-columns` |
+| 定位 | `position`、`inset`、`top`、`right`、`bottom`、`left`、`float`、`z-index` |
+| 尺寸 | `max-width`、`max-height`（Godot 无尺寸上界）、`box-sizing` |
+| 字体排印 | `font-family`、`font-weight`、`font-style`、`line-height`、`letter-spacing`、`word-spacing`、`text-decoration`、`text-transform`、`writing-mode` |
+| 背景与边框 | `background-image`（`url()` 与 gradient）、`outline`、`border-style` 的非实线取值 |
+| 视觉与动画 | `transform`、`transition`、`animation`、`animation-name`、`filter`、`backdrop-filter`、`will-change` |
+| 交互与其他 | `overflow`、`user-select`、`pointer-events`、`content`、`::before`、`::after` |
+
+关于 `outline`：Godot 的 StyleBoxFlat 没独立的描边层，因此 `outline` 无落点。引擎的
+`expand_margin_*` 与 CSS 的 `outline` 有一点相似——都绘制在控件矩形之外且不影响布局（引擎
+文档亦建议它配合 `border_width_*` 在控件矩形外描边），但它扩展的是整个 stylebox：底色一并
+外扩，描边也只能沿用同一 stylebox 的 `border_color` 与 `border_width_*`，无法独立取色，
+因此不构成 `outline` 的落点。另需注意 theme 常量 `outline_size` 与颜色 `font_outline_color`
+指的是文字描边（对应 CSS 的 `-webkit-text-stroke`），与 `outline` 无关。
+
+关于 `box-shadow`：第四段长度（spread）与 `inset` 无落点——本引擎的 StyleBoxFlat 没有
+`shadow_expand`，也不支持内阴影，解析时输出告警（多层阴影仅取第一层）。
+
+### 通用属性与限定属性
+
+上述清单中的落点能否真正生效，还取决于节点所属的类。判定依据有二：一是 theme 词汇表
+（由 `pnpm dump:vocabulary` 从引擎导出，当前覆盖 44 个类），二是节点自身的属性。两者任一
+不满足，运行期输出一条告警并忽略，不会写入不生效的 override。构建期 lint 仅校验语法与
+选择器拼写，不包含这项检查。
+
+**与类无关的属性**：对任意 `Control` 均成立。
+
+| 属性 | 落点 |
+| --- | --- |
+| `opacity` | `CanvasItem.modulate.a` |
+| `visibility` | `CanvasItem.visible` |
+| `width`、`min-width`、`height`、`min-height` | `Control.custom_minimum_size` |
+| `flex`、`flex-grow` | `Control.size_flags_*` 与 `size_flags_stretch_ratio` |
+| `cursor` | `Control.mouse_default_cursor_shape` |
+| `direction` | `Control.layout_direction` |
+
+**取决于 theme 词汇表的属性**：下表列出当前 dump 中成立的类，未列出的类不成立。
+
+| 属性 | 需要的 theme item | 成立的类 |
 | --- | --- | --- |
-| 外观 | `color`、`background-color`、`border`、`border-radius`、`box-shadow`、`font-size`、`padding`、`opacity` | 完整支持 |
-| 状态 | `:hover`、`:active`、`:focus`、`:checked`、`:pressed` | 由 Godot 信号驱动 |
-| 布局 | `display`、`flex`、`grid`、`position`、`margin`、`width`、`height` | 仅提供转换提示，不保证等价 |
+| `color` | `font_color`（RichTextLabel 为 `default_color`） | Button、CheckBox、CheckButton、CodeEdit、ColorPickerButton、FoldableContainer、ItemList、Label、LineEdit、LinkButton、MenuBar、MenuButton、OptionButton、ProgressBar、Tree、TextEdit |
+| `font-size` | `font_size`（RichTextLabel 为 `normal_font_size`） | 上一行的 16 个类，再加 TabContainer、TabBar |
+| `caret-color` | `caret_color` | LineEdit、TextEdit、CodeEdit |
+| `background-color`、`background`、`border-*`、`padding`、`box-shadow` | 该类需绘制 stylebox（`panel`、`normal`、`background`、`focus` 之一） | Button、CheckBox、CheckButton、CodeEdit、ColorPickerButton、FoldableContainer、GraphEdit、GraphFrame、GraphNode、ItemList、Label、LineEdit、LinkButton、MenuBar、MenuButton、OptionButton、Panel、PanelContainer、ProgressBar、RichTextLabel、ScrollContainer、TabContainer、Tree、TextEdit |
+| `margin`、`margin-top` 等 | `margin_left` / `margin_top` / `margin_right` / `margin_bottom` | MarginContainer（仅此一类） |
+| `gap`、`row-gap`、`column-gap` | `separation`，或 `h_separation` 与 `v_separation` | 前者：BoxContainer、HBoxContainer、VBoxContainer、HSeparator、VSeparator、SplitContainer、HSplitContainer、VSplitContainer、ColorPicker、GraphNode；后者：GridContainer、FlowContainer、HFlowContainer、VFlowContainer、ItemList、Tree |
+
+**取决于节点属性的属性**：
+
+| 属性 | 需要的节点属性 | 成立的类 |
+| --- | --- | --- |
+| `justify-content` | `alignment`，且该类属于 `Container` | BoxContainer、HBoxContainer、VBoxContainer、FlowContainer 系 |
+| `text-align` | `horizontal_alignment`；不具备时回退到 `alignment`（容器类除外） | Label、RichTextLabel；Button、LineEdit |
+| `text-overflow` | `text_overrun_behavior` | Label、Button、LinkButton、ItemList |
+| `white-space` | `autowrap_mode` | Label、Button、RichTextLabel、TextEdit |
+
+词汇表未收录的类（`Control`、`Container`、`CenterContainer`、`AspectRatioContainer`、
+`TextureRect`、`ColorRect` 等）不具备任何 theme item，外观类属性对其一律输出告警。
+告警按「属性 + 类名」去重，同一组合仅输出一次。
+
+### 伪类状态
+
+`:hover`、`:active`、`:focus`、`:checked`、`:pressed` 由 Godot 信号驱动。状态生效时自动改用带
+状态后缀的 theme item（如 `font_hover_color`、`hover` stylebox），无需额外属性。
 
 样式的三个入口共用同一套级联规则：
 
@@ -461,6 +576,30 @@ inject(STYLE_RUNTIME).setPseudoClass(node, "disabled", true);
 以下特性不支持，处理时输出一次告警并忽略：`calc()`、`url()`、`@keyframes` 与动画、
 `position: fixed` / `absolute`、`overflow` 滚动裁切、`grid` 的真实网格（仅转换为
 `GridContainer` 的列数）、字体加载、伪元素 `::before` 与 `::after`。
+
+CSS 嵌套（nesting）不支持。解析器将声明块内部的 `{` 视为语法错误，下列写法会输出一条
+告警，且其中的声明不会生效：
+
+```css
+/* 不支持：内层块会被当作声明解析 */
+HBoxContainer {
+  Label {
+    margin-right: 320px;
+  }
+}
+```
+
+改写为平铺选择器即可保持相同的后代语义：
+
+```css
+HBoxContainer Label {
+  margin-right: 320px;
+}
+```
+
+如需使用嵌套语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`。构建期会先调用 vite 的
+`preprocessCSS`（与组件 `styleUrls` 使用同一入口），由预处理器展开嵌套后再交给解析器。
+全局样式与 `styleUrls` 均适用；扩展名为 `.css` 的文件不做预处理。
 
 长度单位仅支持 `px`、`%` 与不带单位的数值（按 `px` 处理）。`em`、`rem`、`vw`、`vh`、`cm`、
 `pt` 等单位会告警并丢弃该条声明。
@@ -782,6 +921,8 @@ ng test --reporters=json
 - 文本节点渲染为 `Label`。富文本使用 `RichTextLabel`。
 - 引擎枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`、
   `Control.LayoutPreset.PRESET_FULL_RECT`。
+- CSS 仅覆盖上述明确子集，完整清单见「样式」一节。不支持 CSS 嵌套（nesting）；如需嵌套
+  语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`，由构建期的 `preprocessCSS` 展开。
 
 ## 常见问题
 

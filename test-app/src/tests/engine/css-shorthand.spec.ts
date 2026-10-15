@@ -158,3 +158,20 @@ describe("background / flex / 明确不做的东西", () => {
     expect(expandShorthand("mystery-property", "x")).toBeNull();
   });
 });
+
+describe("font（只取字号）", () => {
+  it("font: 14px/1.5 sans-serif → font-size: 14px，其余部分输出告警", () => {
+    expect(expandShorthand("font", "14px/1.5 sans-serif")?.longhands).toEqual([["font-size", "14px"]]);
+    expect(warningsOf("font", "14px/1.5 sans-serif")).toContain("字体族");
+  });
+
+  it("字重不会被误当作字号（无单位的 700 不是长度）", () => {
+    expect(expandShorthand("font", "bold 700 18px/1.2 Arial")?.longhands).toEqual([["font-size", "18px"]]);
+  });
+
+  it("缺少带单位的字号时不做猜测，输出告警", () => {
+    const r = expandShorthand("font", "bold sans-serif");
+    expect(r?.longhands).toEqual([]);
+    expect(r?.warnings.join("\n")).toContain("没找到带单位的字号");
+  });
+});

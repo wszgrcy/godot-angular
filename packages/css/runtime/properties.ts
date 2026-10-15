@@ -5,7 +5,7 @@ import { isUnsupportedUnit, parseLength, parseNumber } from "../value/length";
 import { parseBoxShadow } from "../value/shadow";
 import { fourSidesFromParts } from "../value/sides";
 import { splitValueTokens } from "../value/tokens";
-import { hasThemeItem, itemForStates, pickBackgroundStylebox } from "../vocabulary";
+import { hasThemeItem, itemForStates, pickBackgroundStylebox, classChain } from "../vocabulary";
 
 /**
  * 来源：无
@@ -117,9 +117,22 @@ function backgroundItem(node: CssNode, ctx: ApplyContext, cssName: string): stri
 }
 
 /**
+ * 来源：引擎 dump 逐类核对
+ *
+ * 同一语义的 theme item 在个别类上名称不同。CSS 属性只写通用名，这里换成该类真正的 item 名；
+ * 不做模糊匹配，表外的类名一律按通用名查。
+ */
+const ITEM_ALIAS: Record<string, Record<string, string>> = {
+  // RichTextLabel 的正文色与正文字号不带 font_ 前缀
+  font_color: { RichTextLabel: "default_color" },
+  font_size: { RichTextLabel: "normal_font_size" },
+};
+
+/**
  * 来源：无
  *
- * theme item 存在性检查（词汇表来自引擎 dump）
+ * theme item 存在性检查（词汇表来自引擎 dump），同时完成别名替换。
+ * 返回该类真正要写的 item 名；不存在时告警并返回 null。
  */
 function requireItem(
   node: CssNode,
@@ -127,14 +140,16 @@ function requireItem(
   kind: "color" | "font_size" | "constant",
   item: string,
   cssName: string,
-): boolean {
+): string | null {
   const cls = ctx.backend.classOf(node);
-  if (hasThemeItem(cls, kind, item)) return true;
+  const alias = ITEM_ALIAS[item]?.[cls];
+  const target = alias && hasThemeItem(cls, kind, alias) ? alias : item;
+  if (hasThemeItem(cls, kind, target)) return target;
   ctx.warn(
     `item:${cls}:${kind}:${item}:${cssName}`,
     `${cssName} 需要写入 ${cls} 的 ${kind} "${item}"，但 ${cls} 的词汇表中不存在该项（已沿父链查找），已忽略。`,
   );
-  return false;
+  return null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -180,6 +195,78 @@ const ALIGNMENT: Record<string, number> = {
 
 const TEXT_ALIGN: Record<string, number> = { left: 0, center: 1, right: 2, start: 0, end: 2 };
 
+/**
+ * 来源：引擎 dump（Control.CursorShape）
+ *
+ * CSS cursor 关键字 → `Control.mouse_default_cursor_shape` 的枚举值。表外的关键字
+ * （zoom-in、alias、cell、none 等）输出告警，不做近似映射。
+ */
+const CURSOR_SHAPE: Record<string, number> = {
+  default: 0,
+  auto: 0,
+  arrow: 0,
+  text: 1,
+  "vertical-text": 1,
+  pointer: 2,
+  crosshair: 3,
+  wait: 4,
+  progress: 5,
+  busy: 5,
+  grab: 6,
+  grabbing: 6,
+  "not-allowed": 8,
+  "no-drop": 8,
+  "n-resize": 9,
+  "s-resize": 9,
+  "ns-resize": 9,
+  "row-resize": 9,
+  "e-resize": 10,
+  "w-resize": 10,
+  "ew-resize": 10,
+  "col-resize": 10,
+  "ne-resize": 11,
+  "sw-resize": 11,
+  "nesw-resize": 11,
+  "nw-resize": 12,
+  "se-resize": 12,
+  "nwse-resize": 12,
+  move: 13,
+  "all-scroll": 13,
+  help: 16,
+};
+
+/**
+ * 来源：引擎 dump（TextServer.OverrunBehavior）
+ *
+ * CSS text-overflow → `Label.text_overrun_behavior`。1 = 按字符裁切，3 = 按字符裁切并加 …
+ */
+const TEXT_OVERRUN: Record<string, number> = { clip: 1, ellipsis: 3 };
+
+/**
+ * 来源：引擎 dump（TextServer.AutowrapMode）
+ *
+ * CSS white-space → `Label.autowrap_mode`。Godot 不做空白折叠，因此 `pre` 与 `nowrap`
+ * 同样落在 AUTOWRAP_OFF（差异只在源码里的连续空格，那部分本方案不处理）。
+ */
+const AUTOWRAP: Record<string, number> = {
+  normal: 2,
+  "pre-wrap": 2,
+  "pre-line": 2,
+  "break-spaces": 2,
+  pre: 0,
+  nowrap: 0,
+  "break-all": 3,
+  anywhere: 3,
+};
+
+/**
+ * 来源：引擎 dump（Control.LayoutDirection）
+ *
+ * CSS direction → `Control.layout_direction`（LTR 2 / RTL 3）。`inherit` / `initial`
+ * 不在此列：它们先被 applyCssProperty 的全局关键字拦截（Godot 的 theme 没有继承链上的 unset）。
+ */
+const LAYOUT_DIRECTION: Record<string, number> = { ltr: 2, rtl: 3 };
+
 /* ---------------- 明确不做的东西 ---------------- */
 
 /**
@@ -207,23 +294,36 @@ const NO_LANDING: Record<string, string> = {
   float: "无对应能力",
   grid: "GridContainer 的列数配置在节点上，不从 CSS 推导",
   "grid-template-columns": "同上",
+  order: "Godot 的排列与绘制顺序由节点顺序决定，修改它等同于修改节点树",
+  "aspect-ratio": "宽高比在 AspectRatioContainer.ratio 上，属于节点树结构",
+  "max-width": "Godot 的 Control 只有下界 custom_minimum_size，没有上界；上限由父容器的尺寸与锚点约束",
+  "max-height": "同上",
+  "background-image": "Godot 的 StyleBoxFlat 纹理是另一套 API（texture / Gradient 资源），url() 与 gradient 无对应物",
+  "align-self": "BoxContainer 不为单个子节点提供交叉轴对齐",
   "font-family": "Godot 的字体是 Font 资源，CSS 字体名无对应能力（更换字体请使用 Theme 的 font item）",
   "font-weight": "同上（粗体对应另一个 Font 资源）",
   "font-style": "同上",
-  "line-height": "Label 不提供行高属性",
+  "line-height": "Label 的 line_spacing 是「行与行之间的增量」，与 CSS 行高（整行盒高度）定义不同，不做静默换算",
   "letter-spacing": "无对应能力",
+  "word-spacing": "无对应能力",
   "text-decoration": "无对应能力",
   "text-transform": "无对应能力",
   transform: "Godot 的 transform 位于 CanvasItem，语义与 CSS 差异过大",
   transition: "动画不在支持范围内（见文档第七节）；Godot 侧请使用 Tween",
   animation: "动画不在支持范围内（见文档第七节）",
   "animation-name": "动画不在支持范围内（见文档第七节）",
-  cursor: "Godot 的鼠标形状由 Control.mouse_default_cursor_shape 决定，取值表与 CSS 不同",
   outline: "StyleBoxFlat 无 outline 对应能力（焦点样式请使用 :focus 的 stylebox）",
   "z-index": "Godot 的绘制顺序由节点顺序决定，修改它等同于修改节点树",
   overflow: "Godot 的裁剪由父容器的 clip_contents 决定",
   "user-select": "无对应能力",
   "pointer-events": "Godot 的 mouse_filter 取值不同，不做静默转换",
+  "box-sizing": "Godot 的尺寸不区分 content-box / border-box",
+  "writing-mode": "Godot 没有竖排文本；横向左右方向请使用 direction",
+  filter: "Godot 的视觉效果由 material / WorldEnvironment 承担，与 CSS 滤镜是另一套模型",
+  "backdrop-filter": "同上",
+  "will-change": "无对应能力",
+  content: "content 依附于伪元素 ::before / ::after，Godot 没有伪元素",
+  "flex-flow": "flex-flow 是 flex-direction 与 flex-wrap 的简写，两者均无落点",
 };
 
 /**
@@ -244,8 +344,9 @@ const props = new Map<string, CssProperty>([
     level: 1,
     parse: (raw, warnings) => parseColorOr(raw, warnings, "color"),
     apply: (node, value, ctx) => {
-      if (!requireItem(node, ctx, "color", "font_color", "color")) return;
-      ctx.backend.setColorOverride(node, stateItem(node, ctx, "color", "font_color"), value as ColorLike);
+      const item = requireItem(node, ctx, "color", "font_color", "color");
+      if (!item) return;
+      ctx.backend.setColorOverride(node, stateItem(node, ctx, "color", item), value as ColorLike);
     },
   }],
 
@@ -260,8 +361,9 @@ const props = new Map<string, CssProperty>([
       return Math.round(length.value);
     },
     apply: (node, value, ctx) => {
-      if (!requireItem(node, ctx, "font_size", "font_size", "font-size")) return;
-      ctx.backend.setFontSizeOverride(node, "font_size", value as number);
+      const item = requireItem(node, ctx, "font_size", "font_size", "font-size");
+      if (!item) return;
+      ctx.backend.setFontSizeOverride(node, item, value as number);
     },
   }],
 
@@ -273,6 +375,16 @@ const props = new Map<string, CssProperty>([
       return alpha;
     },
     apply: (node, value, ctx) => ctx.backend.setOpacity(node, value as number),
+  }],
+
+  ["caret-color", {
+    level: 1,
+    parse: (raw, warnings) => parseColorOr(raw, warnings, "caret-color"),
+    apply: (node, value, ctx) => {
+      const item = requireItem(node, ctx, "color", "caret_color", "caret-color");
+      if (!item) return;
+      ctx.backend.setColorOverride(node, item, value as ColorLike);
+    },
   }],
 
   ["background-color", {
@@ -329,6 +441,25 @@ const props = new Map<string, CssProperty>([
       ctx.backend.mutateStyleBox(node, item, (box) => box.setBorderColor(colorValue));
     },
   }],
+
+  /** 单边颜色：Godot 的 StyleBoxFlat 只有一个 border_color，必须说明它作用于整圈边框 */
+  ...BORDER_SIDES.map((side): [string, CssProperty] => [
+    `border-${side}-color`,
+    {
+      level: 1,
+      parse: (raw, warnings) => parseColorOr(raw, warnings, `border-${side}-color`),
+      apply: (node, value, ctx) => {
+        const item = backgroundItem(node, ctx, `border-${side}-color`);
+        if (!item) return;
+        ctx.warn(
+          `border-single:${side}`,
+          `border-${side}-color 无单边落点：Godot 的 StyleBoxFlat 只有一个 border_color（四边同色），已按整圈边框颜色处理。`,
+        );
+        const colorValue = value as ColorLike;
+        ctx.backend.mutateStyleBox(node, item, (box) => box.setBorderColor(colorValue));
+      },
+    },
+  ]),
 
   /* ---- 圆角：Godot 四个角各一个 int ---- */
 
@@ -471,34 +602,25 @@ const props = new Map<string, CssProperty>([
   /**
    * gap → separation。Godot 4 的 BoxContainer 没有 `separation` 属性（Godot 3 有），间距是
    * theme 常量，写成属性静默无效。GridContainer 只有 h_separation / v_separation，两个都写。
+   *
+   * `gap: <行> <列>` 的两值写法一并支持（CSS 的轴序是 row 在前，与 h/v 相反）。
    */
   ["gap", {
     level: 3,
-    parse: (raw, warnings) => {
-      const value = px(raw.split(/\s+/)[0]);
-      if (value === null) warnings.push(`gap: "${raw}" 不是长度`);
-      return value === null ? null : Math.round(value);
-    },
-    apply: (node, value, ctx) => {
-      const cls = ctx.backend.classOf(node);
-      if (hasThemeItem(cls, "constant", "separation")) {
-        ctx.backend.setConstantOverride(node, "separation", value as number);
-        return;
-      }
-      if (
-        hasThemeItem(cls, "constant", "h_separation")
-        && hasThemeItem(cls, "constant", "v_separation")
-      ) {
-        ctx.backend.setConstantOverride(node, "h_separation", value as number);
-        ctx.backend.setConstantOverride(node, "v_separation", value as number);
-        return;
-      }
-      ctx.warn(
-        `gap:${cls}`,
-        `gap 无落点：${cls} 不是 BoxContainer / GridContainer，不存在 separation 间距常量。`
-          + "容器间距请使用这两个类，或自行调用 add_theme_constant_override。已忽略。",
-      );
-    },
+    parse: (raw, warnings) => gapAxes(raw, "gap", warnings),
+    apply: (node, value, ctx) => applyGap(node, value as GapAxes, "gap", ctx),
+  }],
+
+  ["row-gap", {
+    level: 3,
+    parse: (raw, warnings) => singleAxis(raw, "row-gap", warnings, "row"),
+    apply: (node, value, ctx) => applyGap(node, value as GapAxes, "row-gap", ctx),
+  }],
+
+  ["column-gap", {
+    level: 3,
+    parse: (raw, warnings) => singleAxis(raw, "column-gap", warnings, "column"),
+    apply: (node, value, ctx) => applyGap(node, value as GapAxes, "column-gap", ctx),
   }],
 
   ["justify-content", {
@@ -511,6 +633,16 @@ const props = new Map<string, CssProperty>([
           "justify-content:space",
           `justify-content: ${value} 无落点：Godot 的 BoxContainer.alignment 仅提供 BEGIN / CENTER / END 三档，`
             + "space-between / space-around / space-evenly 无对应取值。已忽略。",
+        );
+        return;
+      }
+      // Button、LineEdit 等也有 `alignment`，但那是文本对齐（text-align 的落点），
+      // 只有容器类的 `alignment` 才是主轴对齐
+      if (!classChain(ctx.backend.classOf(node)).includes("Container")) {
+        ctx.warn(
+          `prop:${ctx.backend.classOf(node)}:alignment`,
+          `justify-content 需要写入 ${ctx.backend.classOf(node)} 的 alignment，但该节点不是容器`
+            + "（它属于 BoxContainer / FlowContainer 一类）。已忽略。",
         );
         return;
       }
@@ -562,7 +694,7 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
-  /** text-align → 拥有 horizontal_alignment 的类（Label / Button / LineEdit…） */
+  /** text-align → 拥有水平对齐属性的类（Label / RichTextLabel / Button / LineEdit…） */
   ["text-align", {
     level: 3,
     parse: (raw) => raw.trim().toLowerCase(),
@@ -572,8 +704,91 @@ const props = new Map<string, CssProperty>([
         ctx.warn("text-align", `text-align: ${value} 无对应值（可用 left / center / right），已忽略。`);
         return;
       }
-      if (!hasNodeProperty(ctx, node, "horizontal_alignment", "text-align", "Label")) return;
-      ctx.backend.setNodeNumber(node, "horizontal_alignment", mapped);
+      const prop = textAlignProperty(node, ctx);
+      if (!prop) {
+        ctx.warn(
+          `prop:${ctx.backend.classOf(node)}:horizontal_alignment`,
+          `text-align 需要写入 ${ctx.backend.classOf(node)} 的 horizontal_alignment 或 alignment，`
+            + "但该节点不具备这两个属性（它属于 Label、RichTextLabel、Button、LineEdit 一类）。已忽略。",
+        );
+        return;
+      }
+      ctx.backend.setNodeNumber(node, prop, mapped);
+    },
+  }],
+
+  /** cursor → Control.mouse_default_cursor_shape（仅影响悬停时的形状） */
+  ["cursor", {
+    level: 3,
+    parse: (raw) => (raw.split(",")[0] ?? "").trim().toLowerCase(),
+    apply: (node, value, ctx) => {
+      const shape = CURSOR_SHAPE[value as string];
+      if (shape === undefined) {
+        ctx.warn(
+          `cursor:${value}`,
+          `cursor: ${value} 无对应取值（Godot 的 mouse_default_cursor_shape 取值表不同，可用：`
+            + `${Object.keys(CURSOR_SHAPE).join(" / ")}）。已忽略。`,
+        );
+        return;
+      }
+      if (!hasNodeProperty(ctx, node, "mouse_default_cursor_shape", "cursor", "Control")) return;
+      ctx.backend.setNodeNumber(node, "mouse_default_cursor_shape", shape);
+    },
+  }],
+
+  /** text-overflow → Label.text_overrun_behavior（仅在文本被约束住时看得出来） */
+  ["text-overflow", {
+    level: 3,
+    parse: (raw, warnings) => {
+      const parts = splitValueTokens(raw);
+      const key = (parts[0] ?? "").toLowerCase();
+      if (key === "ellipsis" && parts.length > 1) {
+        warnings.push("text-overflow 的自定义省略号字符串无落点（Godot 固定用 …），已按 ellipsis 处理");
+      }
+      const mapped = TEXT_OVERRUN[key];
+      if (mapped === undefined) {
+        warnings.push(`text-overflow: "${raw}" 无对应取值（可用 clip / ellipsis）`);
+        return null;
+      }
+      return mapped;
+    },
+    apply: (node, value, ctx) => {
+      if (!hasNodeProperty(ctx, node, "text_overrun_behavior", "text-overflow", "Label")) return;
+      ctx.backend.setNodeNumber(node, "text_overrun_behavior", value as number);
+    },
+  }],
+
+  /** white-space → Label.autowrap_mode（Godot 不折叠空白，只映射换行策略） */
+  ["white-space", {
+    level: 3,
+    parse: (raw) => raw.trim().toLowerCase(),
+    apply: (node, value, ctx) => {
+      const mode = AUTOWRAP[value as string];
+      if (mode === undefined) {
+        ctx.warn(
+          `white-space:${value}`,
+          `white-space: ${value} 无对应取值（可用 normal / nowrap / pre / pre-wrap / break-all），已忽略。`
+            + "Godot 不折叠空白，源码里的连续空格按原样绘制。",
+        );
+        return;
+      }
+      if (!hasNodeProperty(ctx, node, "autowrap_mode", "white-space", "Label")) return;
+      ctx.backend.setNodeNumber(node, "autowrap_mode", mode);
+    },
+  }],
+
+  /** direction → Control.layout_direction（竖排文本无落点，见 writing-mode） */
+  ["direction", {
+    level: 3,
+    parse: (raw) => raw.trim().toLowerCase(),
+    apply: (node, value, ctx) => {
+      const mapped = LAYOUT_DIRECTION[value as string];
+      if (mapped === undefined) {
+        ctx.warn("direction", `direction: ${value} 无对应取值（可用 ltr / rtl），已忽略。`);
+        return;
+      }
+      if (!hasNodeProperty(ctx, node, "layout_direction", "direction", "Control")) return;
+      ctx.backend.setNodeNumber(node, "layout_direction", mapped);
     },
   }],
 
@@ -719,6 +934,93 @@ function minimumAxis(raw: string, cssName: string, warnings: string[]): number |
   return Math.round(length.value);
 }
 
+/** gap / row-gap / column-gap 的解析结果：两轴各自可选（null = 本条声明未提及那一轴） */
+interface GapAxes {
+  row: number | null;
+  column: number | null;
+}
+
+/** 一个长度 → 一轴；非长度返回 null 并告警 */
+function axisLength(raw: string, cssName: string, warnings: string[]): number | null {
+  const value = px(raw);
+  if (value === null) warnings.push(`${cssName}: "${raw}" 不是长度`);
+  return value === null ? null : Math.round(value);
+}
+
+/** `gap: <行> <列>`：单值时两轴同值（CSS 口径），两值时行在前 */
+function gapAxes(raw: string, cssName: string, warnings: string[]): GapAxes | null {
+  const parts = String(raw).trim().split(/\s+/).filter(Boolean);
+  if (!parts.length || parts.length > 2) {
+    warnings.push(`${cssName}: "${raw}" 期望 1–2 个长度`);
+    return null;
+  }
+  const row = axisLength(parts[0], cssName, warnings);
+  const column = parts[1] === undefined ? row : axisLength(parts[1], cssName, warnings);
+  if (row === null && column === null) return null;
+  return { row, column };
+}
+
+function singleAxis(
+  raw: string,
+  cssName: string,
+  warnings: string[],
+  axis: "row" | "column",
+): GapAxes | null {
+  const value = axisLength(String(raw).trim().split(/\s+/)[0] ?? "", cssName, warnings);
+  if (value === null) return null;
+  return axis === "row" ? { row: value, column: null } : { row: null, column: value };
+}
+
+/**
+ * 来源：无
+ *
+ * gap、row-gap、column-gap 的共用落点。Godot 的两套容器命名不同：BoxContainer 只有单轴的
+ * `separation`（轴向由 `vertical` 决定），GridContainer、FlowContainer、ItemList 为
+ * h_separation 与 v_separation。写入 `node.separation = 8` 在 JS 侧不报错也不生效，
+ * 因此必须使用 theme 常量覆盖。
+ *
+ * 单轴容器只有一根轴。另一轴仅在两个取值不相同时告警；`gap: 8px` 这类两轴同值的写法
+ * 不告警，以免最常见的用法持续产生噪声。
+ */
+function applyGap(node: CssNode, axes: GapAxes, cssName: string, ctx: ApplyContext): void {
+  const { row, column } = axes;
+  const cls = ctx.backend.classOf(node);
+  if (hasThemeItem(cls, "constant", "h_separation") && hasThemeItem(cls, "constant", "v_separation")) {
+    if (column !== null) ctx.backend.setConstantOverride(node, "h_separation", column);
+    if (row !== null) ctx.backend.setConstantOverride(node, "v_separation", row);
+    return;
+  }
+  if (hasThemeItem(cls, "constant", "separation")) {
+    const vertical = ctx.backend.hasNodeProperty(node, "vertical")
+      ? ctx.backend.getNodeNumber(node, "vertical") !== 0
+      : null;
+    if (vertical === true) {
+      if (row !== null) ctx.backend.setConstantOverride(node, "separation", row);
+      if (column !== null && column !== row) noGapAxis(node, ctx, cssName, "column", cls);
+    } else if (vertical === false) {
+      if (column !== null) ctx.backend.setConstantOverride(node, "separation", column);
+      if (row !== null && row !== column) noGapAxis(node, ctx, cssName, "row", cls);
+    } else {
+      const single = column ?? row;
+      if (single !== null) ctx.backend.setConstantOverride(node, "separation", single);
+    }
+    return;
+  }
+  ctx.warn(
+    `gap:${cls}`,
+    `${cssName} 无落点：${cls} 不是 BoxContainer / GridContainer，不存在 separation 间距常量。`
+      + "容器间距请使用这两个类，或自行调用 add_theme_constant_override。已忽略。",
+  );
+}
+
+function noGapAxis(node: CssNode, ctx: ApplyContext, cssName: string, axis: "row" | "column", cls: string): void {
+  ctx.warn(
+    `gap-axis:${cls}:${axis}`,
+    `${cssName} 的 ${axis === "row" ? "row-gap" : "column-gap"} 在 ${cls} 上无落点：BoxContainer 只有一个`
+      + " `separation`（单轴），另一轴不产生间距。已忽略。",
+  );
+}
+
 function applyMargin(node: CssNode, margin: Partial<FourSides>, cssName: string, ctx: ApplyContext): void {
   // Godot 4 的 MarginContainer 没有 margin_* 属性，边距是 theme 常量。写入
   // `node.margin_top = 12` 在 GodotJS 中不报错，但引擎完全无感知——静默无效最难定位。
@@ -737,6 +1039,21 @@ function applyMargin(node: CssNode, margin: Partial<FourSides>, cssName: string,
     // undefined 表示本条声明未提及那一侧，不要修改它（撤销走 clearProperty，不依赖写入 0）
     if (value !== undefined) ctx.backend.setConstantOverride(node, `margin_${side}`, Math.round(value));
   }
+}
+
+/**
+ * 来源：无
+ *
+ * text-align 的落点属性名。Label、RichTextLabel 用 `horizontal_alignment`，Button、LineEdit
+ * 的同义属性叫 `alignment`（两个枚举取值一致：LEFT 0 / CENTER 1 / RIGHT 2）。
+ *
+ * BoxContainer 系也有 `alignment`，但那是 justify-content 的落点（布局对齐而非文本对齐），
+ * 因此容器类不参与回退。
+ */
+function textAlignProperty(node: CssNode, ctx: ApplyContext): string | null {
+  if (ctx.backend.hasNodeProperty(node, "horizontal_alignment")) return "horizontal_alignment";
+  if (classChain(ctx.backend.classOf(node)).includes("Container")) return null;
+  return ctx.backend.hasNodeProperty(node, "alignment") ? "alignment" : null;
 }
 
 /** 节点上是否存在该属性（不存在则告警，不强行写入） */

@@ -471,16 +471,21 @@ worktree 打架，全是脏状态），以及让每个使用方手抄一份场�
   ⚠ **它属于测试侧，不在 `core/polyfills.ts`**：要 TextDecoder 的是 `vite/module-runner`，
   不是 Angular。放进应用 polyfill 会让每个应用白背依赖（实测 +33KB）。应用侧的判据只有
   一条：Angular（含 renderer）实际读它吗？读了才装。
-- **无 `Event`/`EventTarget`** → 同样在测试运行时里。`abortcontroller-polyfill` 发 abort
-  事件时要 `new Event("abort")`，vitest 的模块预加载失败路径也构造 `Event`；缺了它们引擎侧
-  直接 `worker 处理失败: ReferenceError: Event is not defined`。Angular 一处不读（动画路径
-  要的是 `CustomEvent`，而 `document.documentElement` 缺失使 `areAnimationSupported` 恒假，
-  整条路径不执行），所以应用侧不装。
-- **无 `AbortController`** → 同样在测试运行时里。缺了它 vitest 的 `createTestContext` 直接
-  `ReferenceError`，所有 spec 全在收集阶段挂掉。包一层子类是为了补上"重复 `abort()` 是
-  no-op"（ponyfill 会重复发 abort 事件）。`DOMException` 也得跟着补：ponyfill 的
-  `AbortSignal.timeout()` 要 `new DOMException(...)`，缺了时 `timeout()` 在定时器里抛
-  ReferenceError 且**信号永不 abort**（实测 30ms 后 aborted 仍为 false）——静默失效比报错难查。
+- **无 `Event`/`EventTarget`** → 测试运行时里装（`event-target-shim`）。vitest 的模块预加载
+  失败路径构造 `Event`，`abortcontroller-polyfill` 发 abort 事件也要 `new Event("abort")`；
+  缺了它们引擎侧直接 `worker 处理失败: ReferenceError: Event is not defined`。Angular 与
+  `@angular/router` 一处不读（动画路径要的是 `CustomEvent`，而 `document.documentElement`
+  缺失使 `areAnimationSupported` 恒假，整条路径不执行），所以**应用侧不装**。
+- **无 `AbortController`** → **应用侧与测试运行时都装**，两边消费者不同：
+  - 测试运行时：缺了它 vitest 的 `createTestContext` 直接 `ReferenceError`，所有 spec 全在
+    收集阶段挂掉。`DOMException` 得跟着补：ponyfill 的 `AbortSignal.timeout()` 要
+    `new DOMException(...)`，缺了时 `timeout()` 在定时器里抛 ReferenceError 且**信号永不
+    abort**（实测 30ms 后 aborted 仍为 false）——静默失效比报错难查。
+  - 应用侧：`vite/abort-shim.ts`（零依赖手写，不引包的理由写在该文件头）。消费者是
+    `@angular/router`——每轮导航一个 `AbortController`，而它抛的 ReferenceError 会被路由
+    自己吞掉（见第 9 节第 20 条），症状是“点了不跳转、不报错、不发事件”。
+    ⚠ 这一项曾经**只装在测试运行时**，于是引擎测试全绿而应用里路由是死的。应用侧的判据
+    仍只有一条：Angular（含 router）实际读它吗？读了就装，并且装在应用侧。
 - **flatted 不认 RegExp**：`-t "信号"` 传到引擎会变成 `{}`，名字过滤**静默失效**（不报错，
   只是全量跑了一遍）。`regexp-codec.ts` 只包 `context`（config/files），不给每秒几十上百条的
   任务更新帧做深度遍历。
@@ -913,6 +918,24 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 19. **`polyfills` 选项目前只接受能直接解析的说明符**。extras 被原样写进虚拟入口，而虚拟模块
     没有目录基准，写 `./src/foo.js` 会报 `UNRESOLVED_IMPORT`（实测）。绝对路径、包名可用；
     相对路径待修（应在 `build-core` 里按 workspaceRoot 解析后再传）。
+
+20. **路由把导航流水线的错误静默吞了**，“点了不跳转、不报错”优先查这里。
+    `NavigationTransitions.setupNavigations(...).subscribe({ error: e => {} })`（`@angular/router`
+    自己的代码）——错误处理是个空函数。而它的外层 `switchMap` 体里有一句
+    `new AbortController()`：抛出的 ReferenceError 不走 `catchError`（那个只包内层管道），
+    直接落进那个空 error 回调，订阅解体。此后 `transitions.next()` 打在已关闭的 Subject 上，
+    `navigate()` 的 promise **既不 resolve 也不 reject**、`router.events` 一条不发、outlet 永远空。
+    实测特征：`router.navigationTransitions.transitions.observers.length === 0`。
+    查法：把 `node_modules/@angular/router/fesm2022/_router-chunk.mjs` 里那句 `error: e => {}`
+    临时改成打印，真因当场出来（本库就是这么定位到 GodotJS 缺 `AbortController` 的）。
+
+21. **改补丁入口的依赖会改所有入口的分块，进而改顶层变量重命名**。实测：给
+    `vite/polyfills.ts` 加一个包依赖后，引擎测试入口加载即
+    `TypeError: Cannot read properties of undefined (reading 'toStringTag')`——
+    `@nberlette/utf8` 顶层那句 `var Symbol = $global.Symbol` 原本被 rolldown 重命名成
+    `Symbol$1`，模块图一变就不重命名了，于是遮蔽全局 `Symbol`，而生成入口的第 4 行正是
+    `[Symbol.toStringTag]`。两个结论：补丁入口尽量**只加本地模块、不加包**（`abort-shim.ts`
+    因此手写而不用 `abortcontroller-polyfill`）；改动后必须跑引擎套件，光跑 node 侧看不出来。
 
 ---
 

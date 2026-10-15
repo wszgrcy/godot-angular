@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Button, CheckBox, HBoxContainer, Label, MarginContainer, PanelContainer, VBoxContainer } from "godot";
+import { Button, CheckBox, GridContainer, HBoxContainer, Label, LineEdit, MarginContainer, PanelContainer, VBoxContainer } from "godot";
 import { StyleRuntime } from "godot-angular/core";
 import { SUPPORTED_PSEUDO_CLASSES, cssPropertyNames } from "godot-angular/css";
 import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
@@ -86,7 +86,26 @@ const LANDED: Array<[property: string, value: string, make: () => any]> = [
   ["margin-bottom", "4px", () => new MarginContainer()],
   ["margin-left", "4px", () => new MarginContainer()],
   ["gap", "8px", () => new VBoxContainer()],
+  ["gap", "8px 12px", () => new GridContainer()],
+  ["row-gap", "8px", () => new GridContainer()],
+  ["column-gap", "8px", () => new GridContainer()],
   ["justify-content", "center", () => new HBoxContainer()],
+  ["caret-color", "red", () => new LineEdit()],
+  ["cursor", "pointer", () => new Label()],
+  ["text-overflow", "ellipsis", () => new Label()],
+  ["white-space", "nowrap", () => new Label()],
+  ["direction", "rtl", () => new Label()],
+];
+
+/**
+ * 有落点但不等价：写入生效，同时输出说明（Godot 的 StyleBoxFlat 四边同色）。
+ * 若静默按单边生效，比不写入更难排查。
+ */
+const LANDED_WITH_WARNING: Array<[property: string, value: string, make: () => any]> = [
+  ["border-top-color", "red", () => new PanelContainer()],
+  ["border-right-color", "red", () => new PanelContainer()],
+  ["border-bottom-color", "red", () => new PanelContainer()],
+  ["border-left-color", "red", () => new PanelContainer()],
 ];
 
 /** 明确知道没有落点的属性：必须发出提示，不能静默吞掉 */
@@ -97,8 +116,21 @@ const IGNORED: Array<[property: string, value: string]> = [
   ["flex-basis", "10px"],
   ["flex-shrink", "1"],
   ["align-items", "center"],
+  ["align-self", "center"],
   ["align-content", "center"],
   ["justify-items", "center"],
+  ["order", "2"],
+  ["aspect-ratio", "1"],
+  ["max-width", "10px"],
+  ["max-height", "10px"],
+  ["background-image", "url(a.png)"],
+  ["box-sizing", "border-box"],
+  ["writing-mode", "vertical-rl"],
+  ["filter", "blur(2px)"],
+  ["backdrop-filter", "blur(2px)"],
+  ["will-change", "transform"],
+  ["content", "\"x\""],
+  ["flex-flow", "row wrap"],
   ["position", "relative"],
   ["inset", "1px"],
   ["outline", "1px solid red"],
@@ -114,13 +146,13 @@ const IGNORED: Array<[property: string, value: string]> = [
   ["font-style", "italic"],
   ["line-height", "1.5"],
   ["letter-spacing", "1px"],
+  ["word-spacing", "1px"],
   ["text-decoration", "underline"],
   ["text-transform", "uppercase"],
   ["transform", "translate(1px)"],
   ["transition", "color 1s"],
   ["animation", "spin 1s"],
   ["animation-name", "spin"],
-  ["cursor", "pointer"],
   ["z-index", "2"],
   ["overflow", "hidden"],
   ["user-select", "none"],
@@ -135,6 +167,13 @@ describe("属性全表", () => {
     }
   });
 
+  it("有落点但不等价的属性：写入生效，且输出说明", () => {
+    for (const [property, value, make] of LANDED_WITH_WARNING) {
+      const [, warnings] = apply(`${property}: ${value}`, make);
+      expect(warnings.length, `${property}: ${value} 该告警`).toBeGreaterThan(0);
+    }
+  });
+
   it("无落点的每个都出声说明为什么", () => {
     for (const [property, value] of IGNORED) {
       const [, warnings] = apply(`${property}: ${value}`, () => new Label());
@@ -142,10 +181,13 @@ describe("属性全表", () => {
     }
   });
 
-  it("属性表没被偷偷加东西：新增的属性必须进上面两张表之一", () => {
-    const landed = new Set(LANDED.map(([p]) => p));
-    const ignored = new Set(IGNORED.map(([p]) => p));
-    const unlisted = cssPropertyNames().filter((n) => !landed.has(n) && !ignored.has(n));
+  it("属性表没被偷偷加东西：新增的属性必须进上面三张表之一", () => {
+    const listed = new Set([
+      ...LANDED.map(([p]) => p),
+      ...LANDED_WITH_WARNING.map(([p]) => p),
+      ...IGNORED.map(([p]) => p),
+    ]);
+    const unlisted = cssPropertyNames().filter((n) => !listed.has(n));
     expect(unlisted, "这些属性还没进扫表").toEqual([]);
   });
 
