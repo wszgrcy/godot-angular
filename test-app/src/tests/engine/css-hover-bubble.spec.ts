@@ -144,13 +144,13 @@ describe(":hover 冒泡到祖先", () => {
   });
 
   it("节点被移出树时引擎不补发 mouse_exited：祖先不得停在悬停态", async () => {
-    const { row, box } = makeRow();
+    const { row, cell, box } = makeRow();
     box.emit_signal("mouse_entered");
     await awaitFrames(1);
     expect(rowColor(row)).toBe(hex(HOVER));
 
     // @for 删项 / queue_free 前先把节点摘走：此刻没有 mouse_exited
-    box.get_parent().remove_child(box);
+    cell.remove_child(box);
     await awaitFrames(1);
 
     expect(rowColor(row)).toBe(hex(BASE));
