@@ -66,6 +66,7 @@ export { expandShorthand, isMultiValue, type Longhand, type ShorthandExpansion }
 
 export {
   Cascade,
+  PROPERTY_STATE_CLASSES,
   type CascadeOptions,
   type CascadeStats,
   type MergedDeclaration,

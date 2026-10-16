@@ -456,8 +456,9 @@ describe("选择器", () => {
     checked.button_pressed = true;
     checked.emit_signal("toggled", true);
     await awaitFrames(1);
-    // CheckBox 没有 checked 颜色变体，退回基 item
-    expect(checked.has_theme_color_override("font_color")).toBe(true);
+    // 勾选态引擎读的是 font_pressed_color（开关控件的 pressed 就是“已勾选”），写 font_color 不会显示
+    expect(checked.has_theme_color_override("font_pressed_color")).toBe(true);
+    expect(checked.has_theme_color_override("font_color")).toBe(false);
   });
 
   it("不认识的伪类 / 伪元素整条作废并出声", () => {

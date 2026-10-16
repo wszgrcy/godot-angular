@@ -189,8 +189,18 @@ export interface StyleBackend {
   /**
    * 落一条 CSS 属性，返回 false 表示属性名不认识。必须走这个入口而不是级联自行调用
    * applyCssProperty：引擎侧 ledger 按 CSS 属性名分组记账，绕过它会使撤销全部失效。
+   *
+   * `states`：声明所在的选择器自身要求的状态伪类（见 `MergedDeclaration.states`）。
+   * 空集 = 基规则或内联，写基 item；非空 = 写引擎在该状态下读取的 item。落点完全由它
+   * 推导，与节点当前处于哪些状态无关。
    */
-  applyProperty(node: CssNode, cssName: string, raw: string, warnings: string[]): boolean;
+  applyProperty(
+    node: CssNode,
+    cssName: string,
+    raw: string,
+    warnings: string[],
+    states: ReadonlySet<string>,
+  ): boolean;
 }
 
 /**

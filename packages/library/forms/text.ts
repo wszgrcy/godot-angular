@@ -19,12 +19,12 @@ export class GodotLineEditValueAccessor extends GodotValueAccessorBase<string, L
     super.writeValue(value);
     // Forms 初始化一定会调用 writeValue(null)，而将 null 写入 text 会中断 ngOnChanges，
     // 后续的真实值无法再写入。
-    this.node.text = value ?? "";
+    this.setNodeProperty("text", value ?? "");
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.editable = !isDisabled;
+    this.setNodeProperty("editable", !isDisabled);
   }
 }
 
@@ -39,11 +39,11 @@ export class GodotLineEditValueAccessor extends GodotValueAccessorBase<string, L
 export class GodotTextEditValueAccessor extends GodotValueAccessorBase<string, TextEdit> {
   override writeValue(value: string | null): void {
     super.writeValue(value);
-    this.node.text = value ?? "";
+    this.setNodeProperty("text", value ?? "");
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.editable = !isDisabled;
+    this.setNodeProperty("editable", !isDisabled);
   }
 }

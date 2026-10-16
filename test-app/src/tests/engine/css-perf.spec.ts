@@ -56,8 +56,8 @@ function fakeBackend(): { backend: StyleBackend; writes: () => number } {
     parentOf: (n: CssNode) => n.parent ?? null,
     childrenOf: () => [],
     clearProperty() {},
-    applyProperty: (node, cssName, raw, warnings) =>
-      applyCssProperty(node, cssName, raw, { backend, warn: () => {} }, warnings),
+    applyProperty: (node, cssName, raw, warnings, states) =>
+      applyCssProperty(node, cssName, raw, { backend, warn: () => {}, states }, warnings),
   };
   return { backend, writes: () => writes };
 }

@@ -10,6 +10,7 @@ import {
 } from "@angular/core";
 import { ClassDB, Control, Label, Node, VBoxContainer } from "godot";
 import type { TrackingClassSet } from "godot-angular/css";
+import { PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import { godotClass } from "./godot-host";
 import { warnOnce } from "./warn";
 import { coerceToProperty, isControlClass, nodeHasProperty, resolveTag } from "./registry";
@@ -82,6 +83,14 @@ export interface ComponentDefLike {
 function writeJsKey(node: Node, key: string): void {
   (node as unknown as Record<string, unknown>)[key] = "";
 }
+
+/**
+ * 来源：无（由 css 包的 PROPERTY_STATE_CLASSES 推导）
+ *
+ * 哪些属性写入后需要标脏：它们驱动着 :checked / :disabled / :read-only 这几个伪类，
+ * 而引擎不会为它们发任何信号。名单只有一份，就在级联那边，避免两边漂移。
+ */
+const STATE_PROPERTIES: ReadonlySet<string> = new Set(PROPERTY_STATE_CLASSES.map((entry) => entry.prop));
 
 export class GodotRenderer implements Renderer2 {
   data: Record<string, unknown> = {};
@@ -300,7 +309,15 @@ export class GodotRenderer implements Renderer2 {
       return;
     }
     // 属性名是运行期字符串，而引擎类上没有“任意属性名”索引，只能按表写
-    (target as unknown as Record<string, unknown>)[prop] = coerceToProperty(target, prop, value);
+    const next = coerceToProperty(target, prop, value);
+    const drivesState = STATE_PROPERTIES.has(prop);
+    // 状态属性没有变更信号，只能由这里标脏；而一次标脏会连带子树与兄弟（样式表含组合器
+    // 时），所以先比一次现值：Forms 的 writeValue / setDisabledState 是无条件写的，
+    // 重复写同一个值不该换一整轮重算
+    if (drivesState && (target as unknown as Record<string, unknown>)[prop] === next) return;
+    (target as unknown as Record<string, unknown>)[prop] = next;
+    // 伪类本身在帧末重算时读属性（见 css 包 PROPERTY_STATE_CLASSES），此处不必再读一次
+    if (drivesState) this.runtime.invalidate(target);
   }
 
   /**
@@ -320,6 +337,7 @@ export class GodotRenderer implements Renderer2 {
     if (value === undefined) return;
     // 引用型属性（theme / material）的默认就是 null，它们吃 null
     (target as unknown as Record<string, unknown>)[prop] = value;
+    if (STATE_PROPERTIES.has(prop)) this.runtime.invalidate(target);
   }
 
   setAttribute(target: Node, name: string, value: unknown): void {

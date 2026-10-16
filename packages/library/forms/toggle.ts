@@ -19,11 +19,11 @@ import { GodotValueAccessorBase } from "./base";
 export class GodotToggleValueAccessor extends GodotValueAccessorBase<boolean, BaseButton> {
   override writeValue(value: boolean | null): void {
     super.writeValue(value);
-    this.node.button_pressed = Boolean(value);
+    this.setNodeProperty("button_pressed", Boolean(value));
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.disabled = isDisabled;
+    this.setNodeProperty("disabled", isDisabled);
   }
 }

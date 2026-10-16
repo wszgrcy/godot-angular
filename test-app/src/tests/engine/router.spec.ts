@@ -29,7 +29,7 @@ import {
   GodotTitleStrategy,
   provideGodotRouter,
 } from "godot-angular/router";
-import { bootstrapGodotApp } from "godot-angular/core";
+import { bootstrapGodotApp, GODOT_ROOT } from "godot-angular/core";
 import { findAllNodes, initGodotTestEnvironment, nodeTexts } from "godot-angular/testing";
 
 /**
@@ -551,6 +551,29 @@ describe("路由：route.title 的落点", () => {
     );
     expect(TestBed.inject(TitleStrategy)).toBe(TestBed.inject(TitleStrategy));
     expect(TestBed.inject(TitleStrategy)).toBeInstanceOf(GodotTitleStrategy);
+  });
+
+  /**
+   * 标题必须写 `Window.title` 而不是 `DisplayServer.window_set_title()`：后者只改操作系统
+   * 那侧的文字，不回写 Window.title，而 Godot 没有 DisplayServer.window_get_title()，
+   * 于是“当前页面标题”从写入那一刻就读不回来了（日志与测试只能看到启动时那个）。
+   */
+  it("非无头：标题写进 Window.title，因此读得回来", async () => {
+    await bootstrapRouter(
+      HostComp,
+      provideGodotRouter([
+        { path: "", component: HomeComp, title: "首页" },
+        { path: "about", component: AboutComp, title: "关于" },
+      ]),
+      [{ provide: GODOT_HEADLESS, useValue: false }],
+    );
+
+    const window = TestBed.inject(GODOT_ROOT).get_window();
+    expect(window, "测试根节点未进树，取不到窗口").not.toBeNull();
+    expect(window!.title).toBe("首页");
+
+    await TestBed.inject(Router).navigate(["/about"]);
+    expect(window!.title).toBe("关于");
   });
 });
 

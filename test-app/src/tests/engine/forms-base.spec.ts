@@ -20,7 +20,7 @@ import {
   GodotToggleValueAccessor,
 } from "godot-angular/forms";
 import { beforeEach, describe, expect, it } from "vitest";
-import { findAllNodes, initGodotTestEnvironment } from "godot-angular/testing";
+import { findAllNodes, initGodotTestEnvironment, awaitFrames } from "godot-angular/testing";
 
 /** 标准形状：configureTestingModule(+autoDetect/zoneless) → createComponent → whenStable */
 async function render<T>(component: any): Promise<any> {
@@ -108,6 +108,18 @@ class RangeHost {
   template: `<CheckBox [ngModel]="on()" (ngModelChange)="on.set($event)" [disabled]="off()" [ngModelOptions]="{ standalone: true }"></CheckBox>`,
 })
 class ToggleHost {
+  on = signal(false);
+  off = signal(false);
+}
+
+/** 样式 × 表单：禁用态由 Forms 驱动，而指令自身完全不知道样式运行时的存在（写入走 Renderer2） */
+@Component({
+  selector: "t-fb-check-style",
+  styles: [`.cbx:disabled { color: rgb(128, 128, 128); }`],
+  imports: [FormsModule, GodotToggleValueAccessor],
+  template: `<CheckBox class="cbx" [ngModel]="on()" [ngModelOptions]="{ standalone: true }" [disabled]="off()"></CheckBox>`,
+})
+class ToggleStyleHost {
   on = signal(false);
   off = signal(false);
 }
@@ -343,6 +355,24 @@ describe("setDisabledState：三档落点各自验", () => {
     fixture.componentInstance.off.set(false);
     await fixture.whenStable();
     expect(bar.mouse_filter).toBe(MOUSE_FILTER_PASS);
+  });
+
+  it("Forms 写的 disabled 会带动 :disabled 样式（指令不认识样式运行时）", async () => {
+    const fixture = await render(ToggleStyleHost);
+    const box = findAllNodes(fixture.nativeElement, "CheckBox")[0];
+    await awaitFrames(1);
+    expect(box.has_theme_color_override("font_disabled_color")).toBe(false);
+
+    fixture.componentInstance.off.set(true);
+    await fixture.whenStable();
+    await awaitFrames(1);
+    // 写入路径：setDisabledState → Renderer2.setProperty → 渲染器标脏 → 帧末从属性读出 :disabled
+    expect(box.has_theme_color_override("font_disabled_color")).toBe(true);
+
+    fixture.componentInstance.off.set(false);
+    await fixture.whenStable();
+    await awaitFrames(1);
+    expect(box.has_theme_color_override("font_disabled_color")).toBe(false);
   });
 });
 

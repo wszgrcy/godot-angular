@@ -14,6 +14,9 @@ import {
   lookupProperty,
 } from "godot-angular/css";
 
+/** 基落点：这些用例验的是「CSS 名 → theme item」的静态映射，不涉及状态伪类 */
+const NO_STATES: ReadonlySet<string> = new Set<string>();
+
 /** 记录所有调用的假 backend。它同时是 StyleBackend 契约的“可实例化证明” */
 class FakeBackend implements StyleBackend {
   /** 形如 `color:font_color` / `stylebox:normal` 的调用流水 */
@@ -96,9 +99,15 @@ class FakeBackend implements StyleBackend {
   clearProperty(_node: CssNode, cssName: string): void {
     this.calls.push(`clear:${cssName}`);
   }
-  applyProperty(node: CssNode, cssName: string, raw: string, warnings: string[]): boolean {
+  applyProperty(
+    node: CssNode,
+    cssName: string,
+    raw: string,
+    warnings: string[],
+    states: ReadonlySet<string>,
+  ): boolean {
     // 假 backend 也要使用真实的属性映射，否则“CSS 名 → theme item”这一层就没有被验到
-    return applyCssProperty(node, cssName, raw, { backend: this, warn: (k, m) => this.warned.push(`${k}::${m}`) }, warnings);
+    return applyCssProperty(node, cssName, raw, { backend: this, warn: (k, m) => this.warned.push(`${k}::${m}`), states }, warnings);
   }
 
   lastColor: ColorLike | null = null;
@@ -139,7 +148,8 @@ function apply(cssType: string, name: string, value: string) {
     target,
     name,
     value,
-    { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`) },
+    // 这些用例验的是「CSS 名 → theme item」的基落点，不涉及状态伪类 → 空状态集
+    { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`), states: NO_STATES },
     warnings,
   );
   return { backend, known, warnings, calls: backend.calls };
@@ -430,7 +440,7 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
   it("不传 warnings 数组也能跑（默认参数）", () => {
     const target = node("Label");
     const backend = new FakeBackend(target);
-    expect(() => applyCssProperty(target, "color", "notacolor", { backend, warn: () => {} })).not.toThrow();
+    expect(() => applyCssProperty(target, "color", "notacolor", { backend, warn: () => {}, states: NO_STATES })).not.toThrow();
   });
 });
 
@@ -514,7 +524,7 @@ describe("gap 家族（行轴与列轴）", () => {
       target,
       name,
       value,
-      { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`) },
+      { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`), states: NO_STATES },
       warnings,
     );
     return { backend, warnings, calls: backend.calls };

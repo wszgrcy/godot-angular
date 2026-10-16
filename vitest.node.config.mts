@@ -23,6 +23,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: [
+      "packages/css/**/test/**/*.spec.ts",
       "packages/library/**/test/**/*.spec.ts",
       "packages/builder/**/test/**/*.spec.ts",
     ],

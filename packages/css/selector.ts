@@ -71,7 +71,6 @@ export const SUPPORTED_PSEUDO_CLASSES: ReadonlySet<string> = new Set([
   "selected",
   "indeterminate",
   "read-only",
-  "readonly",
   "required",
   "optional",
   "valid",

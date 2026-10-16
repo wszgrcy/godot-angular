@@ -125,6 +125,24 @@ export class StyleRuntime {
     this.cascade.invalidateTree(asGodotNode(node));
   }
 
+  /**
+   * 只标脏这一个节点（连带子树与依赖者，范围由级联判定）。
+   *
+   * 给「写了不会发信号的属性」用：渲染器写完 button_pressed / disabled / editable、
+   * 表单指令改完值之后调它，帧末重算时会把伪类从属性上读回来。
+   */
+  invalidate(node: Node): void {
+    this.cascade.invalidate(asGodotNode(node));
+  }
+
+  /**
+   * 该节点是否待重算。给「写完属性后想知道有没有真的标脏」用（诊断 / 测试），
+   * 误标脏会被 diff 短路，但标脏范围（子树 / 兄弟）只有这里看得见。
+   */
+  isDirty(node: Node): boolean {
+    return this.cascade.isDirty(asGodotNode(node));
+  }
+
   /** 内联样式（`[style.x]`）。 */
   setInline(node: Node, property: string, value: string): void {
     this.cascade.setInline(asGodotNode(node), property, value);
@@ -140,8 +158,13 @@ export class StyleRuntime {
   }
 
   /**
-   * 手动开启 / 关闭一个伪类。由信号驱动的那几个（hover/focus/active/checked/disabled/…）
-   * 已由 css-pseudo 自动接入，此处留给**没有信号来源**的伪类（:valid / :selected / …）。
+   * 手动开启 / 关闭一个伪类。**只适用于既无信号也无属性可推的伪类**
+   * （`:selected` / `:valid` / `:indeterminate` …）。
+   *
+   * `:checked` / `:disabled` / `:enabled` / `:read-only` 由节点属性驱动（见 css 包
+   * `PROPERTY_STATE_CLASSES`）：级联每次重算前会把属性读成伪类，因此脱离属性的
+   * 手动开关会在同一轮重算里被读回去——要改这几个状态请改属性（`button_pressed` /
+   * `disabled` / `editable`），或直接走模板绑定。
    */
   setPseudoClass(node: Node, name: string, on: boolean): void {
     this.cascade.setPseudoClass(asGodotNode(node), name, on);

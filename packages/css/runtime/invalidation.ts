@@ -23,6 +23,11 @@ export class Invalidator {
   /** 已 attach 的节点集合（WeakMap 不可遍历，需要遍历时用这个） */
   private readonly attachedSet = new Set<CssNode>();
   private flushScheduled = false;
+  /**
+   * 正在 flush。期间 `invalidate` 只入队不重复调度：本轮 flush 会把新入脏的节点一并
+   * 处理完，另起一次空转的 flush 只会白跑一轮。收尾时由 `endFlush` 统一决定要不要补一次。
+   */
+  private flushing = false;
 
   constructor(
     private readonly states: NodeStates,
@@ -76,7 +81,6 @@ export class Invalidator {
     state.attached = false;
     if (!keepLedger) {
       state.applied.clear();
-      state.appliedStates = "";
     }
     this.attachedSet.delete(node);
   }
@@ -145,7 +149,6 @@ export class Invalidator {
    * 本轮需要处理的节点，已按“父先于子”排好；取走即清空队列
    */
   takeDirty(): CssNode[] {
-    this.flushScheduled = false;
     if (!this.dirty.size) return [];
     const nodes = [...this.dirty];
     this.dirty.clear();
@@ -220,9 +223,35 @@ export class Invalidator {
    * 差异：上游的批处理靠 _changingCnt 在同步调用栈内合并，本侧改为帧末异步调度（可注入）。
    */
   private scheduleFlush(): void {
+    // flush 内部产生的脏交给 endFlush，不在这里抢排下一次调度
+    if (this.flushing) return;
     if (this.flushScheduled) return;
     this.flushScheduled = true;
     if (this.schedule) this.schedule(this.onFlush);
+  }
+
+  /**
+   * 来源：无
+   *
+   * flush 开始：进入「不再重复调度」区间。必须在 `takeDirty()` 之前调。
+   */
+  beginFlush(): void {
+    this.flushing = true;
+  }
+
+  /**
+   * 来源：无
+   *
+   * flush 收尾：退出区间，并补上期间新入脏的节点。
+   *
+   * 队列已排空（状态跃迁在本轮内收敛）时**不**另起一次空转的 flush；确实还有残留
+   * （`applyNode` 里 `var()` 变化触发的 `invalidateTree`）才补排一次，那一轮是有活的。
+   */
+  endFlush(): void {
+    this.flushing = false;
+    // 先释放调度权：本轮期间被 `scheduleFlush` 拦下的那些脏节点，现在才有机会排上去
+    this.flushScheduled = false;
+    if (this.dirty.size > 0) this.scheduleFlush();
   }
 }
 

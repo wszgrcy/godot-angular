@@ -28,7 +28,7 @@ export class GodotColorPickerValueAccessor extends GodotMouseDisabledBase<Color 
 
   override writeValue(value: Color | null): void {
     super.writeValue(value);
-    if (value) this.node.color = value;
+    if (value) this.setNodeProperty("color", value);
   }
 
   override setDisabledState(isDisabled: boolean): void {

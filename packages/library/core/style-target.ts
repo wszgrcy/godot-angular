@@ -252,12 +252,22 @@ export const backend: StyleBackend = {
 
   // 级联写入样式的唯一入口：将 cssName 关进作用域门面，下方的写入在记账时
   // 才知道应当记到哪个属性名下。
-  applyProperty(node: CssNode, cssName: string, raw: string, warnings: string[]): boolean {
+  applyProperty(
+    node: CssNode,
+    cssName: string,
+    raw: string,
+    warnings: string[],
+    states: ReadonlySet<string>,
+  ): boolean {
     return applyCssProperty(
       node,
       cssName,
       raw,
-      { backend: scopeOf(cssName), warn: (key, message) => warnOnce(`css:${key}`, message) },
+      {
+        backend: scopeOf(cssName),
+        warn: (key, message) => warnOnce(`css:${key}`, message),
+        states,
+      },
       warnings,
     );
   },
@@ -311,7 +321,15 @@ function scopeOf(cssName: string): StyleBackend {
  * 对外入口
  * ------------------------------------------------------------------ */
 
-/** 将一条 CSS 声明落到节点上。value 传空串表示撤销这一条 */
+/** 裸声明的状态集：空集 = 不要求任何状态，落基 item */
+const NO_STATES: ReadonlySet<string> = new Set<string>();
+
+/**
+ * 将一条 CSS 声明落到节点上。value 传空串表示撤销这一条。
+ *
+ * 这是一条**裸声明**通道（没有选择器），因此永远只写基 item：需要状态外观请走样式表
+ * （`styles` / class 选择器 + `:hover` / `:disabled` …），那里才有「选择器要求了哪个状态」这个信息。
+ */
 export function applyStyle(node: Control, cssName: string, value: unknown): void {
   const raw = value === null || value === undefined ? "" : String(value);
   if (!raw) {
@@ -328,7 +346,9 @@ export function applyStyle(node: Control, cssName: string, value: unknown): void
 
   const warnings: string[] = [];
   const target = asGodotControl(node);
-  const known = backend.bulk(target, () => backend.applyProperty(target, cssName, raw, warnings));
+  // 裸声明没有选择器，也就无从要求状态 → 空集 = 永远写基 item。
+  // 否则一个 hover 中的节点会把基色写进 hover 盒，与级联对基规则的口径不一致。
+  const known = backend.bulk(target, () => backend.applyProperty(target, cssName, raw, warnings, NO_STATES));
   if (!known) {
     warnOnce(
       `css:unknown:${cssName}`,

@@ -15,8 +15,9 @@ export {
   shimHostAttribute,
   shimStylesContent,
 } from "./renderer";
-// style-target：CSS 声明到 Godot theme 落点的唯一出口。导出它有两个实际用途：
-// 使用方可命令式刷样式（不走模板），以及引擎侧测试能直接验证 duplicate / ledger 语义。
+// style-target：CSS 声明到 Godot theme 落点的唯一出口。属于内部实现，不在 README 公开清单里：
+// 保留导出只因为两个内部消费者——库自身的命令式刷样式路径，以及引擎侧 spec 直接验证
+// duplicate / ledger 语义。使用方不应依赖，签名与行为不遵循语义化版本。
 export { applyStyle, clearStyle, styleLedger } from "./style-target";
 // 运行时：把纯包的 Cascade 接到帧末与节点树上。使用方自行 `new Cascade()` 没意义：
 // 它不知道 rAF、也不知道节点树，这两件事只有库内部接得对。

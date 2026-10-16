@@ -1,11 +1,20 @@
-import { compareSelectors } from "../selector";
+import {
+  compareSelectors,
+  ComplexSelector,
+  FunctionalPseudoClassSelector,
+  PseudoClassSelector,
+  SimpleSelectorSequence,
+  SUPPORTED_PSEUDO_CLASSES,
+} from "../selector";
 import type { SelectorCore } from "../selector";
 import type { CssNode, Declaration, MediaEnvironment, StyleBackend } from "../types";
 import { Invalidator } from "./invalidation";
 import {
   NodeStates,
+  propertyOfSlot,
+  slotKey,
+  statesKey,
   TrackingClassSet,
-  pseudoSignature,
   type MergedDeclaration,
   type NodeStyleState,
 } from "./state";
@@ -15,6 +24,46 @@ import type { SelectorTier } from "../types";
 
 export type { MergedDeclaration, NodeStyleState } from "./state";
 export type { TrackingClassSet } from "./state";
+
+
+export const PROPERTY_STATE_CLASSES: ReadonlyArray<PropertyStateEntry> = [
+  // 引擎的 is_pressed() = toggle_mode && button_pressed，但 button_pressed 的 setter 自己就做
+  // 了这个门控（toggle_mode=false 时写 true 读回仍是 false，已用引擎 spec 钉住），
+  // 所以只读 button_pressed 就够，不必再探 toggle_mode。
+  { prop: "button_pressed", state: "checked" },
+  { prop: "disabled", state: "disabled" },
+  // :enabled 与 :disabled 同源，只是反一下；不登记的话它永远不命中，而作者无从得知
+  { prop: "disabled", state: "enabled", invert: true },
+  { prop: "editable", state: "read-only", invert: true },
+];
+
+/**
+ * 来源：无
+ *
+ * `PROPERTY_STATE_CLASSES` 的一项：一个引擎属性驱动一个伪类
+ */
+export interface PropertyStateEntry {
+  prop: string;
+  state: string;
+  invert?: boolean;
+}
+
+/**
+ * 来源：无
+ *
+ * 某个控件类对「属性驱动的伪类」的支持情况。同一个类的结果永远不变，因此按节点
+ * 缓存（见 `Cascade.stateSupport`），不必每个脏节点每轮重探。
+ */
+interface ClassStateSupport {
+  /** 探测时的「用到的属性驱动伪类」签名；样式表引入新状态时签名变化，需要重探 */
+  usedKey: string;
+  /** 类名，告警文案用（避开每轮再调一次 backend.classOf） */
+  className: string;
+  /** 这类控件真有那个属性，可以读出来推导 */
+  applicable: PropertyStateEntry[];
+  /** 推不出的条目，只用来告警 */
+  absent: PropertyStateEntry[];
+}
 
 /**
  * 来源：无
@@ -45,6 +94,60 @@ export interface CascadeStats {
 }
 
 /**
+ * 来源：无
+ *
+ * 收集这条选择器**自身的主体段**要求了哪些状态伪类。只有它自己要求的状态，才决定它的值
+ * 应当写进哪个 item（详见 `MergedDeclaration.states`）。
+ *
+ * 必须遍历 AST 而不是匹配选择器文本：文本里出现 `:hover` 不等于“这条规则要求了 hover”。
+ * `.card:hover .btn` 要求的是**卡片**悬停，目标节点是 `.btn`；`:not(:hover)` 更是恰好相反。
+ * 误判的后果不是“少一个样式”而是“值被送到引擎在另一个状态下读的 item”，
+ * 症状是颜色/底色在无关状态下突变。
+ *
+ * 结果按选择器对象缓存（选择器由样式表长期持有），因此每轮重算不再重新构造选择器文本。
+ */
+function collectSequenceStates(sequence: SimpleSelectorSequence, out: Set<string>): void {
+  for (const simple of sequence.selectors) {
+    if (simple instanceof PseudoClassSelector) {
+      if (SUPPORTED_PSEUDO_CLASSES.has(simple.cssPseudoClass)) out.add(simple.cssPseudoClass);
+    } else if (simple instanceof FunctionalPseudoClassSelector && simple.name !== "not") {
+      // :is(:hover) / :where(:hover) 确实要求了状态；:not(:hover) 不要求
+      for (const arg of simple.args) {
+        if (arg instanceof SimpleSelectorSequence) collectSequenceStates(arg, out);
+      }
+    }
+  }
+}
+/** 基规则（空集）共用同一个实例，避免为每条基规则分配一个 Set */
+const NO_STATES: ReadonlySet<string> = new Set<string>();
+/** 选择器要求的状态集 + 它的稳定串（后者参与账本键） */
+interface RequiredStates {
+  names: ReadonlySet<string>;
+  key: string;
+}
+const EMPTY_REQUIRED: RequiredStates = { names: NO_STATES, key: "" };
+
+const selectorStatesCache = new WeakMap<object, RequiredStates>();
+
+function selectorStates(selector: SelectorCore): RequiredStates {
+  const key = selector as unknown as object;
+  const cached = selectorStatesCache.get(key);
+  if (cached) return cached;
+
+  const names = new Set<string>();
+  if (selector instanceof SimpleSelectorSequence) {
+    collectSequenceStates(selector, names);
+  } else if (selector instanceof ComplexSelector) {
+    // 复合选择器被匹配到的那个节点由**最右段**描述，状态伪类只有落在它身上才算要求了状态
+    const parts = selector.parts;
+    collectSequenceStates(parts[parts.length - 1].sequence, names);
+  }
+  const result: RequiredStates = names.size === 0 ? EMPTY_REQUIRED : { names, key: statesKey(names) };
+  selectorStatesCache.set(key, result);
+  return result;
+}
+
+/**
  * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: StyleScope
  *      + NativeScript/packages/core/ui/styling/style-scope.ts :: CssState
  * 等级：仅思路一致（合成类）
@@ -65,6 +168,10 @@ export interface CascadeStats {
  */
 export class Cascade {
   private readonly states = new NodeStates();
+  /** 按节点缓存的「这类控件支持哪些属性驱动伪类」（同一类共享同一份内容） */
+  private readonly stateSupport = new WeakMap<CssNode, ClassStateSupport>();
+  /** 已告警过的「伪类 × 类名」，避开重复拼接告警文案 */
+  private readonly warnedStates = new Set<string>();
   private readonly sheets: SheetRegistry;
   private readonly invalidator: Invalidator;
 
@@ -285,10 +392,42 @@ export class Cascade {
    * 将全部脏节点落一遍。帧末由调度器调用，测试中手动调用
    */
   flush(): number {
-    const nodes = this.invalidator.takeDirty();
-    if (!nodes.length) return 0;
+    this.invalidator.beginFlush();
+    try {
+      return this.drain();
+    } finally {
+      this.invalidator.endFlush();
+    }
+  }
+
+  private drain(): number {
+    const queue = this.invalidator.takeDirty();
+    if (!queue.length) return 0;
+
+    /*
+     * 属性 → 伪类先走一遍，不放在 applyNode 里。
+     *
+     * setPseudoClass 会回调 invalidate，而 flush 已经 takeDirty() 取空了队列并置好
+     * dirty=false：在 applyNode 内部改伪类，本节点会被重新入脏，依赖它的兄弟 / 后代
+     * 也跟着延一帧（现象：勾选后相邻元素晚一帧才变色），然且下一帧还要整轮重算一次
+     * 才被 diff 短路。前置后，同步产生的脏节点直接并入本轮。
+     *
+     * 每个节点至多同步一次（setPseudoClass 幂等，重同步只是白读属性）；同步期间新入脏
+     * 的节点追加到队尾，因此一轮 flush 内收敛。
+     */
+    const synced = new Set<CssNode>();
+    const usedKey = this.propertyStateKey();
+    for (let i = 0; i < queue.length; i++) {
+      const node = queue[i];
+      if (synced.has(node)) continue;
+      synced.add(node);
+      if (this.states.get(node)?.attached) this.syncPropertyPseudoClasses(node, usedKey);
+      const extra = this.invalidator.takeDirty();
+      if (extra.length) queue.push(...extra);
+    }
+
     let touched = 0;
-    for (const node of nodes) {
+    for (const node of queue) {
       const state = this.states.get(node);
       if (!state || !state.attached) continue;
       state.dirty = false;
@@ -308,6 +447,8 @@ export class Cascade {
    */
   applyNow(node: CssNode): boolean {
     const state = this.states.of(node);
+    // 与 flush 同一口径：先同步伪类，再把自己从脏队列摘掉（依赖者留在队列里等下一轮）
+    this.syncPropertyPseudoClasses(node, this.propertyStateKey());
     this.invalidator.drop(node);
     state.dirty = false;
     return this.applyNode(node, state);
@@ -345,6 +486,68 @@ export class Cascade {
    * 内部
    * ------------------------------------------------------------------ */
 
+
+  /**
+   * 来源：无
+   *
+   * 把节点属性读成伪类（:checked / :disabled / :enabled / :read-only，见
+   * `PROPERTY_STATE_CLASSES`）。这些属性在 Godot 里不发任何变更信号，只能由重算方主动读。
+   *
+   * 「这类控件到底有没有那个属性」按节点缓存一次（`stateSupport`）：真实 backend 里
+   * `hasNodeProperty` = `get_class()` + 属性表 `Set.has`，不缓存的话每个脏节点每轮都
+   * 要为每个状态伪类重查一遍，而结果对同一个类永远不变。控件类上没有那个属性时
+   *（`ItemList` 没有 `disabled`）不猜、不抖：按「状态 × 类名」告警一次。
+   */
+  private syncPropertyPseudoClasses(node: CssNode, usedKey: string): void {
+    if (usedKey === "") return;
+    let support = this.stateSupport.get(node);
+    if (!support || support.usedKey !== usedKey) {
+      support = this.probeStateSupport(node, this.sheets.usedPseudoClasses(), usedKey);
+      this.stateSupport.set(node, support);
+    }
+    const backend = this.options.backend;
+    // applicable / absent 在探测时已按「样式表用到的状态」筛过，这里不再重复判
+    for (const { prop, state, invert } of support.applicable) {
+      const truthy = backend.getNodeNumber(node, prop) !== 0;
+      this.setPseudoClass(node, state, invert ? !truthy : truthy);
+    }
+    for (const { prop, state } of support.absent) {
+      const key = `pseudo-state:${state}:${support.className}`;
+      // 去重放在前面：告警文案是拼出来的，不能每个节点每轮都拼一遗
+      if (this.warnedStates.has(key)) continue;
+      this.warnedStates.add(key);
+      this.warn(
+        key,
+        `${support.className} 没有 ${prop} 属性，:${state} 在它身上推不出来（不会自动生效）。`
+          + `如需该外观，请走 class 通道（[class."${state}"]="…" 配合 CSS .x.${state}）。`,
+      );
+    }
+  }
+
+  /**
+   * 当前样式表用到的「属性驱动伪类」签名。每轮 flush 只算一遗；它变了意味着新引入了
+   * 一个属性驱动的伪类，各类的支持情况需要重探。
+   */
+  private propertyStateKey(): string {
+    const used = this.sheets.usedPseudoClasses();
+    let key = "";
+    for (const { state } of PROPERTY_STATE_CLASSES) {
+      if (used.has(state)) key += (key ? "," : "") + state;
+    }
+    return key;
+  }
+
+  /** 按类探一次：只探样式表真的用到的那些，没用到就不花这个钱 */
+  private probeStateSupport(node: CssNode, used: ReadonlySet<string>, usedKey: string): ClassStateSupport {
+    const backend = this.options.backend;
+    const applicable: PropertyStateEntry[] = [];
+    const absent: PropertyStateEntry[] = [];
+    for (const entry of PROPERTY_STATE_CLASSES) {
+      if (!used.has(entry.state)) continue;
+      (backend.hasNodeProperty(node, entry.prop) ? applicable : absent).push(entry);
+    }
+    return { usedKey, className: backend.classOf(node), applicable, absent };
+  }
   /**
    * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: CssState.setPropertyValues
    * 等级：部分修改（主体一致）
@@ -359,28 +562,46 @@ export class Cascade {
     selectors.sort(compareSelectors);
     this.invalidator.updateDependencies(node, state, changeMap);
 
+    // 分组键是「属性名 + 选择器要求的状态」而不是单看属性名：基规则与每条状态规则各自落到
+    // 不同的 theme item，它们之间不存在覆盖关系。只有要求了同一组状态的定义才互相竞争。
     const merged = new Map<string, MergedDeclaration>();
+    /** 声明与其来源选择器所要求的状态成对保存：一条规则的多个选择器共享同一个 Declaration，
+     * 按 Declaration 反查会让“最后一个选择器”的要求套到所有选择器头上 */
+    interface Pending {
+      decl: Declaration;
+      required: RequiredStates;
+    }
     /** delete 再 set：Map.set 对已存在的键**不挪动位置**，而这里的顺序就是级联顺序 */
-    const put = (decl: Declaration, inline: boolean) => {
-      merged.delete(decl.property);
-      merged.set(decl.property, { property: decl.property, value: decl.value, inline });
+    const put = (decl: Declaration, inline: boolean, required: RequiredStates) => {
+      const key = slotKey(decl.property, required.key);
+      merged.delete(key);
+      merged.set(key, {
+        property: decl.property,
+        value: decl.value,
+        inline,
+        states: required.names,
+        statesKey: required.key,
+      });
     };
-    const normal: Declaration[] = [];
-    const important: Declaration[] = [];
+    const normal: Pending[] = [];
+    const important: Pending[] = [];
     for (const selector of selectors) {
+      const required = selectorStates(selector);
       for (const decl of declarations.get(selector) ?? []) {
-        (decl.important ? important : normal).push(decl);
+        (decl.important ? important : normal).push({ decl, required });
       }
     }
     // 普通(按级联) → 内联 → !important(按级联)：CSS 定义的三层顺序，important 不能只记录成集合，
     // 否则特异度高的普通声明会覆盖它。
-    for (const decl of normal) put(decl, false);
+    for (const { decl, required } of normal) put(decl, false, required);
     for (const [property, value] of state.inline) {
-      if (important.some((decl) => decl.property === property)) continue;
-      merged.delete(property);
-      merged.set(property, { property, value, inline: true });
+      if (important.some((item) => item.decl.property === property)) continue;
+      const key = slotKey(property, "");
+      merged.delete(key);
+      // 内联样式没有选择器，也就无从要求状态 → 永远写基 item
+      merged.set(key, { property, value, inline: true, states: NO_STATES, statesKey: "" });
     }
-    for (const decl of important) put(decl, false);
+    for (const { decl, required } of important) put(decl, false, required);
     return [...merged.values()];
   }
 
@@ -430,19 +651,22 @@ export class Cascade {
       resolved.push({ ...decl, value: expanded });
     }
 
-    const toApply: MergedDeclaration[] = [];
-    const toClear: string[] = [];
-    const states = pseudoSignature(node);
-    const stateChanged = states !== state.appliedStates;
-    for (const decl of resolved) {
-      if (stateChanged || applied.get(decl.property) !== decl.value) toApply.push(decl);
+    const toWrite: MergedDeclaration[] = [];
+    /** 账本键 → 声明：用来判断哪些条目从本轮消失了 */
+    const want = new Map<string, MergedDeclaration>();
+    for (const decl of resolved) want.set(slotKey(decl.property, decl.statesKey), decl);
+
+    // 条目消失 = 该 CSS 属性名下有 theme item 不再被声明。`clearProperty` 的粒度是整个属性名，
+    // 只能整组撤销再整组重写。残留必须撤掉：否则引擎在那个状态下仍会读到上一轮的过期值。
+    const regrouped = new Set<string>();
+    for (const key of applied.keys()) {
+      if (!want.has(key)) regrouped.add(propertyOfSlot(key));
     }
-    const mergedProps = new Set(resolved.map((decl) => decl.property));
-    for (const property of applied.keys()) {
-      if (!mergedProps.has(property)) toClear.push(property);
+    for (const [key, decl] of want) {
+      if (regrouped.has(decl.property)) toWrite.push(decl); // 整组重写，连带重写
+      else if (applied.get(key) !== decl.value) toWrite.push(decl);
     }
-    if (!toApply.length && !toClear.length) {
-      state.appliedStates = states;
+    if (toWrite.length === 0 && regrouped.size === 0) {
       this.stats.skipped++;
       return false;
     }
@@ -450,24 +674,31 @@ export class Cascade {
     const warnings: string[] = [];
     this.options.backend.bulk(node, () => {
       // 先撤销再写入：撤销时节点仍保持旧值，写入时不会被旧值覆盖
-      for (const property of toClear) {
+      for (const property of regrouped) {
         this.options.backend.clearProperty(node, property);
-        applied.delete(property);
+        for (const key of [...applied.keys()]) {
+          if (propertyOfSlot(key) === property) applied.delete(key);
+        }
         this.stats.cleared++;
       }
-      for (const decl of toApply) {
+      for (const decl of toWrite) {
         // 必须调用 backend.applyProperty：ledger 按 CSS 属性名记账，绕过它相当于封死“完整撤销”这条路
-        const known = this.options.backend.applyProperty(node, decl.property, decl.value, warnings);
+        const known = this.options.backend.applyProperty(
+          node,
+          decl.property,
+          decl.value,
+          warnings,
+          decl.states,
+        );
         if (!known) {
           this.warn(`unknown:${decl.property}`, `样式 "${decl.property}" 无 Godot 对应，已忽略`);
           continue;
         }
-        applied.set(decl.property, decl.value);
+        applied.set(slotKey(decl.property, decl.statesKey), decl.value);
         this.stats.applied++;
       }
     });
     for (const message of warnings) this.warn(`value:${message}`, message);
-    state.appliedStates = states;
     return true;
   }
 

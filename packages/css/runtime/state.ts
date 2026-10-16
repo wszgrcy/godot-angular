@@ -11,7 +11,12 @@ import type { CssNode } from "../types";
  * 单个节点上由本库记录的状态
  */
 export interface NodeStyleState {
-  /** 已落地的声明：CSS 属性名 → 落地时的原始值（diff 的唯一依据） */
+  /**
+   * 已落地的声明：账本键 → 落地时的原始值（diff 的唯一依据）。
+   *
+   * 一个 CSS 属性名可以对应多条落地声明（基规则与各个状态规则各占一个 theme item），
+   * 所键是 `\u0000` 分隔的 `属性名 + 选择器要求的状态串`（见 `slotKey`）。
+   */
   readonly applied: Map<string, string>;
   /** 内联声明（`[style.x]` 绑定）：优先级高于样式表的普通声明，低于 `!important` */
   readonly inline: Map<string, string>;
@@ -20,14 +25,32 @@ export interface NodeStyleState {
   dirty: boolean;
   /** 上一次匹配依赖了哪些节点（清理 dependents 反向索引要用） */
   dependencies: Set<CssNode>;
-  /**
-   * 上一次落地时节点处于哪些伪类状态（排序后的名称串）。
-   * diff 只看值是否变化，但状态变了而值未变时也需要重写：`.btn{background:blue}` 与
-   * `.btn:hover{background:blue}` 前后都是 blue，要写入的 item 却从 `normal` 换成了 `hover`。
-   */
-  appliedStates: string;
   /** 本节点当前的自定义属性表（不包含继承）：`var()` 展开的第一站，也是变量继承的比对依据 */
   vars: Map<string, string>;
+}
+
+/** 账本键的分隔符：CSS 属性名与伪类名均不可能包含 NUL */
+export const SLOT_SEP = "\u0000";
+
+/**
+ * 来源：无
+ *
+ * 状态集的稳定串（排序后拼接，空集 = 空串）。同一个状态集必须总是得到同一个串，
+ * 否则 diff 会把它当成新条目。
+ */
+export function statesKey(states: ReadonlySet<string>): string {
+  return states.size === 0 ? "" : [...states].sort().join(",");
+}
+
+/** 一条落地声明在账本里的键 */
+export function slotKey(property: string, states: string): string {
+  return states ? property + SLOT_SEP + states : property;
+}
+
+/** 从账本键取回 CSS 属性名（`clearProperty` 的粒度是属性名，需要按它归组） */
+export function propertyOfSlot(key: string): string {
+  const at = key.indexOf(SLOT_SEP);
+  return at < 0 ? key : key.slice(0, at);
 }
 
 /**
@@ -43,6 +66,18 @@ export interface MergedDeclaration {
   value: string;
   /** 来自内联而不是样式表 */
   inline: boolean;
+  /**
+   * 命中的那条选择器**自身要求**的状态伪类（`:hover` / `:disabled` …），基规则与内联为空集。
+   *
+   * 它直接决定落点：状态 item 由「选择器要求了哪个状态」推出来，而不是由「节点当前处于
+   * 哪些状态」猜出来。两者差别很大：后者需要知道引擎在 hover+focus 同时成立时究竟读哪个
+   * item（无文档保证），前者不需要——每个状态各自写自己的 item，引擎读哪个都拿到正确值。
+   *
+   * 副作用是残留自然消失：一个 item 只有一个主人，规则不再命中时它的账本键也就消失了。
+   */
+  states: ReadonlySet<string>;
+  /** `statesKey(states)` 的缓存，参与账本键，避免每轮重算重复排序 */
+  statesKey: string;
 }
 
 /**
@@ -85,17 +120,6 @@ export class TrackingClassSet extends Set<string> {
 /**
  * 来源：无
  *
- * 节点当前伪类签名的稳定形式（空集 = 空串），diff 用它识别“值未变但 item 已更换”
- */
-export function pseudoSignature(node: CssNode): string {
-  const set = node.cssPseudoClasses;
-  if (!(set instanceof Set) || set.size === 0) return "";
-  return [...set].sort().join(",");
-}
-
-/**
- * 来源：无
- *
  * 状态存放处。WeakMap 是默认存放处，`stashState` 那条兜底通道见文件末尾。
  *
  * 单独成类而不是分散在调用方：失效调度、变量继承、落地三处都要读取同一份状态，
@@ -114,7 +138,6 @@ export class NodeStates {
         attached: false,
         dirty: false,
         dependencies: new Set(),
-        appliedStates: "",
         vars: new Map(),
       };
       this.states.set(node, state);

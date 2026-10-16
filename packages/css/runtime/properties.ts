@@ -13,6 +13,11 @@ import { hasThemeItem, itemForStates, pickBackgroundStylebox, classChain } from 
 export interface ApplyContext {
   backend: StyleBackend;
   warn(key: string, message: string): void;
+  /**
+   * 声明所在的选择器自身要求的状态集（基规则与内联为空集）。
+   * 落点完全由它推导，不读节点当前的伪类集。
+   */
+  states: ReadonlySet<string>;
 }
 
 /**
@@ -76,24 +81,18 @@ function color(raw: string): ColorLike | null {
 /**
  * 来源：NativeScript/packages/core/ui/core/view-base/index.ts :: ViewBase.cssPseudoClasses
  * 等级：仅思路一致
- * 差异：上游在 CssState 内维护伪类集并驱动动画，本侧只读节点上的集合做 item 名选择。
- *
- * 节点当前处于哪些伪类状态（缺少该字段 = 一个也未开启）
+ * 差异：上游在 CssState 内维护伪类集并驱动动画，本侧的当前伪类集只参与**匹配**，
+ * 不参与落点选择（落点由 `ApplyContext.states`、即选择器自身要求的状态决定）。
  */
-const NO_STATES: ReadonlySet<string> = new Set<string>();
-function activeStates(node: CssNode): { has(name: string): boolean } {
-  const set = node.cssPseudoClasses;
-  return set instanceof Set ? (set as Set<string>) : NO_STATES;
-}
 
 /**
  * 来源：无
  *
- * 将基 item 替换为当前状态真正需要写入的那个：引擎在 hover 时读取的是 `font_hover_color`，
+ * 将基 item 替换为选择器所要求状态对应的 item：引擎在 hover 时读取的是 `font_hover_color`，
  * 写入 `font_color` 不会显示。词汇表中没有这个变体时退回基 item，不告警。
  */
 function stateItem(node: CssNode, ctx: ApplyContext, kind: "color" | "stylebox", base: string): string {
-  return itemForStates(ctx.backend.classOf(node), kind, base, activeStates(node));
+  return itemForStates(ctx.backend.classOf(node), kind, base, ctx.states);
 }
 
 /**
@@ -113,7 +112,7 @@ function backgroundItem(node: CssNode, ctx: ApplyContext, cssName: string): stri
     );
   }
   if (!item) return null;
-  return itemForStates(cls, "stylebox", item, activeStates(node));
+  return itemForStates(cls, "stylebox", item, ctx.states);
 }
 
 /**

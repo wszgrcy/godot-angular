@@ -1,4 +1,4 @@
-import { Directive, ElementRef, inject, signal, WritableSignal } from "@angular/core";
+import { Directive, ElementRef, inject, Renderer2, signal, WritableSignal } from "@angular/core";
 import { ControlValueAccessor } from "@angular/forms";
 import { Control } from "godot";
 import type { Node } from "godot";
@@ -90,8 +90,15 @@ export abstract class GodotValueAccessorBase<
 > extends GodotControlBase<T> {
   protected readonly el = inject<ElementRef<N>>(ElementRef);
 
+  /** 写节点属性的唯一通道，理由见 `setNodeProperty` */
+  protected readonly renderer = inject(Renderer2);
+
   protected get node(): N {
     return this.el.nativeElement;
+  }
+
+  protected setNodeProperty<K extends keyof N & string>(prop: K, value: N[K]): void {
+    this.renderer.setProperty(this.node, prop, value);
   }
 }
 const IGNORE = Control.MouseFilter.MOUSE_FILTER_IGNORE;
@@ -123,7 +130,7 @@ export abstract class GodotMouseDisabledBase<
     if (!interactive) {
       // 只在第一次禁用时记原值，重复调用不会把 IGNORE 当成原值存下来
       this.#savedMouseFilter ??= node.mouse_filter;
-      node.mouse_filter = IGNORE;
+      this.setNodeProperty("mouse_filter", IGNORE as N["mouse_filter"]);
       return;
     }
 
@@ -131,6 +138,8 @@ export abstract class GodotMouseDisabledBase<
     this.#savedMouseFilter = undefined;
     // 仅当槽里仍是本类写入的 IGNORE 时才恢复。禁用期间若他人改过 mouse_filter，说明该
     // 属性已被接管，用快照覆盖会静默冲掉对方的写入，此处保留最后写入者
-    if (saved !== undefined && node.mouse_filter === IGNORE) node.mouse_filter = saved;
+    if (saved !== undefined && node.mouse_filter === IGNORE) {
+      this.setNodeProperty("mouse_filter", saved as N["mouse_filter"]);
+    }
   }
 }

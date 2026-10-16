@@ -527,8 +527,128 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 
 ### 伪类状态
 
-`:hover`、`:active`、`:focus`、`:checked`、`:pressed` 由 Godot 信号驱动。状态生效时自动改用带
-状态后缀的 theme item（如 `font_hover_color`、`hover` stylebox），无需额外属性。
+`:hover`、`:active`、`:focus`、`:pressed` 由 Godot 信号驱动；`:checked`、`:disabled`、`:enabled`、
+`:read-only` 除了信号还由**节点属性**驱动（见下表）。声明的目标 theme item 由**选择器自身声明的
+状态伪类**决定，与节点当前处于哪些状态无关，无需额外属性：
+
+| 伪类 | 来源 | stylebox | 颜色中缀 |
+| --- | --- | --- | --- |
+| `:hover` | `mouse_entered` / `mouse_exited` | `hover` | `font_hover_color` |
+| `:focus` | `focus_entered` / `focus_exited` | `focus` | `font_focus_color` |
+| `:active` `:pressed` | `button_down` / `button_up` | `pressed` | `font_pressed_color` |
+| `:checked` | `toggled` 信号 + `button_pressed` 属性（**仅 `toggle_mode=true` 时成立**） | `pressed` | `font_pressed_color` |
+| `:selected` | 手动 `setPseudoClass` | `selected` | `font_selected_color` |
+| `:read-only` | `editable` 属性（`editable=false`） | `read_only` | `font_readonly_color` / `font_uneditable_color` |
+| `:disabled` | `disabled` 属性 | `disabled` | `font_disabled_color` |
+| `:enabled` | `disabled` 属性取反 | —（同 `normal`） | —（同 `font_color`） |
+
+以下行为需要特别注意：
+
+- **勾选态复用 `pressed` 落点**。Godot 的开关控件（`CheckBox` / `CheckButton` /
+  `toggle_mode=true` 的 `Button`）在 `button_pressed=true` 时绘制的是 `pressed` 盒与
+  `font_pressed_color`，而不是 `normal` / `font_color`。因此浅色主题下仅声明
+  `CheckBox { color: … }` 不足以覆盖勾选态，需同时声明 `CheckBox:checked { color: … }`
+  （或为勾选态单独准备一份 `font_pressed_color`）。
+  `hover` 与勾选同时成立时使用合成 item（`hover_pressed` / `font_hover_pressed_color`）。
+  反之，`toggle_mode=false` 的普通 `Button` 写入 `button_pressed=true` 不会生效（引擎的
+  `is_pressed()` 即 `toggle_mode && button_pressed`，setter 自带门控），因此 `:checked`
+  仅对开关控件有效；使用 `[toggle_mode]` + `[button_pressed]` 绑定时必须**先写 `toggle_mode`**，
+  之后写入的 `button_pressed` 才会被保留。
+- **落点重定向仅取决于主体段的伪类**。主体段指选择器最右侧的复合选择器，即被样式命中的
+  节点本身。`.card:hover .btn` 要求的是卡片悬停，与按钮自身状态无关，因此仍写基 item
+  （`:not(:hover)` 同理不计入状态要求）。`.primary { background-color: 蓝 }` 在按钮禁用时仍
+  写 `normal` 盒，禁用态由主题默认样式接管；若基规则被改写进 `disabled` 盒，禁用态与
+  常态的视觉将不可区分。因此禁用 / 勾选 / 只读如需专属外观，必须显式声明对应伪类：
+
+```css
+Button.primary { background-color: #2b7fff; }
+Button.primary:disabled { background-color: #b9c6d6; }  /* 不写就用引擎默认的禁用处理 */
+```
+
+  同一规则适用于 `:hover` / `:focus` / `:active`：**基规则只写基 item，不会自动继承到状态
+  盒**。仅声明基规则的控件在悬停时回落到主题默认的状态盒；如需保持自定义外观，须同时
+  声明对应状态规则（已声明 `:hover` 规则时两个 item 并存，引擎按当前状态各自读取）：
+
+```css
+Button.primary { background-color: #2b7fff; }
+Button.primary:hover  { background-color: #4a90ff; }
+Button.primary:active { background-color: #1f5fd0; }
+```
+
+- **基规则与状态规则各自写自己的 item，互不覆盖**。`Button.primary { color: 蓝 }` 写 `font_color`，
+  `Button.primary:hover { color: 红 }` 写 `font_hover_color`，两份 override 同时存在，引擎按当前
+  状态各自读取。层叠的“后者覆盖前者”只在**同一落点内**比较特异度与源码顺序：
+
+```css
+Button.primary       { color: #2b7fff; }  /* → font_color */
+Button.primary:hover { color: #ff4040; }  /* → font_hover_color，不被下一条抢走 */
+Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点的基规则 */
+```
+
+  状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的
+  颜色；该状态因此回落到主题默认值。
+- **属性驱动的伪类仅对声明了该属性的控件有效**。下表列出各伪类的前置属性与适用类；
+  不满足前置条件的伪类无法推导，运行时按「伪类 × 类名」组合告警一次：
+
+| 伪类 | 前置引擎属性 | 具备该属性的控件 | 不具备（伪类无效） |
+| --- | --- | --- | --- |
+| `:checked` | `button_pressed`（且 `toggle_mode=true`） | `Button` / `CheckBox` / `CheckButton` / `LinkButton` / `MenuButton` | `LineEdit` / `TextEdit` / `Slider` / `SpinBox` / `ItemList` / `ScrollBar` / `ColorPicker` |
+| `:disabled` `:enabled` | `disabled` | `BaseButton` 系：`Button` / `CheckBox` / `CheckButton` / `OptionButton` / `MenuButton` / `LinkButton` | `LineEdit` / `TextEdit` / `Slider` / `SpinBox` / `ItemList` / `ScrollBar` / `ColorPicker` |
+| `:read-only` | `editable`（`false` 时成立） | `LineEdit` / `TextEdit` / `SpinBox` / `Slider` | `Button` 系 / `ItemList` / `ScrollBar` / `ColorPicker` |
+
+  上表末列的控件如需禁用外观，只能通过 class 通道声明。其中 `ItemList` / `ColorPicker` /
+  `ScrollBar` 两个前置属性均不具备，表单指令只能以 `mouse_filter = MOUSE_FILTER_IGNORE`
+  表达不可交互；而**鼠标穿透不等价于禁用**（`Label` 等控件默认即为 `IGNORE`），因此本库
+  不会将 `IGNORE` 推导为禁用态。这三类的禁用外观请使用 class 通道：
+
+```html
+<ItemList class="files" [class.off]="locked()"></ItemList>
+```
+```css
+.files.off { color: #666; }
+```
+
+- **仅具备 `editable` 的控件，其禁用状态推导为 `:read-only` 而非 `:disabled`**。`LineEdit` /
+  `TextEdit` / `Slider` / `SpinBox` 类上不存在 `disabled` 属性（Godot 文档中其属性集仅含
+  `bool editable`），表单指令的 `setDisabledState()` 只能写 `editable = !isDisabled`，而
+  `editable=false` 推导出的仍是 `:read-only`。于是同一段模板：
+
+```html
+<LineEdit class="field" [ngModel="note()" [disabled]="locked()"></LineEdit>
+```
+```css
+.field:disabled   { color: #666; }  /* ✗ 永远不会命中：LineEdit 没有 disabled 属性 */
+.field:read-only  { color: #666; }  /* ✓ 表单禁用与只读在这里共用一个落点 */
+```
+
+  这是引擎的属性粒度所致，并非适配层遗漏通道：`editable` 一个属性同时承载 CSS 中
+  `disabled` 与 `readonly` 两个语义，本库无法从属性值区分二者。声明这类控件的禁用样式时
+  应直接使用 `:read-only`（或采用上述 class 通道）。需要区分时，只有 class 通道能够区分：
+
+```html
+<LineEdit class="field" [class.off]="locked()" [class.view]="isView()"></LineEdit>
+```
+```css
+.field.view { color: #999; }   /* 只读 */
+.field.off  { color: #666; }   /* 表单禁用 */
+```
+
+- **同一条选择器写了多个状态伪类时，按引擎的 `get_draw_mode()` 合成一个 item**，顺序是
+  `disabled` → `active`/`pressed`/`checked` → `selected` → `hover` → `focus` → `read-only`。
+  例如 `.btn:hover:active` 落到 `hover_pressed` / `font_hover_pressed_color`。`disabled` 居首
+  对应引擎先判定 `is_enabled()`、后判定勾选与悬停的顺序：一个已勾选的禁用 `CheckBox` 读取
+  的是 `font_disabled_color`，此时写入 `font_pressed_color` 不会被读取。注意这只作用于
+  **单条选择器内部**：`.btn:hover` 与 `.btn:disabled` 是两条规则，各自写 `hover` 与 `disabled`
+  两个盒，互不覆盖。
+- **状态属性没有变更信号**。`disabled` / `editable` 在 Godot 中不发出任何变更通知
+  （`button_pressed` 赋值会附带发出 `toggled`，但 `set_pressed_no_signal()` 不会），因此由
+  以下写入方负责标脏，级联在帧末重算时从属性上读回伪类：模板绑定（`[button_pressed]` /
+  `[disabled]` / `[editable]`）、表单指令（`ngModel` / `formControl` 的 `writeValue` /
+  `setDisabledState`）。直接对节点赋值（`node.button_pressed = true`）绕过上述通道，需手动标脏：
+
+```ts
+inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回来
+```
 
 样式的三个入口共用同一套级联规则：
 
@@ -576,12 +696,25 @@ inject(STYLE_RUNTIME).setEnv({ width: 1280, height: 720, "prefers-color-scheme":
 
 CSS 自定义属性（`--x`、`var(--x)`）已支持。
 
-以下伪类在 Godot 中没有对应的状态通知来源，不会自动生效：`:disabled`、`:enabled`、
-`:read-only`、`:valid`、`:invalid`、`:indeterminate`。请改用 class 通道，或显式设置：
+以下伪类在 Godot 中既无信号也无属性可推，不会自动生效：`:valid`、`:invalid`、
+`:indeterminate`、`:selected`。请改用 class 通道，或显式设置：
 
 ```ts
-inject(STYLE_RUNTIME).setPseudoClass(node, "disabled", true);
+inject(STYLE_RUNTIME).setPseudoClass(node, "selected", true);
 ```
+
+属性驱动的伪类（`:checked` / `:disabled` / `:enabled` / `:read-only`）**只对真有那个属性的控件
+有效**：`:checked` 要 `button_pressed`（开关控件），`:disabled` / `:enabled` 要 `disabled`
+（`BaseButton` 以次），`:read-only` 要 `editable`（`LineEdit` / `TextEdit` / `Slider` / `SpinBox`）。
+样式表用到了某伪类、而当前这类控件没有对应属性时，会按「伪类 × 类名」告警一次：
+
+```
+ItemList 没有 disabled 属性，:disabled 在它身上推不出来（不会自动生效）。
+如需该外观，请走 class 通道（[class."disabled"]="…" 配合 CSS .x.disabled）。
+```
+
+`:selected` 有真实落点（`ItemList` / `Tree` 的 `selected` 盒与 `font_selected_color`），只是引擎
+没有“整个控件被选中”这种信号：行级选中属于 ItemList 内部，CSS 选择器只能到控件粒度。
 
 以下特性不支持，处理时输出一次告警并忽略：`calc()`、`url()`、`@keyframes` 与动画、
 `position: fixed` / `absolute`、`overflow` 滚动裁切、`grid` 的真实网格（仅转换为
@@ -737,6 +870,11 @@ export class App {
 
   声明为无头后不碰窗口，但标题仍记录在 `GodotTitleStrategy.currentTitle`，组件可以把它
   绑到标题栏 `Label` 上，因此无头下页面标题照样有地方显示。
+
+  写的是根窗口的 `Window.title`（而不是 `DisplayServer.window_set_title()`）：后者只改操作系统
+  那侧的文字、**不回写** `Window.title`，而 Godot 又没有 `DisplayServer.window_get_title()`，
+  于是当前标题从写入那一刻就再也读不回来。走 `Window.title` 后 `get_window().title` 与
+  `title_changed` 都是可信的（取不到窗口时才退回 `DisplayServer`）。
 
 ### 一条无害的输出
 
@@ -904,10 +1042,14 @@ ng test --reporters=json
 
 | 路径 | 内容 |
 | --- | --- |
-| `godot-angular/core` | 运行时：`bootstrapGodotApp`、`GodotAngularApp`、`GODOT_ROOT`、`tryConnectGodotSignal`、`godotClass`、`GodotRenderer`、样式运行时（`StyleRuntime`、`STYLE_RUNTIME`、`applyStyle`、`clearStyle`）、解析工具（`resolveTag`、`resolveSignalName`、`nodeHasProperty`） |
+| `godot-angular/core` | 运行时：`bootstrapGodotApp`、`GodotAngularApp`、`GODOT_ROOT`、`tryConnectGodotSignal`、`godotClass`、`GodotRenderer`、样式运行时（`StyleRuntime`、`STYLE_RUNTIME`）、解析工具（`resolveTag`、`resolveSignalName`、`nodeHasProperty`） |
 | `godot-angular/builder/vite/polyfills.mjs` | 运行环境补丁（`queueMicrotask` / `requestAnimationFrame` / `performance` / `document` / `URL` / `URLSearchParams` / `atob`）。**不是库入口**，属于构建器内部；由构建器自动注入，无需手动导入 |
 | `godot-angular/forms` | 表单指令与 `GodotControlBase`、`GodotValueAccessorBase` |
-| `godot-angular/css` | CSS 子集的纯逻辑层（解析、选择器、级联、词表） |
+| `godot-angular/css` | CSS 子集的纯逻辑层（解析、选择器、级联、词表）——**库内部实现层**，不保证兼容 |
+
+样式落点相关的 `applyStyle` / `clearStyle` / `styleLedger` 与整个 `godot-angular/css` 入口同属
+内部实现，不在公开清单内，其签名与行为看库内需求变动，不遵循语义化版本。需要命令式改变外观请
+使用组件样式 / class 选择器，或内联绑定 `[style.x]`。
 | `godot-angular/router` | `provideGodotRouter`、`GodotTitleStrategy`，并转发 `GODOT_HEADLESS` / `GODOT_INITIAL_URL` / `GodotPlatformLocation`。需自行安装 `@angular/router` |
 | `godot-angular/testing` | 测试工具 |
 | `godot-angular/vitest` | 宿主侧 vitest 插件 |

@@ -56,11 +56,17 @@ describe("主题词汇表", () => {
     expect(pickBackgroundStylebox("VBoxContainer")).toBeNull();
   });
 
-  it("伪类 → stylebox 名（active 落 pressed）", () => {
+  it("伪类 → stylebox 名（active / checked 都落 pressed）", () => {
     expect(styleboxForState("hover")).toBe("hover");
     expect(styleboxForState("active")).toBe("pressed");
     expect(styleboxForState("focus")).toBe("focus");
-    expect(styleboxForState("checked")).toBeNull();
+    // 开关控件的“已勾选”在引擎里就是 pressed 那一支
+    expect(styleboxForState("checked")).toBe("pressed");
+    expect(styleboxForState("selected")).toBe("selected");
+    expect(styleboxForState("read-only")).toBe("read_only");
+    // 名单外的状态没有落点
+    expect(styleboxForState("valid")).toBeNull();
+    expect(styleboxForState("indeterminate")).toBeNull();
   });
 
   /**
@@ -82,6 +88,24 @@ describe("主题词汇表", () => {
     expect(itemForStates("Button", "color", "font_color", new Set())).toBe("font_color");
     // 非颜色/非 stylebox 一律原样（constant 没有状态变体）
     expect(itemForStates("Button", "constant", "separation", new Set(["hover"]))).toBe("separation");
+    // checked → pressed 家族：CheckBox 勾选时引擎读的就是 font_pressed_color / pressed 盒
+    expect(itemForStates("CheckBox", "color", "font_color", new Set(["checked"]))).toBe("font_pressed_color");
+    expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["checked"]))).toBe("pressed");
+    // 勾选 + hover → 合成盒 hover_pressed（CheckBox 有，普通 Button 没有 → 回到 pressed）
+    expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("hover_pressed");
+    expect(itemForStates("Button", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("pressed");
+    // 勾选态赢过 hover：引擎在 toggle 打开时不走 hover 那一支（LinkButton 没有合成色，能看出优先级）
+    expect(itemForStates("LinkButton", "color", "font_color", new Set(["hover", "checked"]))).toBe(
+      "font_pressed_color",
+    );
+    // selected：ItemList / Tree 有，其他类退回基 item
+    expect(itemForStates("ItemList", "color", "font_color", new Set(["selected"]))).toBe("font_selected_color");
+    expect(itemForStates("ItemList", "stylebox", "panel", new Set(["selected"]))).toBe("selected");
+    expect(itemForStates("Button", "color", "font_color", new Set(["selected"]))).toBe("font_color");
+    // read-only：盒统一叫 read_only，文字色两个类叫法不同，按候选取该类真有的
+    expect(itemForStates("TextEdit", "stylebox", "normal", new Set(["read-only"]))).toBe("read_only");
+    expect(itemForStates("TextEdit", "color", "font_color", new Set(["read-only"]))).toBe("font_readonly_color");
+    expect(itemForStates("LineEdit", "color", "font_color", new Set(["read-only"]))).toBe("font_uneditable_color");
   });
 
   it("themeItems 汇总父链上的全集", () => {

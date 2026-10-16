@@ -16,12 +16,12 @@ import { GodotMouseDisabledBase, GodotValueAccessorBase } from "./base";
 export class GodotSliderValueAccessor extends GodotValueAccessorBase<number, Slider> {
   override writeValue(value: number | null): void {
     super.writeValue(value);
-    this.node.value = value ?? 0;
+    this.setNodeProperty("value", value ?? 0);
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.editable = !isDisabled;
+    this.setNodeProperty("editable", !isDisabled);
   }
 }
 
@@ -38,12 +38,12 @@ export class GodotSpinBoxValueAccessor extends GodotValueAccessorBase<number, Sp
     super.writeValue(value);
     // Range::set_value 会将值对齐到 step（写入 7.5、step=1 → 存储 8），而 value_changed
     // 发出的也是对齐后的值，因此模型得到的就是对齐后的值。这是引擎的行为，适配器不干预。
-    this.node.value = value ?? 0;
+    this.setNodeProperty("value", value ?? 0);
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.editable = !isDisabled;
+    this.setNodeProperty("editable", !isDisabled);
   }
 }
 
@@ -63,7 +63,7 @@ export class GodotSpinBoxValueAccessor extends GodotValueAccessorBase<number, Sp
 export class GodotScrollBarValueAccessor extends GodotMouseDisabledBase<number, ScrollBar> {
   override writeValue(value: number | null): void {
     super.writeValue(value);
-    this.node.value = value ?? 0;
+    this.setNodeProperty("value", value ?? 0);
   }
 
   override setDisabledState(isDisabled: boolean): void {

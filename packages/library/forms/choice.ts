@@ -30,12 +30,12 @@ export class GodotOptionButtonValueAccessor extends GodotValueAccessorBase<numbe
     super.writeValue(value);
     // 只把“未选中”这个空值表达出来。越界下标 Godot 是静默忽略（selected 保持原值），
     // 因此候选项发生变化时，需要调用方自行重设模型——校验不是适配层的职责。
-    this.node.selected = value ?? this.emptyValue();
+    this.setNodeProperty("selected", value ?? this.emptyValue());
   }
 
   override setDisabledState(isDisabled: boolean): void {
     super.setDisabledState(isDisabled);
-    this.node.disabled = isDisabled;
+    this.setNodeProperty("disabled", isDisabled);
   }
 }
 

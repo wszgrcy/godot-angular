@@ -104,13 +104,19 @@ class Recorder implements StyleBackend {
   clearProperty(node: CssNode, cssName: string): void {
     this.clears.push(`${this.id(node)}|${cssName}`);
   }
-  applyProperty(node: CssNode, cssName: string, raw: string, warnings: string[]): boolean {
+  applyProperty(
+    node: CssNode,
+    cssName: string,
+    raw: string,
+    warnings: string[],
+    states: ReadonlySet<string>,
+  ): boolean {
     // 使用真实的属性映射：假 backend 只替换“落到节点”那一步，CSS 名 → theme item 的映射必须为真
     return applyCssProperty(
       node,
       cssName,
       raw,
-      { backend: this, warn: (key, message) => this.warnings.push(`${key}::${message}`) },
+      { backend: this, warn: (key, message) => this.warnings.push(`${key}::${message}`), states },
       warnings,
     );
   }
