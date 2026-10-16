@@ -119,7 +119,17 @@ function collectProperties(className: string): Set<string> {
  * 那个值），拼错的绑定看似生效实则无效，难以定位。
  */
 export function nodeHasProperty(node: Node, prop: string): node is Label {
-  return collectProperties(node.get_class()).has(prop);
+  return classHasProperty(node.get_class(), prop);
+}
+
+/**
+ * 类名版本的属性存在性检查。
+ *
+ * 非 Node 对象也需要它：StyleBox 副本（StyleBoxFlat / StyleBoxTexture / StyleBoxEmpty）能否
+ * 接某个字段，完全取决于它的实际类，而 GodotJS 对不存在的属性赋值是静默接受的。
+ */
+export function classHasProperty(className: string, prop: string): boolean {
+  return collectProperties(className).has(prop);
 }
 
 const propertyTypeCache = new Map<string, Map<string, number>>();

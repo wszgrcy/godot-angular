@@ -245,6 +245,14 @@ Godot 的 `@export` 变量对应 Angular 的属性绑定，例如 `[text]`、`[c
 - `[anchors_preset]` 可用，渲染器将其转换为 `set_anchors_preset()` 调用。
 - 移除属性：`[attr.x]="null"` 或 `[x]="null"` 将属性还原为该类创建时的默认值。Godot 属性为强类型，不接受 `null`。
 
+自定义组件的宿主元素同时是模板中的一个元素，静态属性与输入属性是两条独立通道。静态字符串属性
+按节点属性写入宿主，宿主为 `VBoxContainer` 时不存在 `title`，因此输出一条「不是真实属性」告警；
+输入通道仍会送达该值，显示不受影响。为组件输入传字符串字面量时应写成属性绑定：
+
+```html
+<ui-card [title]="'文本'"></ui-card>
+```
+
 布局由容器与 `size_flags` 决定，CSS 不参与节点树结构调整：
 
 ```ts
@@ -304,6 +312,42 @@ Godot 信号不携带事件对象（对比 DOM：每个监听器都收到一个 
 readonly ok = viewChild.required<ElementRef>("ok");
 // this.ok().nativeElement 为 Button 节点
 ```
+
+### 布局
+
+以下行为由引擎的布局规则决定，写错时不报错也不告警，只表现为界面绘制异常。
+
+**只有 `Container` 会为子节点分配尺寸。** `Button`、`Panel`、`Label` 均不是 `Container`：挂在
+其下的子节点停留在自身最小尺寸，也不计入父节点的最小尺寸。含内容的按钮不能写成
+`<Button><VBoxContainer>…</VBoxContainer></Button>`——`VBoxContainer` 拿不到宽度，内部 `Label`
+会被压成一列竖排文字。可用的写法是 `PanelContainer`（属于 `Container`，把矩形分配给每一个
+子节点）叠加一层 flat `Button` 作为点击层：
+
+```html
+<PanelContainer class="card-btn">
+  <VBoxContainer><!-- 内容，尺寸由 PanelContainer 分配 --></VBoxContainer>
+  <Button [flat]="true" (pressed)="go()"></Button>
+</PanelContainer>
+```
+
+**`white-space` 在两个方向上都会改变最小宽度。** 它映射到 `autowrap_mode`：
+
+- 不折行时，`Label` 的最小宽度等于整行文本宽度。中文不含空格，整条容器链会被顶宽。
+- 折行时，`Label` 的最小宽度退化为 1px。在 `HBoxContainer` 中未设置 `SIZE_EXPAND_FILL` 的
+  `Label` 会被压成一列竖排文字。
+
+因此不要全局统一设置，按容器区分：纵向容器内默认折行，横向容器内默认不折行，横向容器内确需
+折行时单独声明。类选择器的特异度高于类型选择器，`.wrap` 可覆盖 `HBoxContainer > Label`：
+
+```scss
+Label { white-space: normal; }
+HBoxContainer > Label { white-space: nowrap; }
+.wrap { white-space: normal; }
+```
+
+装饰用的色块使用 `Panel` 而不是空 `Label`：空 `Label` 仍占一行文字高度，`Panel` 的最小尺寸仅
+来自 `width` / `min-height`，配合 `size_flags_horizontal = SHRINK_BEGIN` 可保持在指定的小尺寸
+上。
 
 ## 状态与变更检测
 
@@ -480,6 +524,11 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 因此不构成 `outline` 的落点。另需注意 theme 常量 `outline_size` 与颜色 `font_outline_color`
 指的是文字描边（对应 CSS 的 `-webkit-text-stroke`），与 `outline` 无关。
 
+因此**焦点环必须用 `:focus` 自己画**：主题给 `Button/focus` 盒的描边（`border_width_* = 2`）
+属于“没声明的字段”，只要基规则没写 `border-*` 就原样保留；一旦基规则写了 `border-color`
+或 `border-width`，按层叠它会在 `focus` 盒里覆盖掉主题那圈描边，键盘焦点就看不见了。
+写 `Button:focus { border-color: …; border-width: 2px; }` 即可恢复。
+
 关于 `box-shadow`：第四段长度（spread）与 `inset` 无落点——本引擎的 StyleBoxFlat 没有
 `shadow_expand`，也不支持内阴影，解析时输出告警（多层阴影仅取第一层）。
 
@@ -554,26 +603,33 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
   `is_pressed()` 即 `toggle_mode && button_pressed`，setter 自带门控），因此 `:checked`
   仅对开关控件有效；使用 `[toggle_mode]` + `[button_pressed]` 绑定时必须**先写 `toggle_mode`**，
   之后写入的 `button_pressed` 才会被保留。
-- **落点重定向仅取决于主体段的伪类**。主体段指选择器最右侧的复合选择器，即被样式命中的
+- **颜色落点的重定向仅取决于主体段的伪类**。主体段指选择器最右侧的复合选择器，即被样式命中的
   节点本身。`.card:hover .btn` 要求的是卡片悬停，与按钮自身状态无关，因此仍写基 item
-  （`:not(:hover)` 同理不计入状态要求）。`.primary { background-color: 蓝 }` 在按钮禁用时仍
-  写 `normal` 盒，禁用态由主题默认样式接管；若基规则被改写进 `disabled` 盒，禁用态与
-  常态的视觉将不可区分。因此禁用 / 勾选 / 只读如需专属外观，必须显式声明对应伪类：
+  （`:not(:hover)` 同理不计入状态要求）。基规则的 `color` 永远写 `font_color`，不会被顶进
+  `font_disabled_color`——那条 override 属于 `:disabled` 规则，基规则没资格写。
+- **stylebox 走层叠合成，与颜色是两套口径**。Godot 为每个状态各存一个完整、互不继承的盒，
+  而 CSS 的 `:hover` 只覆盖它自己声明的那几条、其余沿用基规则。因此本库按字段来源合成：
+
+  > **状态盒 = 引擎该状态的默认盒 ⊕ 基规则声明过的字段 ⊕ 该状态声明的字段**
+
+  一句话：**没声明的字段一个字节都不碰；声明过的字段必须贯穿所有状态。**于是
+  `Button.primary { padding: 8px 12px; border-radius: 9px }` 在悬停、按下、获得焦点时
+  都成立（不写 `:hover` 也不会塌回引擎默认的直角小盒），而作者没写过的底色、描边粗细
+  仍由主题决定，引擎自己的悬停加深不会被抹掉。
+
+  推论：基规则写了 `background-color`，禁用态也就还是那个底色（与浏览器一致——作者写了
+  background，主题的禁用底色就被覆盖）。需要专属状态外观必须显式声明：
 
 ```css
-Button.primary { background-color: #2b7fff; }
-Button.primary:disabled { background-color: #b9c6d6; }  /* 不写就用引擎默认的禁用处理 */
+Button.primary { background-color: #2b7fff; padding: 8px 12px; border-radius: 9px; }
+Button.primary:disabled { background-color: #b9c6d6; }  /* 不写就沿用上面那条蓝 */
+Button.primary:hover  { background-color: #4a90ff; }    /* 不写就沿用上面那条蓝 */
+Button.primary:focus  { border-color: #6cb2f5; }        /* 焦点环同理，见下方 outline */
 ```
 
-  同一规则适用于 `:hover` / `:focus` / `:active`：**基规则只写基 item，不会自动继承到状态
-  盒**。仅声明基规则的控件在悬停时回落到主题默认的状态盒；如需保持自定义外观，须同时
-  声明对应状态规则（已声明 `:hover` 规则时两个 item 并存，引擎按当前状态各自读取）：
-
-```css
-Button.primary { background-color: #2b7fff; }
-Button.primary:hover  { background-color: #4a90ff; }
-Button.primary:active { background-color: #1f5fd0; }
-```
+  两个盒名集合之外的状态不参与合成：`Tree` 的 `hovered`、`TabBar` 的 `tab_hovered`、
+  `FoldableContainer` 的 `title_hover_panel` 是**行级 / 标签级 / 标题条级**状态，CSS 的
+  `:hover` 说的不是它们，因此 `Tree:hover` 落的是整棵树的 `panel`，不是行高亮盒。
 
 - **基规则与状态规则各自写自己的 item，互不覆盖**。`Button.primary { color: 蓝 }` 写 `font_color`，
   `Button.primary:hover { color: 红 }` 写 `font_hover_color`，两份 override 同时存在，引擎按当前
@@ -586,7 +642,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 ```
 
   状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的
-  颜色；该状态因此回落到主题默认值。
+  颜色；颜色因此回落到主题默认值（stylebox 不同：回落到基规则声明的值，见上条）。
 - **属性驱动的伪类仅对声明了该属性的控件有效**。下表列出各伪类的前置属性与适用类；
   不满足前置条件的伪类无法推导，运行时按「伪类 × 类名」组合告警一次：
 
@@ -696,8 +752,9 @@ inject(STYLE_RUNTIME).setEnv({ width: 1280, height: 720, "prefers-color-scheme":
 
 CSS 自定义属性（`--x`、`var(--x)`）已支持。
 
-以下伪类在 Godot 中既无信号也无属性可推，不会自动生效：`:valid`、`:invalid`、
-`:indeterminate`、`:selected`。请改用 class 通道，或显式设置：
+以下伪类语法合法，但在 Godot 中既无信号也无属性可推，不会自动生效，样式表使用时输出一次告警：
+`:valid`、`:invalid`、`:indeterminate`、`:selected`、`:required`、`:optional`。请改用 class
+通道，或显式设置：
 
 ```ts
 inject(STYLE_RUNTIME).setPseudoClass(node, "selected", true);
@@ -875,6 +932,18 @@ export class App {
   那侧的文字、**不回写** `Window.title`，而 Godot 又没有 `DisplayServer.window_get_title()`，
   于是当前标题从写入那一刻就再也读不回来。走 `Window.title` 后 `get_window().title` 与
   `title_changed` 都是可信的（取不到窗口时才退回 `DisplayServer`）。
+
+### 读取当前标题
+
+路由器先派发 `NavigationEnd`，随后才更新标题，两者位于同一段同步代码中。在 `NavigationEnd`
+处理器里读 `GodotTitleStrategy.currentTitle`，得到的是上一次导航的标题（首次导航时为空字符串）。
+延后一个微任务即可：
+
+```ts
+this.router.events
+  .pipe(filter((e) => e instanceof NavigationEnd))
+  .subscribe(() => queueMicrotask(() => title.set(this.titles.currentTitle)));
+```
 
 ### 一条无害的输出
 
@@ -1085,7 +1154,12 @@ ng test --reporters=json
 | `No loader found for resource: res://dist/main.js (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
-| `Xxx.yyy 不是真实属性，赋值已忽略` | 属性名拼写错误，或使用了驼峰写法 |
+| `Xxx.yyy 不是真实属性，赋值已忽略` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
+| `Component 'Xxx' is not resolved: - templateUrl: ./xxx.html` | 该组件的模板存在解析错误，构建阶段不报错，运行时才暴露。常见写法：HTML 空元素写了结束标签（`<hr></hr>`）、Godot 标签自闭合（`<Label />`）。核对方法：`grep -c "ɵcmp" dist/main.js`，数量少于组件数即有模板未编译 |
+| `@charset 不支持，已忽略` | 样式表含非 ASCII 字符（典型场景：`.scss` 中用 `/* */` 写中文注释，它们会保留到编译产物，sass 因此在开头插入 `@charset`）。改用 `//` 行注释，编译时会被剔除 |
+| ScrollContainer 内的内容把整个界面撑宽 | 横向滚动模式为 `SCROLL_MODE_OFF` 时，子节点的最小宽度会向上传播。保持 `AUTO`，并在 `resized` 中把 `scroller.size.x` 写回内容节点的 `custom_minimum_size.x` |
+| `(size_changed)="..."` 不报错也从不触发 | `size_changed` 是 `Window` 的信号，`Control` 上对应的信号是 `resized`。无法解析的事件名被静默忽略，见[事件](#事件)。核对方法：`ClassDB.class_has_signal(node.get_class(), "信号名")` |
+| 界面不随窗口变大而放大，或窗口变小文字随之缩小 | 未启用内容缩放。设置 `display/window/stretch/mode=canvas_items` 与 `display/window/stretch/aspect=expand`，基准尺寸写在 `display/window/size/viewport_width` / `viewport_height`。启用后 CSS 中的 `px` 指基准像素；`@media` 读取的是挂载点的布局尺寸，不是 `Window.size`（物理像素） |
 | `Unable to convert JS string to Godot float` | 静态属性为字符串且无法转换，改用属性绑定：`[min_value]="0"` |
 | `Unable to convert JS null to Godot String` | 向强类型属性写入 `null`。自定义 `ControlValueAccessor` 的 `writeValue` 需处理空值 |
 | `Failed to convert JS variable to Variant. Expected: Callable` | 信号只能连接 `Callable`，应使用 `tryConnectGodotSignal()` |

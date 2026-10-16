@@ -1,4 +1,4 @@
-import { Color, Control, StyleBoxFlat, Vector2 } from "godot";
+import { Color, Control, StyleBox, StyleBoxEmpty, StyleBoxFlat, Vector2 } from "godot";
 import type {
   ColorLike,
   CssNode,
@@ -7,8 +7,8 @@ import type {
   StyleBackend,
   StyleBoxHandle,
 } from "godot-angular/css";
-import { applyCssProperty } from "godot-angular/css";
-import { nodeHasProperty } from "./registry";
+import { applyCssProperty, pickBackgroundStylebox, themeItems } from "godot-angular/css";
+import { classHasProperty, nodeHasProperty } from "./registry";
 import { warnOnce } from "./warn";
 import { asGodotControl, asGodotNode, type GodotControl } from "./godot-node";
 
@@ -73,45 +73,260 @@ function toColor(value: ColorLike): Color {
 /**
  * 来源：无
  *
- * StyleBoxFlat 的写入句柄。全部写入均来自已经 duplicate 出的副本
+ * StyleBoxFlat 的写入句柄。**只记录字段，不直接写盒**：盒最终由 `rebuildBoxes` 按
+ * 「引擎该状态的默认盒 ⊕ 基规则声明过的字段 ⊕ 该状态声明过的字段」整体重建，
+ * 因此每条声明写了哪些字段必须留痕，否则状态盒拿不到基规则的几何（悬停即重排）。
  */
 class StyleBoxWrite implements StyleBoxHandle {
-  constructor(private readonly box: StyleBoxFlat) {}
+  /** StyleBoxFlat 属性名 → 值 */
+  readonly fields = new Map<string, unknown>();
 
   setBackground(color: ColorLike | null): void {
-    this.box.bg_color = color ? toColor(color) : new Color(0, 0, 0, 0);
+    this.fields.set("bg_color", color ? toColor(color) : new Color(0, 0, 0, 0));
   }
 
   setCornerRadii(radii: Partial<FourCorners>): void {
-    if (radii.topLeft !== undefined) this.box.corner_radius_top_left = radii.topLeft;
-    if (radii.topRight !== undefined) this.box.corner_radius_top_right = radii.topRight;
-    if (radii.bottomRight !== undefined) this.box.corner_radius_bottom_right = radii.bottomRight;
-    if (radii.bottomLeft !== undefined) this.box.corner_radius_bottom_left = radii.bottomLeft;
+    if (radii.topLeft !== undefined) this.fields.set("corner_radius_top_left", radii.topLeft);
+    if (radii.topRight !== undefined) this.fields.set("corner_radius_top_right", radii.topRight);
+    if (radii.bottomRight !== undefined) this.fields.set("corner_radius_bottom_right", radii.bottomRight);
+    if (radii.bottomLeft !== undefined) this.fields.set("corner_radius_bottom_left", radii.bottomLeft);
   }
 
   setBorderWidths(widths: Partial<FourSides>): void {
-    if (widths.top !== undefined) this.box.border_width_top = widths.top;
-    if (widths.right !== undefined) this.box.border_width_right = widths.right;
-    if (widths.bottom !== undefined) this.box.border_width_bottom = widths.bottom;
-    if (widths.left !== undefined) this.box.border_width_left = widths.left;
+    if (widths.top !== undefined) this.fields.set("border_width_top", widths.top);
+    if (widths.right !== undefined) this.fields.set("border_width_right", widths.right);
+    if (widths.bottom !== undefined) this.fields.set("border_width_bottom", widths.bottom);
+    if (widths.left !== undefined) this.fields.set("border_width_left", widths.left);
   }
 
   setBorderColor(color: ColorLike | null): void {
-    this.box.border_color = color ? toColor(color) : new Color(0, 0, 0, 0);
+    this.fields.set("border_color", color ? toColor(color) : new Color(0, 0, 0, 0));
   }
 
   setShadow(shadow: { color: ColorLike; size: number; offsetX: number; offsetY: number }): void {
-    this.box.shadow_size = Math.round(shadow.size);
-    this.box.shadow_color = toColor(shadow.color);
-    this.box.shadow_offset = new Vector2(shadow.offsetX, shadow.offsetY);
+    this.fields.set("shadow_size", Math.round(shadow.size));
+    this.fields.set("shadow_color", toColor(shadow.color));
+    this.fields.set("shadow_offset", new Vector2(shadow.offsetX, shadow.offsetY));
   }
 
   setContentMargin(margin: Partial<FourSides>): void {
-    if (margin.top !== undefined) this.box.content_margin_top = margin.top;
-    if (margin.right !== undefined) this.box.content_margin_right = margin.right;
-    if (margin.bottom !== undefined) this.box.content_margin_bottom = margin.bottom;
-    if (margin.left !== undefined) this.box.content_margin_left = margin.left;
+    if (margin.top !== undefined) this.fields.set("content_margin_top", margin.top);
+    if (margin.right !== undefined) this.fields.set("content_margin_right", margin.right);
+    if (margin.bottom !== undefined) this.fields.set("content_margin_bottom", margin.bottom);
+    if (margin.left !== undefined) this.fields.set("content_margin_left", margin.left);
   }
+}
+
+/**
+ * 全新的、**什么都不画**的 Flat 盒（用来替身 StyleBoxEmpty / 根本没有盒）。
+ *
+ * 两件必须处好的事：
+ *
+ * 1. **抹掉默认底色**。`new StyleBoxFlat()` 的默认 `bg_color` 是 `#999999ff`（不透明灰，
+ *    文档写的是 `Color(0.6, 0.6, 0.6, 1)`）、`border_color` 是 `#ccccccff`。这个类存在的
+ *    目的就是画一个看得见的盒子，所以属性默认值必须是可见的（否则在 Inspector 里看不出自己
+ *    建了个空盒）。直接拿来用会让「只写了 padding」的 Label 被画上一个灰块（示例工程的
+ *    `.nav-title` / `.nav-foot` 就是这么踩到的）。而它替身的是 StyleBoxEmpty——语义就是
+ *    「什么都不画」，所以透底才是忠实还原。
+ * 2. **把源盒的 content_margin 搬过来**。`content_margin_*` 是 StyleBox 基层的属性（布局语义），
+ *    不是 Flat 独有。默认主题里 `CheckBox` 的 normal/hover/pressed/hover_pressed 是
+ *    **StyleBoxEmpty 但 content_margin = 4/4/4/4**（实测），不搬的话 CSS 只要碰一下
+ *    CheckBox 的底色，它的内边距就从 4 塌到 -1，图标与文字的位置跟着变。
+ *    `expand_margin_*` / `shadow_*` 是 Flat 子类才有的，Empty 上本来就没值，保持默认 0。
+ */
+function blankFlat(src: StyleBox | null): StyleBoxFlat {
+  const box = new StyleBoxFlat();
+  // Color.TRANSPARENT = 白底零 alpha（typings 注释：white with zero alpha）。
+  // alpha=0 时 RGB 不参与混合结果，所以黑透/白透渲染等价；用引擎自带的常量而不是手造值。
+  box.bg_color = Color.TRANSPARENT;
+  box.border_color = Color.TRANSPARENT;
+  if (src !== null) {
+    // -1 = 未设置（StyleBox 基层的默认），原样搬过去就是“未设置”
+    box.content_margin_top = src.content_margin_top;
+    box.content_margin_right = src.content_margin_right;
+    box.content_margin_bottom = src.content_margin_bottom;
+    box.content_margin_left = src.content_margin_left;
+  }
+  return box;
+}
+
+/**
+ * 某个 item 的「引擎默认盒」快照。
+ *
+ * 分三种情况：
+ * - StyleBoxFlat：直接 duplicate，字段全支持；
+ *   StyleBoxEmpty / 根本没有盒：换成全新的空 Flat。StyleBoxEmpty 的含义就是「什么都不画」，
+ *   没有任何引擎外观会被抹掉，而它没有 bg_color / corner_radius / border_width 属性，
+ *   不换成 Flat 的话作者写的底色永远静默无效（CheckBox 的 normal、Label 的 normal、
+ *   ScrollContainer 的 panel 在默认主题里都是 StyleBoxEmpty）。布局语义的 content_margin
+ *   由 blankFlat() 从源盒搬过来（CheckBox 的 Empty 盒就带着 4px，不搬会塌）；外观则保持
+ *   透底，作者声明什么才画什么；
+ * - 其它子类（StyleBoxTexture / StyleBoxLine）：**必须保留原类型**，它们携带真实图形
+ *   （拖条、分隔线），换成 Flat 会把图形抹掉；不支持的字段由 applyBoxFields 逐项挡掉并告警。
+ */
+function seedBoxFor(node: GodotControl, cls: string, item: string, src: StyleBox | null): StyleBox {
+  if (src === null) return blankFlat(null);
+  if (src instanceof StyleBoxEmpty) return blankFlat(src);
+  if (!(src instanceof StyleBoxFlat)) {
+    warnOnce(
+      `css:boxflat:${cls}:${item}`,
+      `${cls} 的 ${item} 盒是 ${src.get_class()}，只有 content_margin_* 可写（底色 / 圆角 / 边框粗细 / 阴影`
+        + "只有 StyleBoxFlat 支持）。本库不会把它的图形换成色块，如需底色请自行 add_theme_stylebox_override。",
+    );
+  }
+  return src.duplicate() as StyleBox;
+}
+
+/**
+ * 把一批字段写进盒。
+ *
+ * 盒不一定是 StyleBoxFlat（见 `seedBoxFor`）。GodotJS 对不存在的属性赋值是**静默接受**的，
+ * 所以必须先用 ClassDB 查属性存在，否则“写了没效果”无法定位。
+ */
+function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): void {
+  const cls = box.get_class();
+  for (const [key, value] of fields) {
+    if (!classHasProperty(cls, key)) {
+      warnOnce(
+        `css:boxfield:${cls}:${key}`,
+        `${cls} 没有 ${key} 属性（底色 / 圆角 / 边框粗细 / 阴影只有 StyleBoxFlat 支持，`
+          + "纹理盒只能接 content_margin_*），该字段已忽略。",
+      );
+      continue;
+    }
+    switch (key) {
+      case "bg_color": (box as StyleBoxFlat).bg_color = value as Color; break;
+      case "border_color": (box as StyleBoxFlat).border_color = value as Color; break;
+      case "corner_radius_top_left": (box as StyleBoxFlat).corner_radius_top_left = value as number; break;
+      case "corner_radius_top_right": (box as StyleBoxFlat).corner_radius_top_right = value as number; break;
+      case "corner_radius_bottom_right": (box as StyleBoxFlat).corner_radius_bottom_right = value as number; break;
+      case "corner_radius_bottom_left": (box as StyleBoxFlat).corner_radius_bottom_left = value as number; break;
+      case "border_width_top": (box as StyleBoxFlat).border_width_top = value as number; break;
+      case "border_width_right": (box as StyleBoxFlat).border_width_right = value as number; break;
+      case "border_width_bottom": (box as StyleBoxFlat).border_width_bottom = value as number; break;
+      case "border_width_left": (box as StyleBoxFlat).border_width_left = value as number; break;
+      case "content_margin_top": box.content_margin_top = value as number; break;
+      case "content_margin_right": box.content_margin_right = value as number; break;
+      case "content_margin_bottom": box.content_margin_bottom = value as number; break;
+      case "content_margin_left": box.content_margin_left = value as number; break;
+      case "shadow_size": (box as StyleBoxFlat).shadow_size = value as number; break;
+      case "shadow_color": (box as StyleBoxFlat).shadow_color = value as Color; break;
+      case "shadow_offset": (box as StyleBoxFlat).shadow_offset = value as Vector2; break;
+      default: warnOnce(`css:boxfield:${cls}:${key}`, `stylebox 字段 "${key}" 无对应属性，已忽略`);
+    }
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 状态盒模型（CSS 层叠在 Godot Theme 上的落地形状）
+ *
+ * Godot 为每个状态各存一个完整、互不继承的盒；CSS 的 `:hover` 只覆盖它自己声明的那几条，
+ * 其余沿用基规则。所以状态盒必须由本库合成，规则是：
+ *
+ *   状态盒 = 引擎该状态的默认盒 ⊕ 基规则【声明过】的字段 ⊕ 该状态声明的字段
+ *
+ * 中间那层是「作者真正声明过的字段」，不是整个基盒（那会把基盒的引擎默认底色也搬过去，
+ * 抹掉引擎的悬停加深），也不是只有几何字段（那会让基规则声明的底色在悬停时跳回引擎默认）。
+ * ------------------------------------------------------------------ */
+
+/**
+ * 来源：引擎 dump（各类拥有的 item）
+ *
+ * 状态盒 item 的封闭集合。只有这几个名字是「某个状态的盒」；Tree 的 `hovered`、TabBar 的
+ * `tab_hovered`、FoldableContainer 的 `title_hover_panel` 是**行级 / 标签级 / 标题条级**状态，
+ * CSS 的 `:hover` 表达的不是它们，不参与同步（硬映射过去语义就错了）。
+ */
+const STATE_STYLEBOX_ITEMS: readonly string[] = [
+  "hover",
+  "pressed",
+  "disabled",
+  "focus",
+  "selected",
+  "read_only",
+  "hover_pressed",
+];
+
+/** 按类缓存「该类真正拥有的状态盒 item」 */
+const stateItemsByClass = new Map<string, string[]>();
+
+function stateItemsOf(cls: string, baseItem: string): string[] {
+  let list = stateItemsByClass.get(cls);
+  if (!list) {
+    const owned = themeItems(cls, "stylebox");
+    list = STATE_STYLEBOX_ITEMS.filter((item) => item !== baseItem && owned.includes(item));
+    stateItemsByClass.set(cls, list);
+  }
+  return list;
+}
+
+type FieldMap = Map<string, unknown>;
+
+interface BoxModel {
+  readonly baseItem: string;
+  /** 基规则（选择器不要求任何状态）声明过的字段：CSS 属性名 → 字段 */
+  readonly base: Map<string, FieldMap>;
+  /** 状态规则声明过的字段：item → CSS 属性名 → 字段 */
+  readonly states: Map<string, Map<string, FieldMap>>;
+  /** 引擎在各 item 上的默认盒，必须在写入任何 override 之前整体快照（保留原类型） */
+  readonly engine: Map<string, StyleBox>;
+  /** 本库当前建出了 override 的 item */
+  readonly built: Set<string>;
+  readonly stateItems: string[];
+}
+
+const boxModels = new WeakMap<object, BoxModel>();
+
+/**
+ * 取（必要时建）节点的盒模型。引擎默认盒必须在这里**一次性整体快照**：一旦本库写入了
+ * override，`get_theme_stylebox` 就会先返回我们自己的副本，届时再取就取不到引擎的值了。
+ */
+function boxModelOf(node: GodotControl): BoxModel | null {
+  const key = node as unknown as object;
+  const existing = boxModels.get(key);
+  if (existing) return existing;
+
+  const cls = node.get_class();
+  const baseItem = pickBackgroundStylebox(cls);
+  if (!baseItem) return null; // 该类不绘制任何 stylebox，properties.ts 已先告警
+  const stateItems = stateItemsOf(cls, baseItem);
+
+  const engine = new Map<string, StyleBox>();
+  for (const item of [baseItem, ...stateItems]) {
+    if (engine.has(item)) continue;
+    const src = node.has_theme_stylebox(item) ? node.get_theme_stylebox(item) : null;
+    engine.set(item, seedBoxFor(node, cls, item, src));
+  }
+
+  const model: BoxModel = { baseItem, base: new Map(), states: new Map(), engine, built: new Set(), stateItems };
+  boxModels.set(key, model);
+  return model;
+}
+
+/**
+ * 按字段来源重建盒。`items` 省略 = 基盒 + 全部状态盒（基规则的字段变了，状态盒必须跟着变）。
+ *
+ * 基规则没声明任何 stylebox 字段、该状态也没声明 → **不建盒**，引擎默认画法完全保留。
+ */
+function rebuildBoxes(node: GodotControl, model: BoxModel, items?: readonly string[]): void {
+  const targets = items ?? [model.baseItem, ...model.stateItems];
+  for (const item of targets) {
+    const stateBag = model.states.get(item);
+    if (model.base.size === 0 && !stateBag) {
+      if (model.built.delete(item)) node.remove_theme_stylebox_override(item);
+      continue;
+    }
+    const box = (model.engine.get(item) ?? new StyleBoxFlat()).duplicate() as StyleBox;
+    for (const fields of model.base.values()) applyBoxFields(box, fields);
+    if (stateBag) for (const fields of stateBag.values()) applyBoxFields(box, fields);
+    node.add_theme_stylebox_override(item, box);
+    model.built.add(item);
+  }
+}
+
+/** 同名字段后写者赢：每次写入都把该 CSS 属性挪到末尾，保持与写入顺序一致的级联顺序 */
+function putFields(bag: Map<string, FieldMap>, cssName: string, fields: FieldMap): void {
+  bag.delete(cssName);
+  bag.set(cssName, fields);
 }
 
 /** 写入节点属性前的原值（撤销时原样恢复）。属性名是运行期字符串，只能按表读。 */
@@ -126,19 +341,57 @@ function readProp(node: Control, prop: string): unknown {
  * 无法记账，因此对外不存在“直接调用”的入口。
  * ------------------------------------------------------------------ */
 
+/**
+ * 一条 stylebox 类声明的落地。
+ *
+ * `isBase` = 该声明所在的选择器**不要求任何状态**（基规则 / 内联）。只有基规则的字段才
+ * 需要同步到其它状态的盒；状态规则只写它自己那个盒。
+ */
 function writeStyleBox(
   cssName: string,
+  isBase: boolean,
+  stateTag: string,
   node: GodotControl,
   item: string,
   apply: (box: StyleBoxHandle) => void,
 ): void {
-  const source = node.has_theme_stylebox(item) ? node.get_theme_stylebox(item) : null;
-  // 共享实例修改前必须 duplicate。取不到源（该类没有这个 item）时新建一个，
-  // 但那种情况 properties.ts 已先告警过，不会走到这里。
-  const copy = (source ? source.duplicate() : new StyleBoxFlat()) as StyleBoxFlat;
-  apply(new StyleBoxWrite(copy));
-  node.add_theme_stylebox_override(item, copy);
-  record(node, cssName, `stylebox:${item}`, () => node.remove_theme_stylebox_override(item));
+  const model = boxModelOf(node);
+  if (!model) return; // 该类没有任何可当底色的 stylebox（properties.ts 已告警）
+
+  const write = new StyleBoxWrite();
+  apply(write);
+  if (write.fields.size === 0) return;
+
+  const onBase = isBase && item === model.baseItem;
+  if (onBase) putFields(model.base, cssName, write.fields);
+  else {
+    let bag = model.states.get(item);
+    if (!bag) {
+      bag = new Map();
+      model.states.set(item, bag);
+    }
+    putFields(bag, cssName, write.fields);
+  }
+
+  // 基盒的字段变了，所有状态盒都得跟着重建，否则状态盒停在旧几何上（主题切换、@media 命中
+  // 变化、基规则被改写都走这里）。
+  rebuildBoxes(node, model, onBase ? undefined : [item]);
+
+  // 槽位必须带上状态标记：`.card` 与 `.card:hover` 在 PanelContainer 这类只有一个盒的控件上
+  // 会落同一个 item，不带标记就是同一个槽位 → record 去重后只记下一条 undo，
+  // 退出状态时只能撑掉其中一条贡献，另一条永久残留。
+  const slot = `stylebox:${item}${stateTag ? `@${stateTag}` : ""}`;
+  record(node, cssName, slot, () => {
+    if (onBase) model.base.delete(cssName);
+    else {
+      const bag = model.states.get(item);
+      bag?.delete(cssName);
+      if (bag && bag.size === 0) model.states.delete(item);
+    }
+    // 撤销同样是「按剩余声明重建」，不是 remove_theme_stylebox_override 整个盒：
+    // 整个盒一删，同盒里别的 CSS 属性写的字段会一起消失，而那些属性的值没变、不会被重写。
+    rebuildBoxes(node, model, onBase ? undefined : [item]);
+  });
 }
 
 function writeColorOverride(cssName: string, node: GodotControl, item: string, color: ColorLike): void {
@@ -264,7 +517,7 @@ export const backend: StyleBackend = {
       cssName,
       raw,
       {
-        backend: scopeOf(cssName),
+        backend: scopeOf(cssName, states),
         warn: (key, message) => warnOnce(`css:${key}`, message),
         states,
       },
@@ -293,12 +546,21 @@ const scopes = new Map<string, StyleBackend>();
 /** 属性名本应是个小闭集；设上限是为了防止“把任意字符串当属性名”使缓存无限增长 */
 const MAX_SCOPES = 256;
 
-function scopeOf(cssName: string): StyleBackend {
-  let scope = scopes.get(cssName);
+/** 门面缓存键：同一属性名在不同状态下要落不同的盒，所以状态集也必须进键 */
+function scopeKey(cssName: string, states: ReadonlySet<string>): string {
+  return states.size === 0 ? cssName : `${cssName}\u0000${[...states].sort().join(",")}`;
+}
+
+function scopeOf(cssName: string, states: ReadonlySet<string>): StyleBackend {
+  const key = scopeKey(cssName, states);
+  let scope = scopes.get(key);
   if (scope) return scope;
+  // 选择器不要求任何状态 = 基规则，它的 stylebox 字段必须同步到该类的所有状态盒
+  const isBase = states.size === 0;
+  const stateTag = isBase ? "" : [...states].sort().join(",");
   scope = Object.assign(Object.create(backend) as StyleBackend, {
     mutateStyleBox: (node: CssNode, item: string, apply: (box: StyleBoxHandle) => void) =>
-      writeStyleBox(cssName, asGodotControl(node), item, apply),
+      writeStyleBox(cssName, isBase, stateTag, asGodotControl(node), item, apply),
     setColorOverride: (node: CssNode, item: string, color: ColorLike) =>
       writeColorOverride(cssName, asGodotControl(node), item, color),
     setFontSizeOverride: (node: CssNode, item: string, size: number) =>
@@ -313,7 +575,7 @@ function scopeOf(cssName: string): StyleBackend {
     setNodeBoolean: (node: CssNode, prop: string, value: boolean) =>
       writeNodeBoolean(cssName, asGodotControl(node), prop, value),
   });
-  if (scopes.size < MAX_SCOPES) scopes.set(cssName, scope);
+  if (scopes.size < MAX_SCOPES) scopes.set(key, scope);
   return scope;
 }
 

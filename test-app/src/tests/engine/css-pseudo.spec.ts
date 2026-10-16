@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Button, CheckBox, Label, LineEdit, ItemList, type Control } from "godot";
+import { Button, CheckBox, Label, LineEdit, ItemList, type Control, type StyleBoxFlat } from "godot";
 import { GodotRenderer, StyleRuntime } from "godot-angular/core";
 import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
@@ -40,28 +40,39 @@ describe("hover", () => {
   });
 
   it("值没变但 item 换了，也要重写（diff 不能只比值）", async () => {
-    // 普通态与 hover 态使用同一个颜色：只比较 value 会判定“没变化”而跳过，
-    // 结果 hover 盒始终未被写入，引擎继续绘制它自身的——看着像 CSS 未生效
-    runtime.addCss(`.btn { background-color: rgb(0, 0, 255); }`);
-    runtime.addCss(`.btn:hover { background-color: rgb(0, 0, 255); }`);
+    // 普通态与 hover 态声明同一个颜色：只比较 value 会判定“没变化”而跳过，
+    // 结果 font_hover_color 永远不写，引擎 hover 时继续画它自身的颜色——看着像 CSS 未生效
+    runtime.addCss(`.btn { background-color: rgb(0, 0, 255); color: rgb(0, 0, 255); }`);
+    runtime.addCss(`.btn:hover { background-color: rgb(0, 0, 255); color: rgb(0, 0, 255); }`);
     const btn = make(new Button(), "btn");
     expect(btn.has_theme_stylebox_override("normal")).toBe(true);
-    expect(btn.has_theme_stylebox_override("hover")).toBe(false);
+    expect(btn.has_theme_color_override("font_hover_color")).toBe(false);
 
     btn.emit_signal("mouse_entered");
     await awaitFrames(1);
-    expect(btn.has_theme_stylebox_override("hover")).toBe(true);
+    // 颜色的落点仍由选择器要求的状态决定：引擎 hover 时读的是 font_hover_color
+    expect(btn.has_theme_color_override("font_hover_color")).toBe(true);
+    expect((btn.get_theme_stylebox("hover") as StyleBoxFlat).bg_color.b).toBeCloseTo(1, 3);
   });
 
-  it("样式表没写 :hover 时，emit 不产生任何写入（引擎自己画）", async () => {
-    runtime.addCss(`.btn { background-color: rgb(0, 0, 255); }`);
+  it("没写 :hover 时：基规则声明过的字段必须贯穿到 hover 盒", async () => {
+    // 层叠语义：作者没写 :hover 不等于“悬停时交给引擎”，而是“悬停时沿用基规则的全部声明”。
+    // 几何不跟过去就会悬停即重排（v0.3.1 的回归）。
+    runtime.addCss(`.btn { background-color: rgb(0, 0, 255); padding: 10px; border-radius: 6px; }`);
     const btn = make(new Button(), "btn");
     const before = runtime.cascade.stats.applied;
+    const h0 = btn.get_minimum_size().y;
 
     btn.emit_signal("mouse_entered");
     await awaitFrames(1);
+    // 没有新声明命中 → 本轮不应产生任何写入（几何在基规则落地时就已同步过了）
     expect(runtime.cascade.stats.applied).toBe(before);
-    expect(btn.has_theme_stylebox_override("hover")).toBe(false);
+
+    const hover = btn.get_theme_stylebox("hover") as StyleBoxFlat;
+    expect(hover.content_margin_top).toBe(10);
+    expect(hover.corner_radius_top_left).toBe(6);
+    expect(hover.bg_color.b).toBeCloseTo(1, 3); // 作者声明了底色 → 悬停时仍是它（浏览器同样如此）
+    expect(btn.get_minimum_size().y).toBe(h0); // 悬停不得改变最小尺寸
   });
 
   it("懒订阅：样式表不含伪类时不连信号", async () => {
@@ -430,21 +441,25 @@ describe("引擎绘制优先级（get_draw_mode 实测）", () => {
 });
 
 /**
- * 状态只重定向「自己要求了该状态」的声明。基规则被顶进状态 item 的后果很实在：
- * `.primary { background-color: 蓝 }` 会让禁用按钮的 `disabled` 盒也变成蓝色，
- * 引擎默认的禁用处理被顶掉，禁用态看起来跟启用一模一样。
+ * 落点分两套口径，这里钉住它们的分界：
+ * - **颜色**：只重定向「自己要求了该状态」的声明。基规则的 `color` 永远写 `font_color`，
+ *   不能被顶进 `font_disabled_color`（那条 override 属于 `:disabled` 规则，基规则没资格写）。
+ * - **stylebox**：基规则声明过的字段必须贯穿所有状态（层叠）。因此 `.btn { background-color: 蓝 }`
+ *   会让禁用盒也是蓝的——与浏览器一致（作者写了 background，UA 的禁用底色就被覆盖）；
+ *   想要专属禁用外观必须显式写 `:disabled`。
  */
 describe("基规则不被状态顶掉", () => {
-  it("禁用时基规则仍写 normal / font_color", async () => {
+  it("禁用时基规则仍写 font_color，不顶进 font_disabled_color", async () => {
     runtime.addCss(`.btn { background-color: rgb(0, 0, 255); color: rgb(0, 255, 255); }`);
     const btn = make(new Button(), "btn");
     btn.disabled = true;
     runtime.invalidate(btn);
     await awaitFrames(1);
     expect(btn.has_theme_stylebox_override("normal")).toBe(true);
-    expect(btn.has_theme_stylebox_override("disabled")).toBe(false);
     expect(btn.has_theme_color_override("font_color")).toBe(true);
     expect(btn.has_theme_color_override("font_disabled_color")).toBe(false);
+    // stylebox 走另一套：基规则声明过的字段贯穿到 disabled 盒
+    expect((btn.get_theme_stylebox("disabled") as StyleBoxFlat).bg_color.b).toBeCloseTo(1, 3);
   });
 
   it("hover 时基规则仍写 font_color", async () => {
