@@ -187,9 +187,17 @@ export class StyleRuntime {
     const current = this.bindings.get(node);
     if (current && current.version === version) return;
     current?.unbind();
-    const unbind = bindPseudoClasses(node, this.cascade.usedPseudoClasses(), (name, on) =>
-      this.cascade.setPseudoClass(node, name, on),
-    );
+    // `target` 只有 :hover 会传：悬停向祖先冒泡是 CSS 语义，引擎不会替我们发那些信号。
+    // 不属于本级联的祖先（挂载点、使用方自己接在上面的引擎节点）一律跳过：标脏一个未登记
+    // 节点会把它的整棵子树拉进脏队列，而 flush 又会全部跳过——白跑一轮全量重算。
+    const unbind = bindPseudoClasses(node, this.cascade.usedPseudoClasses(), (name, on, target) => {
+      if (target === undefined) {
+        this.cascade.setPseudoClass(node, name, on);
+        return;
+      }
+      if (this.cascade.stateOf(asGodotNode(target))?.attached !== true) return;
+      this.cascade.setPseudoClass(asGodotNode(target), name, on);
+    });
     if (unbind) this.bindings.set(node, { version, unbind });
     else this.bindings.delete(node);
   }

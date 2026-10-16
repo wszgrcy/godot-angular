@@ -1,17 +1,27 @@
 import { warnOnce } from "./warn";
 import { tryConnectGodotSignal } from "./godot-events";
+import { isControlClass } from "./registry";
 import { PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import type { Node } from "godot";
 
-/** 设置某个伪类开关的函数。 */
-export type PseudoSetter = (name: string, on: boolean) => void;
+/**
+ * 设置某个伪类开关的函数。
+ *
+ * `target` 省略时写本节点。只有 `:hover` 用得到它：CSS 的悬停会向祖先冒泡，而引擎不会，
+ * 于是驱动 `:hover` 的那一侧需要把状态写到祖先身上（见 `hoverPair`）。
+ */
+export type PseudoSetter = (name: string, on: boolean, target?: Node) => void;
 
 type Unbind = () => void;
 
-/** 一个伪类的驱动方式。 */
-type Binder = (node: Node, set: (on: boolean) => void) => Unbind | null;
+/**
+ * 一个伪类的驱动方式。
+ *
+ * `set(开关, 写给谁)`：默认写给本节点，`:hover` 会顺带写给祖先链。
+ */
+type Binder = (node: Node, set: (on: boolean, target?: Node) => void) => Unbind | null;
 
-/** 一进一出的信号对（hover / focus / 按下）。 */
+/** 一进一出的信号对（focus / 按下）。 */
 function signalPair(onSignal: string, offSignal: string): Binder {
   return (node, set) => {
     const on = tryConnectGodotSignal(node, onSignal, () => set(true));
@@ -20,6 +30,108 @@ function signalPair(onSignal: string, offSignal: string): Binder {
     return () => {
       on?.();
       off?.();
+    };
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * `:hover` —— 唯一需要向祖先冒泡的伪类
+ * ------------------------------------------------------------------ */
+
+/**
+ * 祖先 → 「当前有哪些节点在它身上报告被悬停」（含报告者自己）。
+ *
+ * 为什么不直接「进入时全链写 true、离开时全链写 false」：同一个祖先可能同时被两条来源举着
+ * （它自己收到 mouse_entered，同时它的某个子控件也收到了），子控件离开时把整条链清掉，
+ * 就会把仍然成立的悬停误抹掉。登记表让「清除」只在最后一个来源消失时发生，与信号到达
+ * 顺序无关（引擎先发完全部 mouse_exited 再发 mouse_entered，但这一点没有文档保证）。
+ */
+const hoverSources = new WeakMap<object, Set<object>>();
+
+/**
+ * 报告者 → 它报告那一刻所处的祖先链（含自己）。
+ *
+ * 必须提前记下：`tree_exited` 到达时节点早已脱离父级，`get_parent()` 已是 null，
+ * 退出时现查会让祖先永远停在悬停态（`@for` 删项 / queue_free 就是这个场景）。
+ */
+const hoverChains = new WeakMap<object, Node[]>();
+
+/** 从 node 往上的 Control 祖先；遇到非 Control（根 Viewport / Window）即停。 */
+function controlAncestors(node: Node): Node[] {
+  const out: Node[] = [];
+  let p = node.get_parent();
+  while (p) {
+    if (!isControlClass(p.get_class())) break;
+    out.push(p);
+    p = p.get_parent();
+  }
+  return out;
+}
+
+/** 报告者此刻所处的祖先链（含自己）：进入时记下，退出时取回（见 `hoverChains`）。 */
+function hoverChain(node: Node, on: boolean): Node[] {
+  if (on) {
+    const chain = [node, ...controlAncestors(node)];
+    hoverChains.set(node, chain);
+    return chain;
+  }
+  // 没记过就退回现查（只可能来自引擎自己发的 exited，节点还在树上）
+  const chain = hoverChains.get(node) ?? [node, ...controlAncestors(node)];
+  hoverChains.delete(node);
+  return chain;
+}
+
+/**
+ * 登记 / 注销「node 此刻被悬停」，返回真正需要写入的 (节点, 开关) 序列。
+ *
+ * 报告者自己也占一个来源：CSS 里元素自身与子孙各能独立让 `:hover` 成立，
+ * 子孙离开时元素自身若仍在悬停，就不该被一起清掉。
+ */
+function reportHover(node: Node, on: boolean): Array<[Node, boolean]> {
+  const writes: Array<[Node, boolean]> = [];
+  for (const host of hoverChain(node, on)) {
+    let sources = hoverSources.get(host);
+    if (on) {
+      if (!sources) {
+        sources = new Set();
+        hoverSources.set(host, sources);
+      }
+      sources.add(node);
+      writes.push([host, true]);
+      continue;
+    }
+    // 没登记过就一个字节也不写：否则会把别的来源举着的悬停顶掉
+    if (!sources || !sources.has(node)) continue;
+    sources.delete(node);
+    if (sources.size === 0) writes.push([host, false]);
+  }
+  return writes;
+}
+
+/**
+ * `:hover` 的驱动。
+ *
+ * 引擎只在「最深接收控件 + 它往上直到第一个 STOP 祖先」这条链上发 mouse_entered：
+ * 一个 `mouse_filter = STOP` 的子控件（Button / CheckBox / 用来撑位的空 Control）会把
+ * 事件整个吃掉，父级一个信号都收不到。于是 CSS 里天经地义的
+ * `.list-row:hover { border-color: … }`（指针停在行内的 CheckBox 上也要让整行亮）
+ * 在引擎里变成「只有指针落在父级自己那一圈空白上才亮」。这里把冒泡补上：任何节点报告
+ * 悬停，它的 Control 祖先一律跟着亮，退出时同样一路撤掉。
+ */
+function hoverPair(): Binder {
+  return (node, set) => {
+    const report = (on: boolean): void => {
+      for (const [host, value] of reportHover(node, on)) set(value, host);
+    };
+    const enter = tryConnectGodotSignal(node, "mouse_entered", () => report(true));
+    const leave = tryConnectGodotSignal(node, "mouse_exited", () => report(false));
+    // 节点被释放 / 移出树时引擎不保证补发 mouse_exited，不补这一步祖先会永久停在悬停态
+    const gone = tryConnectGodotSignal(node, "tree_exited", () => report(false));
+    if (!enter && !leave) return null;
+    return () => {
+      enter?.();
+      leave?.();
+      gone?.();
     };
   };
 }
@@ -44,7 +156,7 @@ function signalToggle(signal: string): Binder {
  * 创建时就为真，光靠信号会永远不开。
  */
 const BINDERS: Record<string, Binder> = {
-  hover: signalPair("mouse_entered", "mouse_exited"),
+  hover: hoverPair(),
   focus: signalPair("focus_entered", "focus_exited"),
   // BaseButton：按下 / 抬起。CSS 的 :active 与 :pressed 在 Godot 中是同一件事
   active: signalPair("button_down", "button_up"),
@@ -78,7 +190,7 @@ export function bindPseudoClasses(node: Node, names: Iterable<string>, set: Pseu
   for (const name of names) {
     const binder = BINDERS[name];
     if (!binder) continue;
-    const unbind = binder(node, (on) => set(name, on));
+    const unbind = binder(node, (on, target) => set(name, on, target));
     if (unbind) unbinds.push(unbind);
   }
   if (!unbinds.length) return null;
@@ -94,7 +206,7 @@ export function warnUnboundPseudoClasses(names: Iterable<string>): void {
     warnOnce(
       `css:pseudo-unbound:${name}`,
       `样式表使用了 :${name}，但 Godot 无对应的信号/属性，它不会自动生效。可选方案：` +
-        `① 通过 class 通道表达该状态（如 [class."${name}"]="..." 配合 CSS .x.${name}），class 变化会触发通知；` +
+        `① 通过 class 通道表达该状态（如 [class."${name}"]="…" 配合 CSS .x.${name}），class 变化会触发通知；` +
         `② 状态变化时自行调用 runtime.setPseudoClass(node, "${name}", true/false)。`,
     );
   }

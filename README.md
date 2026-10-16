@@ -582,7 +582,7 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 
 | 伪类 | 来源 | stylebox | 颜色中缀 |
 | --- | --- | --- | --- |
-| `:hover` | `mouse_entered` / `mouse_exited` | `hover` | `font_hover_color` |
+| `:hover` | `mouse_entered` / `mouse_exited`（**向 Control 祖先冒泡**，见下） | `hover` | `font_hover_color` |
 | `:focus` | `focus_entered` / `focus_exited` | `focus` | `font_focus_color` |
 | `:active` `:pressed` | `button_down` / `button_up` | `pressed` | `font_pressed_color` |
 | `:checked` | `toggled` 信号 + `button_pressed` 属性（**仅 `toggle_mode=true` 时成立**） | `pressed` | `font_pressed_color` |
@@ -592,6 +592,17 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 | `:enabled` | `disabled` 属性取反 | —（同 `normal`） | —（同 `font_color`） |
 
 以下行为需要特别注意：
+
+- **`:hover` 会向祖先冒泡，与 CSS 一致**。引擎只在「最深接收控件 + 它往上直到第一个
+  `mouse_filter = STOP` 的祖先」这条链上发 `mouse_entered`：一个 STOP 子控件（`Button` /
+  `CheckBox` / 用来撑位的空 `Control`）会把事件整个吃掉，父级一个信号都收不到。于是浏览器里
+  天经地义的 `.list-row:hover { border-color: … }`（指针停在行内的 `CheckBox` 上，整行也得亮）
+  在引擎里会退化成「只有指针精确落在行自身那一圈 padding 上才亮」。本库补齐了冒泡：任一节点
+  报告进入悬停，它的所有 Control 祖先一并进入 `:hover`，退出时同样一路撤掉。同一个祖先可以被
+  多个来源同时举着（它自身 + 某个子孙），只有最后一个来源消失才撤悬停，因此父子先后进出也不会
+  互相顶掉。节点被 `queue_free` / 移出节点树时按退出处理（引擎此时不再补发 `mouse_exited`）。
+  `:focus` 不冒泡是对的（CSS 里那叫 `:focus-within`）；`:active` / `:pressed` 也只落在控件自身，
+  浏览器会连祖先一起点亮的那条行为本库未做。
 
 - **勾选态复用 `pressed` 落点**。Godot 的开关控件（`CheckBox` / `CheckButton` /
   `toggle_mode=true` 的 `Button`）在 `button_pressed=true` 时绘制的是 `pressed` 盒与
