@@ -1,7 +1,8 @@
-import { Color, Control, StyleBox, StyleBoxEmpty, StyleBoxFlat, Vector2 } from "godot";
+import { Color, Control, Font, ResourceLoader, StyleBox, StyleBoxEmpty, StyleBoxFlat, StyleBoxTexture, SystemFont, Texture2D, Vector2 } from "godot";
 import type {
   ColorLike,
   CssNode,
+  FontSource,
   FourCorners,
   FourSides,
   StyleBackend,
@@ -83,6 +84,10 @@ class StyleBoxWrite implements StyleBoxHandle {
 
   setBackground(color: ColorLike | null): void {
     this.fields.set("bg_color", color ? toColor(color) : new Color(0, 0, 0, 0));
+  }
+
+  setTexture(path: string): void {
+    this.fields.set("texture", path);
   }
 
   setCornerRadii(radii: Partial<FourCorners>): void {
@@ -168,7 +173,7 @@ function seedBoxFor(node: GodotControl, cls: string, item: string, src: StyleBox
   if (src === null) return blankFlat(null);
   if (src instanceof StyleBoxEmpty) return blankFlat(src);
   if (!(src instanceof StyleBoxFlat)) {
-    warnOnce(
+    if (ngDevMode) warnOnce(
       `css:boxflat:${cls}:${item}`,
       `${cls} 的 ${item} 盒是 ${src.get_class()}，只有 content_margin_* 可写（底色 / 圆角 / 边框粗细 / 阴影`
         + "只有 StyleBoxFlat 支持）。本库不会把它的图形换成色块，如需底色请自行 add_theme_stylebox_override。",
@@ -187,7 +192,7 @@ function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): vo
   const cls = box.get_class();
   for (const [key, value] of fields) {
     if (!classHasProperty(cls, key)) {
-      warnOnce(
+      if (ngDevMode) warnOnce(
         `css:boxfield:${cls}:${key}`,
         `${cls} 没有 ${key} 属性（底色 / 圆角 / 边框粗细 / 阴影只有 StyleBoxFlat 支持，`
           + "纹理盒只能接 content_margin_*），该字段已忽略。",
@@ -196,6 +201,12 @@ function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): vo
     }
     switch (key) {
       case "bg_color": (box as StyleBoxFlat).bg_color = value as Color; break;
+      case "texture": {
+        const texture = loadTexture(value as string);
+        // 写入前已校验，至此仅可能为缓存命中；保留守卫是为了避免加载失败时默默写入 null
+        if (texture) (box as StyleBoxTexture).texture = texture;
+        break;
+      }
       case "border_color": (box as StyleBoxFlat).border_color = value as Color; break;
       case "corner_radius_top_left": (box as StyleBoxFlat).corner_radius_top_left = value as number; break;
       case "corner_radius_top_right": (box as StyleBoxFlat).corner_radius_top_right = value as number; break;
@@ -212,7 +223,7 @@ function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): vo
       case "shadow_size": (box as StyleBoxFlat).shadow_size = value as number; break;
       case "shadow_color": (box as StyleBoxFlat).shadow_color = value as Color; break;
       case "shadow_offset": (box as StyleBoxFlat).shadow_offset = value as Vector2; break;
-      default: warnOnce(`css:boxfield:${cls}:${key}`, `stylebox 字段 "${key}" 无对应属性，已忽略`);
+      default: if (ngDevMode) warnOnce(`css:boxfield:${cls}:${key}`, `stylebox 字段 "${key}" 无对应属性，已忽略`);
     }
   }
 }
@@ -307,6 +318,38 @@ function boxModelOf(node: GodotControl): BoxModel | null {
  *
  * 基规则没声明任何 stylebox 字段、该状态也没声明 → **不建盒**，引擎默认画法完全保留。
  */
+/** 底色与纹理均占据「该位置绘制何种内容」这一个位置，同时出现时仅能保留其一 */
+const FILL_FIELDS = new Set(["bg_color", "texture"]);
+
+/**
+ * 把多份「CSS 属性名 → 字段」按写入顺序合成一份。
+ *
+ * 底色与纹理互斥：Godot 的一个 StyleBox 只能绘制其中一种（StyleBoxFlat 无 texture，
+ * StyleBoxTexture 无 bg_color），而 CSS 允许两者同时声明。本库不叠加，也不代为推断，
+ * 按层叠顺序取最后一条（与 `width:1px;width:2px` 同口径），前面几条的填充字段直接丢弃。
+ * 其余字段（圆角 / 边框 / padding）不受影响，仍由后写者胜出。
+ */
+function mergeFields(bags: readonly (Map<string, FieldMap> | undefined)[]): FieldMap {
+  const entries: FieldMap[] = [];
+  for (const bag of bags) if (bag) for (const fields of bag.values()) entries.push(fields);
+
+  let winner = -1;
+  entries.forEach((fields, index) => {
+    for (const key of fields.keys()) {
+      if (FILL_FIELDS.has(key)) winner = index;
+    }
+  });
+
+  const merged: FieldMap = new Map();
+  entries.forEach((fields, index) => {
+    for (const [key, value] of fields) {
+      if (FILL_FIELDS.has(key) && index !== winner) continue;
+      merged.set(key, value);
+    }
+  });
+  return merged;
+}
+
 function rebuildBoxes(node: GodotControl, model: BoxModel, items?: readonly string[]): void {
   const targets = items ?? [model.baseItem, ...model.stateItems];
   for (const item of targets) {
@@ -315,9 +358,13 @@ function rebuildBoxes(node: GodotControl, model: BoxModel, items?: readonly stri
       if (model.built.delete(item)) node.remove_theme_stylebox_override(item);
       continue;
     }
-    const box = (model.engine.get(item) ?? new StyleBoxFlat()).duplicate() as StyleBox;
-    for (const fields of model.base.values()) applyBoxFields(box, fields);
-    if (stateBag) for (const fields of stateBag.values()) applyBoxFields(box, fields);
+    const fields = mergeFields([model.base, stateBag]);
+    const engine = model.engine.get(item) ?? null;
+    // 胜出的是纹理就得更换盒类：StyleBoxFlat 无 texture 属性，写入亦为静默无效
+    const box = fields.has("texture")
+      ? textureBoxFor(engine)
+      : (engine ?? new StyleBoxFlat()).duplicate() as StyleBox;
+    applyBoxFields(box, fields);
     node.add_theme_stylebox_override(item, box);
     model.built.add(item);
   }
@@ -360,6 +407,13 @@ function writeStyleBox(
 
   const write = new StyleBoxWrite();
   apply(write);
+  // 纹理在写入前即校验一次：加载失败则该条声明根本无落点，不能先将其记入模型
+  // 再于重建时静默丢弃——那将遗留一个不绘制任何内容的盒，还会将其计入「本库创建过的盒」
+  const wanted = write.fields.get("texture");
+  if (wanted !== undefined && !loadTexture(String(wanted))) {
+    if (ngDevMode) warnOnce(`css:texture:${wanted}`, `纹理资源加载不到：${wanted}（background-image 已忽略）`);
+    write.fields.delete("texture");
+  }
   if (write.fields.size === 0) return;
 
   const onBase = isBase && item === model.baseItem;
@@ -404,9 +458,97 @@ function writeFontSizeOverride(cssName: string, node: GodotControl, item: string
   record(node, cssName, `font_size:${item}`, () => node.remove_theme_font_size_override(item));
 }
 
+/**
+ * 纹理资源缓存（口径与 `loadFont` 一致：加载失败同样记录，不逐节点重复尝试）。
+ */
+const textureCache = new Map<string, Texture2D | null>();
+
+function loadTexture(path: string): Texture2D | null {
+  const hit = textureCache.get(path);
+  if (hit !== undefined) return hit;
+  let texture: Texture2D | null = null;
+  if (ResourceLoader.exists(path)) {
+    const resource = ResourceLoader.load(path);
+    if (resource instanceof Texture2D) texture = resource;
+  }
+  textureCache.set(path, texture);
+  return texture;
+}
+
+/**
+ * 纹理盒：若引擎原有的盒本就是 StyleBoxTexture，则保留其取景参数（region_rect /
+ * axis_stretch 等）；否则新建一个并将 content_margin 一并迁移（布局留白不可丢失）。
+ */
+function textureBoxFor(src: StyleBox | null): StyleBox {
+  if (src instanceof StyleBoxTexture) return src.duplicate() as StyleBox;
+  const box = new StyleBoxTexture();
+  if (src) {
+    box.content_margin_top = src.content_margin_top;
+    box.content_margin_right = src.content_margin_right;
+    box.content_margin_bottom = src.content_margin_bottom;
+    box.content_margin_left = src.content_margin_left;
+  }
+  return box;
+}
+
 function writeConstantOverride(cssName: string, node: GodotControl, item: string, value: number): void {
   node.add_theme_constant_override(item, Math.round(value));
   record(node, cssName, `constant:${item}`, () => node.remove_theme_constant_override(item));
+}
+
+/**
+ * 字体资源缓存：路径 → Font（加载失败记 null，不重复尝试）。
+ *
+ * 自行缓存的原因：`font-family` 属于高频声明（一个界面中数十个节点使用同一字体），而
+ * `ResourceLoader.load` 每次均需执行一遍路径解析与资源查找。加载失败同样记录，是因为
+ * 路径书写错误时每个节点都会再次尝试，不加记录则每个节点都会输出一条引擎错误。
+ */
+const fontCache = new Map<string, Font | null>();
+
+function loadFont(path: string): Font | null {
+  const hit = fontCache.get(path);
+  if (hit !== undefined) return hit;
+  let font: Font | null = null;
+  // 先过一道 exists：load 找不到文件时引擎自身会向控制台输出错误，而这条路径本库
+  // 已需输出告警（font-family 的告警），不应再追加一份重复的引擎报错
+  if (ResourceLoader.exists(path)) {
+    const resource = ResourceLoader.load(path);
+    if (resource instanceof Font) font = resource;
+  }
+  fontCache.set(path, font);
+  return font;
+}
+
+/**
+ * 系统字体实例缓存（key = 候选名拼接）。
+ *
+ * 必须复用：`font-family` 会在每次重排 / 重算时重新落点，若每次均 `new SystemFont()`，
+ * 相当于为同一节点更换新的资源对象，既浪费资源，也会使“同一个字体”在引擎眼中成为两个。
+ */
+const systemFontCache = new Map<string, SystemFont>();
+
+function systemFontFor(names: readonly string[]): SystemFont {
+  const key = names.join("\u0000");
+  const hit = systemFontCache.get(key);
+  if (hit) return hit;
+  const font = new SystemFont();
+  font.font_names = [...names];
+  systemFontCache.set(key, font);
+  return font;
+}
+
+function writeFontOverride(
+  cssName: string,
+  node: GodotControl,
+  item: string,
+  source: FontSource,
+): boolean {
+  // path 分支加载失败时需返回报错；systemFontNames 分支由引擎兜底，恒返回成功
+  const font = "path" in source ? loadFont(source.path) : systemFontFor(source.systemFontNames);
+  if (!font) return false;
+  node.add_theme_font_override(item, font);
+  record(node, cssName, `font:${item}`, () => node.remove_theme_font_override(item));
+  return true;
 }
 
 function writeMinimumSize(
@@ -493,6 +635,7 @@ export const backend: StyleBackend = {
   mutateStyleBox: () => needsScope("mutateStyleBox"),
   setColorOverride: () => needsScope("setColorOverride"),
   setFontSizeOverride: () => needsScope("setFontSizeOverride"),
+  setFontOverride: () => needsScope("setFontOverride"),
   setConstantOverride: () => needsScope("setConstantOverride"),
 
   setMinimumSize: () => needsScope("setMinimumSize"),
@@ -511,6 +654,7 @@ export const backend: StyleBackend = {
     raw: string,
     warnings: string[],
     states: ReadonlySet<string>,
+    resolveFont?: (family: string) => string | null,
   ): boolean {
     return applyCssProperty(
       node,
@@ -518,8 +662,10 @@ export const backend: StyleBackend = {
       raw,
       {
         backend: scopeOf(cssName, states),
-        warn: (key, message) => warnOnce(`css:${key}`, message),
+        // 本包仅输出「落点相关」的告警，未标等级的按忽略级处理
+        warn: (key, message, level) => warnOnce(`css:${key}`, message, level ?? "ignore"),
         states,
+        resolveFont,
       },
       warnings,
     );
@@ -567,6 +713,8 @@ function scopeOf(cssName: string, states: ReadonlySet<string>): StyleBackend {
       writeFontSizeOverride(cssName, asGodotControl(node), item, size),
     setConstantOverride: (node: CssNode, item: string, value: number) =>
       writeConstantOverride(cssName, asGodotControl(node), item, value),
+    setFontOverride: (node: CssNode, item: string, source: FontSource) =>
+      writeFontOverride(cssName, asGodotControl(node), item, source),
     setMinimumSize: (node: CssNode, width: number | null, height: number | null) =>
       writeMinimumSize(cssName, asGodotControl(node), width, height),
     setOpacity: (node: CssNode, alpha: number) => writeOpacity(cssName, asGodotControl(node), alpha),
@@ -612,12 +760,13 @@ export function applyStyle(node: Control, cssName: string, value: unknown): void
   // 否则一个 hover 中的节点会把基色写进 hover 盒，与级联对基规则的口径不一致。
   const known = backend.bulk(target, () => backend.applyProperty(target, cssName, raw, warnings, NO_STATES));
   if (!known) {
-    warnOnce(
+    if (ngDevMode) warnOnce(
       `css:unknown:${cssName}`,
       `样式 "${cssName}" 无 Godot 对应，已忽略（布局请使用容器 + sizeFlags，外观请使用 Theme）`,
     );
   }
-  for (const message of warnings) warnOnce(`css:value:${cssName}:${message}`, message);
+  // 解析期的告警只会是「值被丢弃」，统一按忽略型输出
+  if (ngDevMode) for (const message of warnings) warnOnce(`css:value:${cssName}:${message}`, message, "ignore");
 }
 
 /** 撤销：给出属性名时只撤销那一条，未给出则全部撤销（只处理 ledger 记录过的项） */
@@ -660,8 +809,4 @@ export function styleLedger(node: Control): string[] {
     for (const slot of slots.keys()) keys.push(`${property}|${slot}`);
   }
   return keys;
-}
-
-function warn(key: string, message: string): void {
-  warnOnce(`css:${key}`, message);
 }

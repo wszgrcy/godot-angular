@@ -1,18 +1,60 @@
+import type { WarnLevel } from "godot-angular/css";
+
 const warned = new Set<string>();
 
-export function warnOnce(key: string, message: string): void {
-  if (warned.has(key)) return;
-  warned.add(key);
-  console.warn(`[godot-angular] ${message}`);
+/**
+ * 运行期覆盖。`undefined` 表示按 `ngDevMode` 判定。
+ *
+ * 生产构建中 `ngDevMode` 已被替换为常量，整段告警连同文案一并摇除，无需运行期开关；
+ * 保留该入口是为了在未开启优化的构建（例如测试进程）中也能验证「关闭之后确实静默」。
+ */
+let enabled: boolean | undefined;
+
+/**
+ * 运行期告警是否允许输出。
+ *
+ * 此为第二道闸门。第一道位于调用点：每条告警均包裹于 `if (ngDevMode)` 中，生产构建中整条分支
+ * 连同文案一并消除，根本不予收集。本函数负责的是另一件事：使测试进程能在不开启优化
+ * 构建的前提下验证「关闭之后确实静默」。
+ *
+ * 来源：Angular `packages/core/src/util/ng_dev_mode.ts`
+ * 等级：仅思路一致
+ * 差异：本侧的 `ngDevMode` 由构建器于编译期固定（见 `typings/ng-dev-mode.d.ts`），
+ * 运行期仅有 true / false，因此直接取用，不做 `typeof` 探测，也不挂接性能计数器。
+ */
+export function warnEnabled(): boolean {
+  if (enabled !== undefined) return enabled;
+  return ngDevMode;
 }
 
 /**
  * 清空去重表，使下一条 `warnOnce` 重新输出。
  *
- * 仅供测试使用：warnOnce 是全局去重的，同一引擎进程里运行多个 spec 时，
- * 先运行的用例会消耗 key，后运行用例中“确实告警了”这类断言就会误失败。
- * 产品代码不应调用它。
+ * 仅供测试使用：warnOnce 为全局去重，同一引擎进程中运行多个 spec 时，
+ * 先运行的用例会消耗 key，后运行用例中“确实告警了”一类断言就会误失败。
+ * 产品代码不应调用该函数。
  */
 export function resetWarnOnce(): void {
   warned.clear();
+}
+
+/**
+ * 开启或关闭运行期告警（`undefined` 表示恢复按 `ngDevMode` 判定）。仅供测试使用。
+ */
+export function setWarnEnabled(on: boolean | undefined): void {
+  enabled = on;
+}
+
+/**
+ * 输出前缀：不带等级时仅输出包名，带等级时额外附加一个标记。
+ *
+ * `忽略` = 该条声明被丢弃，必须改写；`兼容` = 已生效但仅为近似，能否接受由使用者判断。
+ */
+const LEVEL_TAG: Record<WarnLevel, string> = { ignore: "[忽略]", compat: "[兼容]" };
+
+export function warnOnce(key: string, message: string, level?: WarnLevel): void {
+  if (!warnEnabled()) return;
+  if (warned.has(key)) return;
+  warned.add(key);
+  console.warn(`[godot-angular]${level ? ` ${LEVEL_TAG[level]}` : ""} ${message}`);
 }

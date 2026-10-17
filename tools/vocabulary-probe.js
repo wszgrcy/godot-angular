@@ -39,8 +39,15 @@ class VocabularyProbe extends godot.Node {
       return;
     }
 
-    const classes = ["Control", ...strArr(ClassDB.get_inheriters_from_class("Control"))];
-    const unique = Array.from(new Set(classes));
+    // 类名来源共两处，缺一不可：
+    // ① ClassDB 的 Control 继承者——覆盖“可作为元素选择器的类”；
+    // ② 默认主题的 type list——覆盖不位于 Control 之下的类（PopupMenu 位于 Popup / Window 之下，
+    //    FileDialog、AcceptDialog、PopupDialog 同理），仅按 ① 提取会整类遗漏。
+    // type list 中尚存在并非类的主题类型名（FlatButton、TooltipLabel 等），其不对应任何
+    // 节点，若混入将使元素选择器的拼写校验放过书写错误的类名，因此需经 class_exists 筛选。
+    const fromInheritors = ["Control", ...strArr(ClassDB.get_inheriters_from_class("Control"))];
+    const fromTheme = strArr(theme.get_type_list()).filter((name) => ClassDB.class_exists(name));
+    const unique = Array.from(new Set([...fromInheritors, ...fromTheme]));
 
     const out = {};
     const parents = {};

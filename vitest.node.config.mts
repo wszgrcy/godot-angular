@@ -2,6 +2,9 @@ import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // 本配置将 `godot-angular/css` 直接别名至源码，与应用产物不同路径，无人对其 define ngDevMode；
+  // 库内的告警点写的是 `if (ngDevMode)`，不补上即抛 ReferenceError。
+  define: { ngDevMode: true },
   resolve: {
     alias: [
       // 顺序重要：更长的说明符必须排在前面，否则 `godot-angular/core` 会被

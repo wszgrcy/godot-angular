@@ -1,3 +1,7 @@
+/// <reference path="../../../typings/ng-dev-mode.d.ts" />
+// `ngDevMode` 为全局声明：本地 tsc 依据 tsconfig 的 include 获取它，ng-packagr 为入口点
+// 自建编译程序时不读 include，仅跟随三重斜线引用（口径同 css 入口）。
+
 export { godotClass } from "./godot-host";
 // stop / resumeFrameCallbacks、GODOT_APP_PROVIDERS、warnOnce 属于内部接线，不从这里导出。
 export { bootstrapGodotApp, GodotAngularApp, GodotErrorHandler } from "./bootstrap";
@@ -47,8 +51,9 @@ export { GODOT_LOCATION_PROVIDERS } from "./location-providers";
 // 组件里 `inject(GODOT_ROOT)` 是实际用法（bootstrapGodotApp 已把它 provide 进去）。
 export { GODOT_HEADLESS, GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 // 仅面对测试：warnOnce 是全局去重的，不清表则“确实告警了”这类断言会依赖用例顺序。
-// 产品代码不应调用它（它存在的唯一理由是隔离）。
-export { resetWarnOnce } from "./warn";
+// 产品代码不应调用该函数（其存在的唯一理由是隔离）。setWarnEnabled 同理：仅用于在
+// 未开启优化的构建中验证「关闭运行期告警后确实静默」，无需为此再执行一次优化构建。
+export { resetWarnOnce, setWarnEnabled, warnEnabled } from "./warn";
 // 手动接信号只有一个入口：接不到返回 null，是否抛错由调用方决定（不保留会抛错的兼容包装）。
 export { tryConnectGodotSignal } from "./godot-events";
 // forms 走独立入口 godot-angular/forms：在这里 re-export 会把

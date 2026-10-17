@@ -36,7 +36,7 @@ function bestOf(runs: number, fn: () => void): number {
 function fakeBackend(): { backend: StyleBackend; writes: () => number } {
   let writes = 0;
   const box = {
-    setBackground() {}, setCornerRadii() {}, setBorderWidths() {},
+    setBackground() {}, setTexture() {}, setCornerRadii() {}, setBorderWidths() {},
     setBorderColor() {}, setShadow() {}, setContentMargin() {},
   };
   const count = () => { writes++; };
@@ -50,6 +50,7 @@ function fakeBackend(): { backend: StyleBackend; writes: () => number } {
     setColorOverride: count,
     setFontSizeOverride: count,
     setConstantOverride: count,
+    setFontOverride: () => true,
     setMinimumSize() {}, setOpacity() {},
     setNodeNumber() {}, getNodeNumber: () => 0, setNodeBoolean() {},
     hasNodeProperty: () => false,

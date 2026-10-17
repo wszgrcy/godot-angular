@@ -13,6 +13,6 @@
       "event-target-shim": ["../../node_modules/event-target-shim/index.d.ts"]
     }
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../../typings/**/*.d.ts"],
   "exclude": ["dist/**/*", "**/test/**", "**/*.spec.ts"]
 }

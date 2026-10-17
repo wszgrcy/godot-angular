@@ -3,6 +3,8 @@ import { splitOnSlash, splitValueTokens } from "./value/tokens";
 import { splitTopLevel } from "./selector";
 import { parseColor } from "./value/color";
 
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
+
 /**
  * 来源：NativeScript/packages/core/ui/core/properties/index.ts :: _expandCssShorthand
  * 等级：部分修改（主体一致）
@@ -104,7 +106,7 @@ function borderParts(value: string, warnings: string[]): { width?: string; style
       continue;
     }
     if (out.width === undefined && /^(thin|medium|thick)$/.test(token)) {
-      warnings.push(`border 中的 "${token}" 关键字按 1px 处理（Godot 的 border_width 为像素值）`);
+      if (ngDevMode) warnings.push(`border 中的 "${token}" 关键字按 1px 处理（Godot 的 border_width 为像素值）`);
       out.width = token === "thin" ? "1px" : token === "thick" ? "3px" : "1px";
       continue;
     }
@@ -116,7 +118,7 @@ function borderParts(value: string, warnings: string[]): { width?: string; style
       out.color = token;
       continue;
     }
-    warnings.push(`border 中包含无法识别的片段 "${token}"`);
+    if (ngDevMode) warnings.push(`border 中包含无法识别的片段 "${token}"`);
   }
   return out;
 }
@@ -148,7 +150,7 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
     case "padding": {
       const longhands = sides((side) => `${property}-${side}`, splitValueTokens(trimmed));
       if (!longhands) {
-        warnings.push(`${property} 期望 1–4 个值，收到 "${trimmed}"`);
+        if (ngDevMode) warnings.push(`${property} 期望 1–4 个值，收到 "${trimmed}"`);
         return { longhands: [], warnings };
       }
       return { longhands, warnings };
@@ -160,14 +162,14 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
     case "border-width": {
       const longhands = sides((side) => `border-${side}-width`, splitValueTokens(trimmed));
       if (!longhands) {
-        warnings.push(`${property} 期望 1–4 个值，收到 "${trimmed}"`);
+        if (ngDevMode) warnings.push(`${property} 期望 1–4 个值，收到 "${trimmed}"`);
         return { longhands: [], warnings };
       }
       return { longhands, warnings };
     }
 
     case "border-style": {
-      warnings.push("border-style 无落点（Godot 的 StyleBoxFlat 仅提供宽度与颜色，不支持虚线）");
+      if (ngDevMode) warnings.push("border-style 无落点（Godot 的 StyleBoxFlat 仅提供宽度与颜色，不支持虚线）");
       return { longhands: [], warnings };
     }
 
@@ -175,7 +177,7 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
       const { width, style, color } = borderParts(trimmed, warnings);
       const longhands: Longhand[] = [];
       if (style && style !== "solid" && style !== "none") {
-        warnings.push(`border-style: ${style} 无落点，已忽略`);
+        if (ngDevMode) warnings.push(`border-style: ${style} 无落点，已忽略`);
       }
       if (style === "none") {
         for (const side of SIDE_NAMES) longhands.push([`border-${side}-width`, "0px"]);
@@ -195,12 +197,12 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
       const { width, style, color } = borderParts(trimmed, warnings);
       const longhands: Longhand[] = [];
       if (style && style !== "solid" && style !== "none") {
-        warnings.push(`border-style: ${style} 无落点，已忽略`);
+        if (ngDevMode) warnings.push(`border-style: ${style} 无落点，已忽略`);
       }
       if (width) longhands.push([`border-${side}-width`, style === "none" ? "0px" : width]);
       if (color) {
         longhands.push(["border-color", color]);
-        warnings.push(`border-${side} 的单独颜色无落点（Godot 的边框四边同色），已按整圈边框颜色处理`);
+        if (ngDevMode) warnings.push(`border-${side} 的单独颜色无落点（Godot 的边框四边同色），已按整圈边框颜色处理`);
       }
       return { longhands, warnings };
     }
@@ -214,12 +216,12 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
       // 取横向那套，纵向不同则告警（椭圆圆角无法落地）。
       const [horizontal, vertical] = splitOnSlash(trimmed);
       if (vertical && vertical !== horizontal) {
-        warnings.push("border-radius 的椭圆写法（x / y）仅取横向半径，纵向已忽略");
+        if (ngDevMode) warnings.push("border-radius 的椭圆写法（x / y）仅取横向半径，纵向已忽略");
       }
       const parts = splitValueTokens(horizontal).map((token) => token.split(/\s+/)[0]);
       const longhands = fourSidesFromParts(parts);
       if (!longhands) {
-        warnings.push(`border-radius 期望 1–4 个值，收到 "${trimmed}"`);
+        if (ngDevMode) warnings.push(`border-radius 期望 1–4 个值，收到 "${trimmed}"`);
         return { longhands: [], warnings };
       }
       return {
@@ -244,7 +246,7 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
       const longhands: Longhand[] = [];
       for (const token of splitValueTokens(trimmed)) {
         if (/^(url\(|linear-gradient\(|radial-gradient\()/i.test(token)) {
-          warnings.push("background 的图片/渐变无落点（Godot 的 StyleBoxFlat 纹理属于另一套 API），已忽略");
+          if (ngDevMode) warnings.push("background 的图片/渐变无落点（Godot 的 StyleBoxFlat 纹理属于另一套 API），已忽略");
           continue;
         }
         if (parseColor(token)) {
@@ -257,10 +259,10 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
           continue;
         }
         if (/^(repeat|no-repeat|repeat-x|repeat-y|cover|contain|center|left|right|top|bottom)$/i.test(token)) {
-          warnings.push(`background 的位置/平铺片段 "${token}" 无落点，已忽略`);
+          if (ngDevMode) warnings.push(`background 的位置/平铺片段 "${token}" 无落点，已忽略`);
           continue;
         }
-        warnings.push(`background 中包含无法识别的片段 "${token}"`);
+        if (ngDevMode) warnings.push(`background 中包含无法识别的片段 "${token}"`);
       }
       return { longhands, warnings };
     }
@@ -280,7 +282,7 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
       if (tokens[1] !== undefined) longhands.push(["flex-shrink", tokens[1]]);
       if (tokens[2] !== undefined) {
         longhands.push(["flex-basis", tokens[2]]);
-        warnings.push("flex-basis 无落点（Godot 无 flex-basis 概念），已忽略");
+        if (ngDevMode) warnings.push("flex-basis 无落点（Godot 无 flex-basis 概念），已忽略");
       }
       return { longhands, warnings };
     }
@@ -299,24 +301,20 @@ export function expandShorthand(property: string, value: string): ShorthandExpan
           longhands.push(["font-size", head]);
         }
       }
-      if (!longhands.length) {
+      if (!longhands.length && ngDevMode) {
         warnings.push(`font: "${trimmed}" 中没找到带单位的字号（如 font: 14px/1.5 sans-serif）`);
       }
-      warnings.push("font 的字体族 / 字重 / 行高无落点（Godot 的字体是 Font 资源），已取字号");
+      if (ngDevMode) warnings.push("font 的字体族 / 字重 / 行高无落点（Godot 的字体是 Font 资源），已提取字号");
       return { longhands, warnings };
     }
 
     // 来源：无
     case "inset":
-      warnings.push("position/inset 无落点（Godot 的 anchors 会与父容器布局冲突），已忽略");
+      if (ngDevMode) warnings.push("position/inset 无落点（Godot 的 anchors 会与父容器布局产生冲突），已忽略");
       return { longhands: [], warnings };
 
     case "outline":
-      warnings.push("outline 无落点，已忽略");
-      return { longhands: [], warnings };
-
-    case "text-shadow":
-      warnings.push("text-shadow 无落点（Label 的字体阴影属于另一套 theme item），已忽略");
+      if (ngDevMode) warnings.push("outline 无落点，已忽略");
       return { longhands: [], warnings };
 
     default:

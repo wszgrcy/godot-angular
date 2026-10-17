@@ -28,6 +28,7 @@ import { godotInteropPlugin } from "./godot-interop";
 import { isExternalDependency, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
 import {
   applicationOptionsSchema,
+  normalizeOptimization,
   type ApplicationOptions,
   type EntryPattern,
   type FileReplacement,
@@ -281,6 +282,9 @@ async function prepareConfig(
 
   const outDir = resolve(context.workspaceRoot, outputPath);
 
+  // 布尔与对象两种书写在此处归一，下游仅读取 `.scripts`
+  const optimize = normalizeOptimization(optimization);
+
   // 存在 inputOverride 时入口是虚拟模块，`entries` 连配置都不需要
   const input: Record<string, string> = {};
   if (options.inputOverride) {
@@ -319,13 +323,20 @@ async function prepareConfig(
   const config: InlineConfig = {
     configFile: false,
     root: context.workspaceRoot,
-    mode: optimization ? "production" : "development",
+    mode: optimize.scripts ? "production" : "development",
     logLevel: options.logLevel ?? (verbose ? "info" : "warn"),
     cacheDir: resolve(context.workspaceRoot, ".ng-cache"),
     // 裸 `global` 必须编译期替换：GodotJS 中 global/self/window 全不存在，而很多“自动注入
     // 全局”的库写 (typeof self !== "undefined" ? self : global)。运行时补 globalThis.global
     // 无法补救——它在模块体内求值，早于本构建器的任何代码。
-    define: { global: "globalThis", ...define },
+    // ngDevMode 在两个方向均固定定义：优化开启时 false（告警分支连同文案被摇除），否则 true。
+    // 不可仅在优化时定义：否则未优化产物中它将成为自由标识符，运行期一经读取即抛
+    // ReferenceError（GodotJS 无可供挂载的 window）。声明见仓库根 typings/ng-dev-mode.d.ts。
+    define: {
+      global: "globalThis",
+      ngDevMode: optimize.scripts ? "false" : "true",
+      ...define,
+    },
     resolve: {
       dedupe: ["@angular/core", "@angular/common", "@angular/router", "@angular/platform-browser", "rxjs"],
       ...(preserveSymlinks === undefined ? {} : { preserveSymlinks }),
@@ -357,7 +368,7 @@ async function prepareConfig(
       outDir,
       emptyOutDir: deleteOutputPath,
       sourcemap: sourceMap,
-      minify: optimization ? "esbuild" : false,
+      minify: optimize.scripts ? "esbuild" : false,
       target: "es2022",
       ...(watch
         ? {

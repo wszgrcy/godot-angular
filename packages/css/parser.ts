@@ -11,6 +11,8 @@ export interface CssPosition {
   column: number;
 }
 
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
+
 /**
  * 来源：NativeScript/packages/core/css/reworkcss.ts :: Declaration
  * 等级：部分修改（主体一致）
@@ -70,6 +72,20 @@ export interface CssKeyframes {
 }
 
 /**
+ * 来源：NativeScript/packages/core/css/reworkcss.ts :: FontFace（上游另有 FontFaceParser）
+ * 等级：仅思路一致
+ * 差异：上游将描述符逐个解析为 family / weight / style / unicodeRange / src 列表，并支持
+ * `local()` 与多个候选源；本侧仅保留「描述符名 → 原文」，src 的解析交由 runtime
+ * （仅该侧能判定路径是否可落地），且仅允许一个 `url()`。
+ */
+export interface CssFontFace {
+  type: "font-face";
+  /** 描述符名（已转小写）→ 原文值 */
+  descriptors: Record<string, string>;
+  position: CssPosition;
+}
+
+/**
  * 来源：无
  *
  * 可识别但暂不支持的 at-rule（@supports / @import / @font-face / @charset / @layer …）
@@ -99,7 +115,44 @@ export interface CssComment {
  * 改动：上游的 type 联合为 rule / keyframes / declaration / import / media，本侧换成
  * rule / media / keyframes / unsupported / comment（声明不单独成节点，import 归入 unsupported）。
  */
-export type CssBlockNode = CssRule | CssMedia | CssKeyframes | CssUnsupported | CssComment;
+export type CssBlockNode = CssRule | CssMedia | CssKeyframes | CssFontFace | CssUnsupported | CssComment;
+
+/**
+ * 来源：无
+ * 等级：本侧新增
+ *
+ * 按顶层分隔符切分一段文本：引号内、括号内的分隔符不作为分隔符。返回每一段的原文及其在 css 中的起点。
+ * `@font-face` 的描述符切分需要它：`src: url("a;b:c.ttf") format("truetype")` 中，
+ * 引号与括号内均含分号与冒号，直接 split 会切碎文件名。
+ */
+function splitTopLevel(
+  css: string,
+  from: number,
+  to: number,
+  separator: string,
+): { text: string; start: number }[] {
+  const out: { text: string; start: number }[] = [];
+  let quote = "";
+  let depth = 0;
+  let pieceStart = from;
+  for (let i = from; i < to; i++) {
+    const ch = css[i];
+    if (quote) {
+      if (ch === "\\") i++;
+      else if (ch === quote) quote = "";
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === "(" || ch === "[") depth++;
+    else if (ch === ")" || ch === "]") depth = Math.max(0, depth - 1);
+    else if (ch === separator && depth === 0) {
+      out.push({ text: css.slice(pieceStart, i), start: pieceStart });
+      pieceStart = i + 1;
+    }
+  }
+  if (pieceStart < to) out.push({ text: css.slice(pieceStart, to), start: pieceStart });
+  return out.filter((piece) => piece.text.trim() !== "");
+}
 
 /**
  * 来源：NativeScript/packages/core/css/reworkcss.ts :: StyleSheet + SyntaxTree
@@ -240,7 +293,7 @@ const IMPORTANT = /\s*!\s*important\s*$/i;
 function parseDeclaration(text: string, position: CssPosition, warnings: string[]): CssDeclaration | null {
   const colon = indexOfTopLevel(text, ":");
   if (colon <= 0) {
-    warnings.push(`第 ${position.line} 行：无法解析为声明，已忽略 —— ${text.slice(0, 40)}`);
+    if (ngDevMode) warnings.push(`第 ${position.line} 行：无法解析为声明，已忽略 —— ${text.slice(0, 40)}`);
     return null;
   }
   let property = text.slice(0, colon).trim();
@@ -387,12 +440,12 @@ class CssScanner {
       const brace = this.findNext(i, end, "{");
       if (brace === -1) {
         const rest = this.css.slice(i, end).trim();
-        if (rest) this.warnings.push(`第 ${this.lineColumn(i).line} 行：缺少 "{"，已忽略 —— ${rest.slice(0, 40)}`);
+        if (rest && ngDevMode) this.warnings.push(`第 ${this.lineColumn(i).line} 行：缺少 "{"，已忽略 —— ${rest.slice(0, 40)}`);
         break;
       }
       const close = matchBrace(this.css, brace);
       if (close === -1) {
-        this.warnings.push(`第 ${this.lineColumn(brace).line} 行：括号未闭合，其后的内容已被丢弃`);
+        if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(brace).line} 行：括号未闭合，其后的内容已被丢弃`);
         break;
       }
       const selectorText = this.css.slice(i, brace).trim();
@@ -423,7 +476,7 @@ class CssScanner {
     const out: CssDeclaration[] = [];
     for (const chunk of splitDeclarations(body)) {
       if (chunk.startsWith("@")) {
-        this.warnings.push(`声明块内的 @${chunk.slice(1, 12)} 不支持，已忽略`);
+        if (ngDevMode) this.warnings.push(`声明块内的 @${chunk.slice(1, 12)} 不支持，已忽略`);
         continue;
       }
       const decl = parseDeclaration(chunk, this.lineColumn(start), this.warnings);
@@ -446,7 +499,7 @@ class CssScanner {
     const semi = this.findNext(start, end, ";");
     const preludeEnd = brace === -1 ? semi : semi !== -1 && semi < brace ? semi : brace;
     if (preludeEnd === -1) {
-      this.warnings.push(`第 ${this.lineColumn(start).line} 行：at-rule 缺少结尾，已忽略`);
+      if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(start).line} 行：at-rule 缺少结尾，已忽略`);
       return { type: "unsupported", name: "?", prelude: "", position: this.lineColumn(start), next: end };
     }
     const prelude = this.css.slice(start + 1, preludeEnd).trim();
@@ -460,17 +513,54 @@ class CssScanner {
       return { type: "media", media: condition, rules, position, next: hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1 };
     }
 
-    if (name === "keyframes" || name === "-webkit-keyframes") {
+    if (name === "keyframes") {
       const animName = prelude.slice(name.length).trim();
-      this.warnings.push(`@${name} ${animName} 已忽略 —— Godot 的动画由 Tween / AnimationPlayer 承担，与 CSS 动画模型不兼容`);
+      if (ngDevMode) this.warnings.push(`@${name} ${animName} 已忽略 —— Godot 的动画由 Tween / AnimationPlayer 承担，与 CSS 动画模型不兼容`);
       const next = hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1;
       return { type: "keyframes", name: animName, position, next };
     }
 
-    // @supports / @import / @charset / @font-face / @layer / @page …
-    this.warnings.push(`@${name} 不支持，已忽略`);
+    if (name === "font-face") {
+      const descriptors = hasBlock ? this.parseDescriptors(preludeEnd, end) : {};
+      return {
+        type: "font-face",
+        descriptors,
+        position,
+        next: hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1,
+      };
+    }
+
+    // @supports / @import / @charset / @layer / @page …
+    if (ngDevMode) this.warnings.push(`@${name} 不支持，已忽略`);
     const next = hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1;
     return { type: "unsupported", name, prelude, position, next };
+  }
+
+  /**
+   * 来源：无
+   *
+   * `@font-face` 块内的 `desc: value;` 列表。
+   *
+   * 不能复用普通声明的解析路径：该路径会将 `src` 视为普通属性进行 var() 求值与 shorthand
+   * 展开，而 @font-face 的描述符并不参与级联。此处仅按顶层分号切分、按首个冒号划分
+   * 键值，引号与括号内的分号一律跳过（`url("a;b.ttf")` 为合法文件名）。
+   */
+  private parseDescriptors(preludeEnd: number, outerEnd: number): Record<string, string> {
+    const out: Record<string, string> = {};
+    const brace = this.css.indexOf("{", preludeEnd);
+    if (brace === -1 || brace >= outerEnd) return out;
+    const close = matchBrace(this.css, brace);
+    const from = brace + 1;
+    const to = close === -1 ? outerEnd : close;
+
+    for (const piece of splitTopLevel(this.css, from, to, ";")) {
+      const colon = splitTopLevel(piece.text, 0, piece.text.length, ":")[0];
+      if (!colon) continue;
+      const key = colon.text.trim().toLowerCase();
+      const value = piece.text.slice(colon.text.length + 1).trim();
+      if (key && value) out[key] = value;
+    }
+    return out;
   }
 
   /**
@@ -483,7 +573,7 @@ class CssScanner {
     if (brace === -1 || brace >= outerEnd) return [];
     const close = matchBrace(this.css, brace);
     if (close === -1) {
-      this.warnings.push(`第 ${this.lineColumn(brace).line} 行：at-rule 的块未闭合`);
+      if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(brace).line} 行：at-rule 的块未闭合`);
       return this.parseBlock(brace + 1, outerEnd);
     }
     return this.parseBlock(brace + 1, close);
@@ -543,6 +633,25 @@ export function parseCss(css: string): CssStyleSheet {
  * 嵌套 `@media`（`@media` 内再套 `@media`）**不做条件求交**——求交写错是静默错误，
  * 宁可告警并忽略内层。
  */
+/**
+ * 来源：无
+ * 等级：本侧新增
+ *
+ * 收集样式表中的 `@font-face` 节点。@media 内的同样计入：字体登记仅表达「该名称存在」，
+ * 与媒体条件无关（Godot 侧亦无按媒体条件切换字体的模型）。
+ */
+export function collectFontFaces(sheet: CssStyleSheet): CssFontFace[] {
+  const out: CssFontFace[] = [];
+  const walk = (nodes: CssBlockNode[]): void => {
+    for (const node of nodes) {
+      if (node.type === "font-face") out.push(node);
+      else if (node.type === "media") walk(node.rules);
+    }
+  };
+  walk(sheet.rules);
+  return out;
+}
+
 export function flattenRules(sheet: CssStyleSheet): CssRule[] {
   const out: CssRule[] = [];
   const walk = (nodes: CssBlockNode[], currentMedia?: string) => {
@@ -552,7 +661,7 @@ export function flattenRules(sheet: CssStyleSheet): CssRule[] {
         out.push(node);
       } else if (node.type === "media") {
         if (currentMedia) {
-          sheet.warnings.push(`不支持 @media 嵌套 @media（${node.media}），内层已忽略`);
+          if (ngDevMode) sheet.warnings.push(`不支持 @media 嵌套 @media（${node.media}），内层已忽略`);
           continue;
         }
         walk(node.rules, node.media);

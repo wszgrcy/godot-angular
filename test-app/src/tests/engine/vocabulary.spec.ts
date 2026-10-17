@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ThemeDB } from "godot";
+import { ClassDB, ThemeDB } from "godot";
 import { getVocabulary, knownClasses, vocabularyMeta } from "godot-angular/css";
 
 /** Godot Array / PackedStringArray → JS string[]（两种容器行为不同） */
@@ -57,6 +57,23 @@ describe("主题词汇表 == 引擎现算的默认主题", () => {
     // 缺少一个类就意味着某次 dump 中途失败或被截断。
     const missing = knownClasses().filter((name) => !vocabulary.parents[name]);
     expect(missing).toEqual([]);
+  });
+
+  it("不位于 Control 之下的类也在词汇表中", () => {
+    // 仅遍历 ClassDB 的 Control 继承者会整类遗漏它们：PopupMenu 位于 Popup 之下、
+    // AcceptDialog 位于 Window 之下，均不继承 Control，但默认主题确实为它们定义了 item。
+    // 这一批只能从主题的 type list 获取，因此两个来源缺一不可。
+    for (const name of ["PopupMenu", "PopupPanel", "AcceptDialog", "FileDialog", "Window"]) {
+      expect(knownClasses(), name).toContain(name);
+    }
+    expect(getVocabulary().classes["PopupMenu"].colors).toContain("font_color");
+    expect(getVocabulary().classes["Window"].fontSizes).toContain("title_font_size");
+  });
+
+  it("词汇表中每个类均为真实存在的类", () => {
+    // 主题的 type list 中尚含并非类的类型名（FlatButton、TooltipLabel 等），
+    // 若混入将使元素选择器的拼写校验放过书写错误的类名，dump 必须将其过滤。
+    expect(knownClasses().filter((name) => !ClassDB.class_exists(name))).toEqual([]);
   });
 
   it("几个承重落点在引擎里真实存在（词汇表说存在 ≠ 引擎认，这里反向确认）", () => {

@@ -4,6 +4,8 @@ import { parsePx } from "./length";
 import { splitValueTokens } from "./tokens";
 import { splitTopLevel } from "../selector";
 
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
+
 /**
  * 来源：NativeScript/packages/core/ui/styling/css-shadow.ts :: ShadowCSSValues
  * 等级：部分修改（主体一致）
@@ -67,7 +69,7 @@ function parseOne(text: string, warnings: string[]): CssShadow | null {
     if (NUMERIC_START.test(token)) {
       const px = parsePx(token);
       if (px === null) {
-        warnings.push(`box-shadow 中包含无法识别的长度 "${token}"`);
+        if (ngDevMode) warnings.push(`box-shadow 中包含无法识别的长度 "${token}"`);
         continue;
       }
       numbers.push(px);
@@ -75,15 +77,15 @@ function parseOne(text: string, warnings: string[]): CssShadow | null {
     }
     const parsed = parseColor(token);
     if (parsed) {
-      if (color) warnings.push(`box-shadow 中出现第二个颜色 "${token}"，以第一个为准`);
+      if (color && ngDevMode) warnings.push(`box-shadow 中出现第二个颜色 "${token}"，以第一个为准`);
       else color = parsed;
       continue;
     }
-    warnings.push(`box-shadow 中包含无法识别的片段 "${token}"`);
+    if (ngDevMode) warnings.push(`box-shadow 中包含无法识别的片段 "${token}"`);
   }
 
   if (numbers.length < 2) {
-    warnings.push(`box-shadow 至少需要 x/y 两个偏移量：${text}`);
+    if (ngDevMode) warnings.push(`box-shadow 至少需要 x/y 两个偏移量：${text}`);
     return null;
   }
   return {
@@ -111,10 +113,10 @@ export function parseBoxShadow(text: string): ShadowParseResult {
 
   const layers = splitTopLevel(trimmed, ",");
   if (layers.length > 1) {
-    warnings.push("box-shadow 的多层阴影仅取第一层（Godot 的 StyleBoxFlat 仅支持一层 shadow）");
+    if (ngDevMode) warnings.push("box-shadow 的多层阴影仅取第一层（Godot 的 StyleBoxFlat 仅支持一层 shadow）");
   }
   const shadow = parseOne(layers[0], warnings);
-  if (shadow?.inset) warnings.push("box-shadow: inset 无落点（Godot 无内阴影），已按外阴影处理");
-  if (shadow && shadow.spread !== 0) warnings.push("box-shadow 的 spread 无落点，已忽略");
+  if (shadow?.inset && ngDevMode) warnings.push("box-shadow: inset 无落点（Godot 无内阴影），已按外阴影处理");
+  if (shadow && shadow.spread !== 0 && ngDevMode) warnings.push("box-shadow 的 spread 无落点，已忽略");
   return { shadow, warnings };
 }

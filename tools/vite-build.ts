@@ -31,9 +31,23 @@ function collectEntries(): Record<string, string> {
  * 依赖保持外部的两条规则：裸标识符一律 external（builder 是 Node 侧代码）；指向 `.mjs`
  * 的相对路径也保持外部——vitest builder 使用非字面量 specifier 运行时加载宿主插件，
  * 那条路径必须在产物中真实存在。
+ *
+ * 例外仅为 `godot-angular/css`：它被上述规则排除在外，运行时由使用方的
+ * node_modules 解析至 ng-packagr 产物，而那份产物中 `ngDevMode` 为自由标识符（ng-packagr
+ * 不做 define），在 Node 中 import 当场抛 ReferenceError。现改为内联至 builder 产物，由下方
+ * `define` 固定——Node 侧的问题在 Node 的构建配置中解决，不向源码中写入运行期全局赋值。
  */
+const BUNDLED_INTO_BUILDER = new Set(["godot-angular/css"]);
+
+/** 上述说明符解析后的实体。external 钩子拿到的可能是绝对路径，也可能是相对形式，
+ * 因此按后缀判定，两种形态一并排除（否则它会被改写为 `../dist/…` 并继续作为外部依赖）。 */
+const LIBRARY_CSS_SUFFIX = "dist/fesm2022/godot-angular-css.mjs";
+const LIBRARY_CSS = path.join(ROOT, "dist", "fesm2022", "godot-angular-css.mjs");
+
 function isExternal(id: string): boolean {
   if (id.startsWith("\0") || id.startsWith("virtual:")) return false;
+  if (BUNDLED_INTO_BUILDER.has(id)) return false;
+  if (id.replace(/\\/g, "/").endsWith(LIBRARY_CSS_SUFFIX)) return false;
   if (id.startsWith(".") || path.isAbsolute(id)) return id.endsWith(".mjs");
   return true;
 }
@@ -58,6 +72,23 @@ const config: InlineConfig = {
   publicDir: false,
   logLevel: "warn",
   esbuild: { target: "es2022" },
+  // builder 自身处于开发态：样式 lint 的告警必须能被收集，因此固定为 true。
+  // 固定定义而非「不定义」：内联进来的 css 代码中不得残留自由标识符，否则在 Node 中一经读取即抛异常。
+  define: { ngDevMode: "true" },
+  plugins: [
+    {
+      // 将 `godot-angular/css` 指向发布物本体并内联进来。必须经由插件的 resolveId：
+      // builder 的 tsconfig 将该说明符指向 dist/types/*.d.ts（供类型检查使用），
+      // 其优先级高于 resolve.alias，实测 alias 无法生效。
+      name: "bundle-library-css",
+      resolveId: (id: string) => {
+        if (id !== "godot-angular/css") return null;
+        if (!existsSync(LIBRARY_CSS))
+          throw new Error(`未找到 ${path.relative(ROOT, LIBRARY_CSS)}，请先执行 pnpm build:lib`);
+        return LIBRARY_CSS;
+      },
+    },
+  ],
   build: {
     outDir: OUT,
     // 产物目录由下方 rmSync 统一清理，此处不重复

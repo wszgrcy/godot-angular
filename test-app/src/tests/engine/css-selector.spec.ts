@@ -117,7 +117,7 @@ describe("选择器匹配", () => {
     expect(createSelector(".title ~ .body").match(other)).toBe(true);
   });
 
-  it("拿不到兄弟信息时，兄弟组合器判不匹配而不是崩", () => {
+  it("无法获取兄弟节点信息时，兄弟组合器判定为不匹配而非抛出异常", () => {
     const parent = fakeNode({ type: "HBoxContainer" });
     const node = fakeNode({ type: "Label", parent, classes: ["b"] });
     expect(() => createSelector(".a + .b").match(node)).not.toThrow();
@@ -133,7 +133,7 @@ describe("选择器匹配", () => {
     expect(createSelector(":where(.x)").match(a)).toBe(true);
   });
 
-  it("不支持的伪类 / 伪元素 / :nth-child → InvalidSelector，且说清原因", () => {
+  it("不支持的伪类 / 伪元素 / :nth-child → InvalidSelector，且说明原因", () => {
     const warnings: string[] = [];
     const warn = (m: string) => warnings.push(m);
     expect(createSelector("Label:has(.x)", warn)).toBeInstanceOf(InvalidSelector);
@@ -142,8 +142,17 @@ describe("选择器匹配", () => {
     // 白名单外的伪类走 warn；语法级错误（伪元素）直接携带在 InvalidSelector.error 上，
     // 由 buildRuleSets 统一报出——两条路径都必须能让人看到原因
     expect(warnings.length).toBe(2);
-    expect((createSelector("Label::before") as InvalidSelector).error?.message).toContain("伪元素");
+    expect((createSelector("Label::before") as InvalidSelector).error?.message).toContain("::before");
     expect((createSelector("Label:nth-child(2)") as InvalidSelector).error?.message).toContain("nth-child");
+    // 伪元素名称长度不固定，告警中必须出现完整名称，不得仅截取一部分
+    expect((createSelector("Button::selection") as InvalidSelector).error?.message).toContain(
+      "::selection",
+    );
+    expect((createSelector("Button::file-selector-button") as InvalidSelector).error?.message).toContain(
+      "::file-selector-button",
+    );
+    // `::` 之后完全没有名称时，需说明是名称缺失，而非报出一个空名称
+    expect((createSelector("Button::") as InvalidSelector).error?.message).toContain("伪元素缺少名称");
   });
 
   it("语法错误不抛异常", () => {
@@ -404,7 +413,7 @@ describe("属性选择器：操作符全集与写法错误", () => {
     expect(createSelector('[title]').match(empty)).toBe(true);
   });
 
-  it("写坏的属性选择器：说清原因，不抛", () => {
+  it("书写错误的属性选择器：说明原因，不抛出异常", () => {
     const bad = createSelector("[a b c]");
     expect(bad).toBeInstanceOf(InvalidSelector);
     expect((bad as InvalidSelector).error?.message).toContain("属性选择器");

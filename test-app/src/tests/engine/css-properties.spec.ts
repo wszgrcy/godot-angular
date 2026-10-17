@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
   ColorLike,
   CssNode,
+  FontSource,
   FourCorners,
   FourSides,
   StyleBackend,
@@ -66,6 +67,13 @@ class FakeBackend implements StyleBackend {
   setConstantOverride(_node: CssNode, item: string, value: number): void {
     this.calls.push(`constant:${item}:${value}`);
   }
+  setFontOverride(_node: CssNode, item: string, source: FontSource): boolean {
+    // 仅验证「是否存在落点、落在哪个 item」，不验证加载：资源路径直接记录路径，
+    // 系统字体记录名称列表，两者在调用流水中可以区分
+    const what = "path" in source ? source.path : `sys:${source.systemFontNames.join("|")}`;
+    this.calls.push(`font:${item}:${what}`);
+    return true;
+  }
   setMinimumSize(_node: CssNode, width: number | null, height: number | null): void {
     this.calls.push(`min:${width ?? "-"}x${height ?? "-"}`);
   }
@@ -118,6 +126,9 @@ class FakeStyleBox implements StyleBoxHandle {
   constructor(private readonly log: (what: string) => void) {}
   setBackground(color: ColorLike | null): void {
     this.log(`bg(${color ? `${color.r},${color.g},${color.b},${color.a}` : "null"})`);
+  }
+  setTexture(path: string): void {
+    this.log(`texture(${path})`);
   }
   setCornerRadii(radii: Partial<FourCorners>): void {
     this.log(`radius(${JSON.stringify(radii)})`);
@@ -175,7 +186,7 @@ describe("L1 外观属性", () => {
     expect(apply("PanelContainer", "background-color", "red").calls).toEqual(["stylebox:panel"]);
   });
 
-  it("不画底的类（VBoxContainer）写背景 → 告警且说清怎么办，不假装成功", () => {
+  it("不绘制背景的类（VBoxContainer）写入背景 → 输出告警并说明处理方式，不假装成功", () => {
     const { calls, backend } = apply("VBoxContainer", "background-color", "red");
     expect(calls).toEqual([]);
     expect(backend.warned.join("\n")).toContain("不绘制任何 stylebox");
@@ -218,13 +229,18 @@ describe("L1 外观属性", () => {
 });
 
 describe("L3 布局属性（只做翻译提示）", () => {
-  it("width / height → custom_minimum_size 的一轴，另一轴不动", () => {
-    expect(apply("Label", "width", "120px").calls).toEqual(["min:120x-"]);
-    expect(apply("Label", "height", "40px").calls).toEqual(["min:-x40"]);
+  it("width / height 无落点：说明 Godot 无确定宽度，并给出替代写法", () => {
+    // 无落点走 ctx.warn（按「属性 + 原因」去重），不是 parse 阶段的 warnings 列表
+    const width = apply("Label", "width", "120px");
+    expect(width.calls).toEqual([]);
+    expect(width.backend.warned.join("\n")).toContain("min-width");
+    const height = apply("Label", "height", "40px");
+    expect(height.calls).toEqual([]);
+    expect(height.backend.warned.join("\n")).toContain("min-height");
   });
 
-  it("width: 50% 明确不接（Godot 只有像素下界）", () => {
-    const { calls, warnings } = apply("Label", "width", "50%");
+  it("min-width: 50% 明确不接受（Godot 仅有像素下界）", () => {
+    const { calls, warnings } = apply("Label", "min-width", "50%");
     expect(calls).toEqual([]);
     expect(warnings.join("\n")).toContain("百分比");
   });
@@ -309,7 +325,6 @@ describe("明确不做的东西必须出声", () => {
       ["display", "flex", "节点树结构"],
       ["position", "absolute", "anchors"],
       ["transition", "all 1s", "动画不在支持范围内"],
-      ["font-family", "Arial", "Font 资源"],
     ] as const) {
       const { calls, backend } = apply("Label", name, value);
       expect(calls, name).toEqual([]);
@@ -317,7 +332,7 @@ describe("明确不做的东西必须出声", () => {
     }
   });
 
-  it("不认识的属性名返回 false（与「认识但落不了」区分开）", () => {
+  it("无法识别的属性名返回 false（与「可识别但无落点」区分开）", () => {
     expect(apply("Label", "mystery-prop", "x").known).toBe(false);
     expect(apply("Label", "color", "red").known).toBe(true);
   });
@@ -384,7 +399,7 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
     expect(apply("Button", "background", "red").calls).toContain("stylebox:normal");
   });
 
-  it("在不画底的类上写底色：告警说清怎么办，一条写入都不发", () => {
+  it("在不绘制背景的类上写入底色：告警说明处理方式，不发出任何写入", () => {
     const r = apply("VBoxContainer", "background", "red");
     expect(warned(r)).toContain("不绘制任何 stylebox");
     expect(r.calls).toEqual([]);
@@ -402,7 +417,7 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
   it("颜色 / 数字 / 长度无法解析：各属性自己的文案", () => {
     expect(warned(apply("Label", "color", "notacolor"))).toContain("不是可解析的颜色");
     expect(warned(apply("Label", "opacity", "abc"))).toContain("不是 0..1 的数字");
-    expect(warned(apply("Label", "font-size", "abc"))).toContain("无法解析");
+    expect(warned(apply("Label", "font-size", "abc"))).toContain("不是长度");
     expect(warned(apply("Button", "border-top-width", "thick"))).toContain("border-top-width");
     expect(warned(apply("Button", "border-top-left-radius", "thick"))).toContain("border-top-left-radius");
     expect(warned(apply("Button", "padding", "a b c d e"))).toContain("padding");
@@ -484,7 +499,7 @@ describe("落点缺失的逐个属性（每个属性自己那条告警）", () =
     expect(warned(r)).toBe("");
   });
 
-  it("margin 简写段数不对：说清期望几个长度", () => {
+  it("margin 简写段数不符：说明期望几个长度", () => {
     expect(warned(apply("Label", "margin", "a b c d e"))).toContain("期望 1–4 个长度");
   });
 

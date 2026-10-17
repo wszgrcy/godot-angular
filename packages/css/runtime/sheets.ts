@@ -6,7 +6,10 @@ import {
   type ChangeMap,
   type SelectorCore,
 } from "../selector";
-import { SelectorTier, type CssNode, type Declaration, type MediaEnvironment } from "../types";
+import { SelectorTier, type CssNode, type Declaration, type MediaEnvironment, type WarnLevel } from "../types";
+import { fontFamilyKey, type FontFace } from "./fonts";
+
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
 
 /**
  * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: CSSSource
@@ -19,6 +22,8 @@ interface Sheet {
   /** 选择器 → 它所在规则集的声明（选择器自身不携带声明，映射建立在这里） */
   declarations: Map<SelectorCore, Declaration[]>;
   ruleSets: RuleSet[];
+  /** 本表中 `@font-face` 登记下来的字体（整表移除时一并失效） */
+  fontFaces: FontFace[];
 }
 
 /**
@@ -84,7 +89,7 @@ export class SheetRegistry implements CombinatorFlags {
 
   constructor(
     env: MediaEnvironment,
-    private readonly warn: (key: string, message: string) => void,
+    private readonly warn: (key: string, message: string, level?: WarnLevel) => void,
   ) {
     this.env = env;
   }
@@ -104,8 +109,9 @@ export class SheetRegistry implements CombinatorFlags {
     for (const ruleSet of built.ruleSets) {
       for (const selector of ruleSet.selectors) declarations.set(selector, ruleSet.declarations);
     }
-    for (const message of built.warnings) this.warn(`sheet:${message}`, message);
-    this.sheets.push({ index, declarations, ruleSets: built.ruleSets });
+    // 解析期的告警只可能是「这段文本被丢弃」，固定按忽略级输出
+    if (ngDevMode) for (const message of built.warnings) this.warn(`sheet:${message}`, message, "ignore");
+    this.sheets.push({ index, declarations, ruleSets: built.ruleSets, fontFaces: built.fontFaces });
     this.noteCombinators(built.ruleSets);
     this.notePseudoClasses();
     return this.sheets.length - 1;
@@ -125,6 +131,20 @@ export class SheetRegistry implements CombinatorFlags {
    */
   usedPseudoClasses(): ReadonlySet<string> {
     return this.usedPseudo;
+  }
+
+  /**
+   * 按家族名查已登记的字体。后登记的表覆盖先登记的（与声明的层叠同口径），
+   * 名称不区分大小写。未命中时返回 null，由调用方决定如何输出告警。
+   */
+  findFontFace(family: string): FontFace | null {
+    const key = fontFamilyKey(family);
+    for (let i = this.sheets.length - 1; i >= 0; i--) {
+      for (const face of this.sheets[i].fontFaces) {
+        if (fontFamilyKey(face.family) === key) return face;
+      }
+    }
+    return null;
   }
 
   /** 伪类集合的版本号（仅在集合确实变化时递增） */

@@ -15,5 +15,8 @@
       "event-target-shim": ["../../node_modules/event-target-shim/index.d.ts"]
     }
   },
+  // 未写 include 时 TS 默认收录整个目录；此处需额外引入仓库根那份全局声明，
+  // 因此将默认值显式写出后再追加一条，避免退化为「仅收录 .ts」而遗漏原有的 .d.ts。
+  "include": ["**/*", "../../typings/**/*.d.ts"],
   "exclude": ["**/*.spec.ts", "test/**/*", "dist/**/*"]
 }

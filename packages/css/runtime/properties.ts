@@ -1,23 +1,53 @@
-import type { ColorLike, CssNode, FourCorners, FourSides, StyleBackend, StyleBoxHandle } from "../types";
+import type { ColorLike, CssNode, FontSource, FourCorners, FourSides, StyleBackend, StyleBoxHandle, WarnLevel } from "../types";
 import { isGlobalKeyword, isVariableReference, hasCalc } from "../value/keyword";
 import { parseColor } from "../value/color";
-import { isUnsupportedUnit, parseLength, parseNumber } from "../value/length";
+import { isPercentage, isUnsupportedUnit, parseNumber, parsePx } from "../value/length";
 import { parseBoxShadow } from "../value/shadow";
 import { fourSidesFromParts } from "../value/sides";
 import { splitValueTokens } from "../value/tokens";
+import { extractResourceUrl, unquote } from "../value/resource-url";
 import { hasThemeItem, itemForStates, pickBackgroundStylebox, classChain } from "../vocabulary";
+
+/**
+ * 告警点约定：每一条 `warnings.push` 均整条包裹于 `if (ngDevMode)` 中。
+ *
+ * 仅将守卫置于被调用函数内部是无效的——调用点的模板字符串依旧会进入产物。整条包裹后，
+ * `ngDevMode` 被替换为 false 时，esbuild 才能连同文案一并摇除（由
+ * `packages/builder/vite/test/devmode-dce.spec.ts` 在产物层面加以约束）。
+ * 该标识符在仓库内唯一的 `typings/ng-dev-mode.d.ts` 中声明。
+ */
+
+/** 引擎可导入为 Texture2D 的图片格式 */
+const IMAGE_EXTENSIONS = new Set(["png", "svg", "jpg", "jpeg", "webp", "bmp", "ktx2"]);
+/** 包含派生资源的 Godot 资源文件（与字体侧同口径） */
+const RESOURCE_EXTENSIONS = new Set(["tres", "res"]);
+const TEXTURE_EXTENSIONS = new Set([...IMAGE_EXTENSIONS, ...RESOURCE_EXTENSIONS]);
 
 /**
  * 来源：无
  */
 export interface ApplyContext {
   backend: StyleBackend;
-  warn(key: string, message: string): void;
+  /**
+   * 输出一条告警。`level` 省略时不带等级标记（非 CSS 落点的告警经由该路径）。
+   *
+   * 取值口径：声明被丢弃 → `ignore`；声明已写入但 Godot 语义不同 → `compat`。
+   * 解析阶段仅能报出「值被丢弃」，因此该通道（`warnings: string[]`）一律按 `ignore` 输出。
+   */
+  warn(key: string, message: string, level?: WarnLevel): void;
   /**
    * 声明所在的选择器自身要求的状态集（基规则与内联为空集）。
    * 落点完全由它推导，不读节点当前的伪类集。
    */
   states: ReadonlySet<string>;
+
+  /**
+   * 按家族名查 `@font-face` 登记下来的字体资源路径，未登记时返回 null。
+   *
+   * 设为可选：内联样式与 `applyStyle` 裸声明通道共用同一个 ApplyContext，而字体登记
+   * 仅存在于样式表中（`@font-face` 只能出现在样式表文本中）。
+   */
+  resolveFont?: (family: string) => string | null;
 }
 
 /**
@@ -48,10 +78,36 @@ export interface CssProperty {
  * 等级：仅思路一致
  * 差异：上游按属性区分 dip / 像素并走 PercentLength，本侧统一按像素接受。
  *
- * 长度：px 与无单位均接受（Godot 的 theme item 本就是像素）
+ * 长度：px 与无单位均接受（Godot 的 theme 项本身即以像素计）。
+ * 百分比不在接受范围内：本包不参与布局计算，百分比缺少可参照的父盒。
  */
 function px(raw: string): number | null {
-  return parseLength(raw)?.value ?? null;
+  return parsePx(raw);
+}
+
+/**
+ * 来源：无
+ *
+ * 百分比的拒绝说明。仅提示“解析失败”无法定位问题，必须点明百分比无落点
+ */
+function percentReject(cssName: string, raw: string): string {
+  return (
+    `${cssName}: "${raw}" 是百分比。Godot 的落点全部以像素计，` +
+    "百分比缺少可参照的父盒，该条声明已忽略"
+  );
+}
+
+/**
+ * 来源：无
+ *
+ * 长度解析失败的说明。百分比与无法识别的单位分别给出原因，而非统一提示为“不是长度”
+ */
+function lengthReject(cssName: string, raw: string): string {
+  if (isPercentage(raw)) return percentReject(cssName, raw);
+  if (isUnsupportedUnit(raw)) {
+    return `${cssName}: "${raw}" 的相对单位无落点（仅接受 px 与无单位数字）`;
+  }
+  return `${cssName}: "${raw}" 不是长度`;
 }
 
 /**
@@ -60,12 +116,19 @@ function px(raw: string): number | null {
  * 等级：部分修改（主体一致）
  * 改动：上游先切四段再逐段解析，本侧同序；上游对非法值抛错，本侧返回 null。
  */
-function sides(raw: string): FourSides | null {
+function sides(raw: string, cssName: string, warnings: string[]): FourSides | null {
   const expanded = fourSidesFromParts(splitValueTokens(raw));
-  if (!expanded) return null;
+  if (!expanded) {
+    if (ngDevMode) warnings.push(`${cssName}: "${raw}" 期望 1–4 个长度`);
+    return null;
+  }
   const values = expanded.map((part) => px(part));
   const [top, right, bottom, left] = values;
-  if (top === null || right === null || bottom === null || left === null) return null;
+  if (top === null || right === null || bottom === null || left === null) {
+    const bad = expanded.find((_part, index) => values[index] === null) ?? raw;
+    if (ngDevMode) warnings.push(lengthReject(cssName, bad));
+    return null;
+  }
   return { top, right, bottom, left };
 }
 
@@ -104,10 +167,10 @@ function backgroundItem(node: CssNode, ctx: ApplyContext, cssName: string): stri
   const cls = ctx.backend.classOf(node);
   const item = pickBackgroundStylebox(cls);
   if (!item) {
-    ctx.warn(
+    if (ngDevMode) ctx.warn(
       `bg:${cls}:${cssName}`,
       `${cssName} 在 ${cls} 上无落点：${cls} 不绘制任何 stylebox（Godot 仅为会绘制背景的类提供 item，`
-        + "如 Button 的 normal、PanelContainer 的 panel）。如需为其设置底色，请使用 PanelContainer 包裹一层，"
+        + "如 Button 的 normal、PanelContainer 的 panel）。如需为其设置底色，请使用 PanelContainer 包裹该节点，"
         + "或对该节点调用 add_theme_stylebox_override 传入 StyleBoxFlat。",
     );
   }
@@ -144,7 +207,7 @@ function requireItem(
   const alias = ITEM_ALIAS[item]?.[cls];
   const target = alias && hasThemeItem(cls, kind, alias) ? alias : item;
   if (hasThemeItem(cls, kind, target)) return target;
-  ctx.warn(
+  if (ngDevMode) ctx.warn(
     `item:${cls}:${kind}:${item}:${cssName}`,
     `${cssName} 需要写入 ${cls} 的 ${kind} "${item}"，但 ${cls} 的词汇表中不存在该项（已沿父链查找），已忽略。`,
   );
@@ -272,11 +335,15 @@ const LAYOUT_DIRECTION: Record<string, number> = { ltr: 2, rtl: 3 };
  * 来源：无
  *
  * 这些属性**没有**落点。列出来不是为了支持，而是为了让告警能给出有用的描述：
- * 只说“不支持 display”与“display 的落点是容器结构，无权修改节点树”
+ * 只说“不支持 display”与“display 的落点是容器结构，无权修改节点树”，
  * 是两种完全不同的可用性。
+ *
+ * 整张表包裹于 `ngDevMode ? … : {}` 中：其内容是一批中文文案**数据**，而非代码分支，
+ * 不如此写则无法摇除。生产构建中它折叠为空对象，这些属性因此退回「未知属性」处理，
+ * 静默忽略——本就不输出告警，保留文案仅占用体积。
  */
-const NO_LANDING: Record<string, string> = {
-  display: "display 的落点是节点树结构（元素的包含关系），而节点树由 Angular 持有，不做擅自修改",
+const NO_LANDING: Record<string, string> = ngDevMode ? {
+  display: "display 的落点是节点树结构（元素的包含关系），而节点树由 Angular 持有，不会擅自修改",
   "flex-direction": "flex-direction 对应 VBoxContainer / HBoxContainer 的选择，属于节点树结构",
   "flex-wrap": "Godot 的容器不支持换行，无对应能力",
   "flex-basis": "flex-basis 需要确定的尺寸等值，而 Godot 仅提供下界（custom_minimum_size）",
@@ -297,9 +364,9 @@ const NO_LANDING: Record<string, string> = {
   "aspect-ratio": "宽高比在 AspectRatioContainer.ratio 上，属于节点树结构",
   "max-width": "Godot 的 Control 只有下界 custom_minimum_size，没有上界；上限由父容器的尺寸与锚点约束",
   "max-height": "同上",
-  "background-image": "Godot 的 StyleBoxFlat 纹理是另一套 API（texture / Gradient 资源），url() 与 gradient 无对应物",
+  width: "Godot 无「确定宽度」的概念：容器内子节点的宽度由容器分配，容器外为节点自身的 size。如需表达下界请使用 min-width，如需分配剩余空间请使用 flex-grow",
+  height: "同上（如需表达下界请使用 min-height）",
   "align-self": "BoxContainer 不为单个子节点提供交叉轴对齐",
-  "font-family": "Godot 的字体是 Font 资源，CSS 字体名无对应能力（更换字体请使用 Theme 的 font item）",
   "font-weight": "同上（粗体对应另一个 Font 资源）",
   "font-style": "同上",
   "line-height": "Label 的 line_spacing 是「行与行之间的增量」，与 CSS 行高（整行盒高度）定义不同，不做静默换算",
@@ -313,17 +380,15 @@ const NO_LANDING: Record<string, string> = {
   "animation-name": "动画不在支持范围内（见文档第七节）",
   outline: "StyleBoxFlat 无 outline 对应能力（焦点样式请使用 :focus 的 stylebox）",
   "z-index": "Godot 的绘制顺序由节点顺序决定，修改它等同于修改节点树",
-  overflow: "Godot 的裁剪由父容器的 clip_contents 决定",
   "user-select": "无对应能力",
-  "pointer-events": "Godot 的 mouse_filter 取值不同，不做静默转换",
   "box-sizing": "Godot 的尺寸不区分 content-box / border-box",
-  "writing-mode": "Godot 没有竖排文本；横向左右方向请使用 direction",
+  "writing-mode": "Godot 不支持竖排文本；横向左右方向请使用 direction",
   filter: "Godot 的视觉效果由 material / WorldEnvironment 承担，与 CSS 滤镜是另一套模型",
   "backdrop-filter": "同上",
   "will-change": "无对应能力",
-  content: "content 依附于伪元素 ::before / ::after，Godot 没有伪元素",
+  content: "content 依附于伪元素 ::before / ::after，Godot 无伪元素概念",
   "flex-flow": "flex-flow 是 flex-direction 与 flex-wrap 的简写，两者均无落点",
-};
+} : {};
 
 /**
  * 来源：NativeScript/packages/core/ui/styling/style-properties.ts（CSS 属性 → 落点的注册表）
@@ -349,15 +414,45 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
+  ["font-family", {
+    level: 1,
+    parse: (raw, warnings) => {
+      // 候选列表整串保留：已登记者按序查找，未登记者则将整串交给
+      // `SystemFont.font_names`，由引擎按序选取首个存在的字体
+      const families = raw.split(",").map((name) => unquote(name.trim())).filter((name) => name !== "");
+      if (!families.length) {
+        if (ngDevMode) warnings.push(`font-family 的值 "${raw}" 中不含任何字体名，已忽略`);
+        return null;
+      }
+      return families;
+    },
+    apply: (node, value, ctx) => {
+      const families = value as string[];
+      // 登记优先：`res://` 资源是工程内的确定答案，跨平台一致；系统字体仅为尽力回退。
+      // 此处偏离 CSS 严格语义（规范上候选应逐个尝试、可用者先生效，已安装的系统字体亦可插队），
+      // 但 TextServer 未提供「查询系统是否安装某字体」的 API，我们无法判定是否应当让位。
+      for (const family of families) {
+        const path = ctx.resolveFont ? ctx.resolveFont(family) : null;
+        if (!path) continue;
+        // 字体 item 名统一为 font：词汇表仅 dump 了 stylebox / color / constant / font_size，
+        // 未包含 font 这一族，因此此处不经过 requireItem 的存在性校验
+        if (!ctx.backend.setFontOverride(node, "font", { path }) && ngDevMode) {
+          ctx.warn(`font-load:${path}`, `字体资源加载失败：${path}（来自 @font-face "${family}"）`, "ignore");
+        }
+        return;
+      }
+      // 全部未登记：整串交由引擎处理。引擎按序选取系统中首个存在的字体；若全部不存在，
+      // 则由引擎静默回退至默认字体。本库不探测结果，也不输出告警。
+      ctx.backend.setFontOverride(node, "font", { systemFontNames: families });
+    },
+  }],
+
   ["font-size", {
     level: 1,
     parse: (raw, warnings) => {
-      const length = parseLength(raw);
-      if (!length) {
-        warnings.push(`font-size: "${raw}" 无法解析（支持 px 与无单位数字）`);
-        return null;
-      }
-      return Math.round(length.value);
+      const value = px(raw);
+      if (ngDevMode && value === null) warnings.push(lengthReject("font-size", raw));
+      return value === null ? null : Math.round(value);
     },
     apply: (node, value, ctx) => {
       const item = requireItem(node, ctx, "font_size", "font_size", "font-size");
@@ -370,7 +465,13 @@ const props = new Map<string, CssProperty>([
     level: 1,
     parse: (raw, warnings) => {
       const alpha = parseNumber(raw, 0, 1);
-      if (alpha === null) warnings.push(`opacity: "${raw}" 不是 0..1 的数字`);
+      if (alpha === null) {
+        if (ngDevMode) warnings.push(
+          isPercentage(raw)
+            ? percentReject("opacity", raw)
+            : `opacity: "${raw}" 不是 0..1 的数字`,
+        );
+      }
       return alpha;
     },
     apply: (node, value, ctx) => ctx.backend.setOpacity(node, value as number),
@@ -409,6 +510,41 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
+  /**
+   * `background-image: url("res://…")` → StyleBoxTexture 的 `texture`。
+   *
+   * 与 `background-color` 互斥（一个 stylebox 只能绘制一种填充），何者生效由层叠顺序决定，口径与
+   * `width:1px;width:2px` 一致；本库不叠加，也不回退。
+   */
+  ["background-image", {
+    level: 1,
+    parse: (raw, warnings) => {
+      if (/gradient\s*\(/i.test(raw)) {
+        if (ngDevMode)
+          warnings.push(
+            "background-image 的 gradient 无落点：Godot 的 StyleBoxTexture 仅接受纹理资源，" +
+              "渐变请预先导出为贴图，或改用 background-color",
+          );
+        return null;
+      }
+      if (/^\s*none\s*$/i.test(raw)) {
+        if (ngDevMode) warnings.push("background-image: none 无落点：本库不会主动为控件设置纹理，已忽略");
+        return null;
+      }
+      return extractResourceUrl(raw, warnings, {
+        subject: "background-image",
+        extensions: TEXTURE_EXTENSIONS,
+        extensionsText: `图片：${[...IMAGE_EXTENSIONS].join(" / ")}；或包含 Texture2D 的 ${[...RESOURCE_EXTENSIONS].join(" / ")} 资源`,
+        example: "res://assets/ui/panel.png",
+      });
+    },
+    apply: (node, value, ctx) => {
+      const item = backgroundItem(node, ctx, "background-image");
+      if (!item) return;
+      ctx.backend.mutateStyleBox(node, item, (box) => box.setTexture(value as string));
+    },
+  }],
+
   /* ---- 边框：宽度与颜色（Godot 只有单一 border_color，四边同色） ---- */
 
   ...BORDER_SIDES.map((side): [string, CssProperty] => [
@@ -417,7 +553,7 @@ const props = new Map<string, CssProperty>([
       level: 1,
       parse: (raw, warnings) => {
         const value = px(raw);
-        if (value === null) warnings.push(`border-${side}-width: "${raw}" 不是长度`);
+        if (ngDevMode && value === null) warnings.push(lengthReject(`border-${side}-width`, raw));
         return value === null ? null : Math.round(value);
       },
       apply: (node, value, ctx) => {
@@ -450,9 +586,10 @@ const props = new Map<string, CssProperty>([
       apply: (node, value, ctx) => {
         const item = backgroundItem(node, ctx, `border-${side}-color`);
         if (!item) return;
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           `border-single:${side}`,
           `border-${side}-color 无单边落点：Godot 的 StyleBoxFlat 只有一个 border_color（四边同色），已按整圈边框颜色处理。`,
+          "compat",
         );
         const colorValue = value as ColorLike;
         ctx.backend.mutateStyleBox(node, item, (box) => box.setBorderColor(colorValue));
@@ -468,7 +605,7 @@ const props = new Map<string, CssProperty>([
       level: 1,
       parse: (raw, warnings) => {
         const value = px(raw.split("/")[0]);
-        if (value === null) warnings.push(`border-${corner}-radius: "${raw}" 不是长度`);
+        if (ngDevMode && value === null) warnings.push(lengthReject(`border-${corner}-radius`, raw.split("/")[0]));
         return value === null ? null : Math.round(value);
       },
       apply: (node, value, ctx) => {
@@ -487,7 +624,7 @@ const props = new Map<string, CssProperty>([
     level: 1,
     parse: (raw, warnings) => {
       const parsed = parseBoxShadow(raw);
-      warnings.push(...parsed.warnings);
+      if (ngDevMode) warnings.push(...parsed.warnings);
       return parsed.shadow;
     },
     apply: (node, value, ctx) => {
@@ -507,13 +644,44 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
+  /**
+   * text-shadow → Label / RichTextLabel 的文字阴影三项：颜色 `font_shadow_color`
+   * 加两个常量 `shadow_offset_x` / `shadow_offset_y`。它不属于 stylebox 阴影，
+   * 因此与 `box-shadow` 各有独立落点。Godot 的文字阴影无模糊，仅有偏移与颜色。
+   */
+  ["text-shadow", {
+    level: 3,
+    parse: (raw, warnings) => {
+      const parsed = parseBoxShadow(raw);
+      if (ngDevMode) warnings.push(...parsed.warnings);
+      return parsed.shadow;
+    },
+    apply: (node, value, ctx) => {
+      const shadow = value as ReturnType<typeof parseBoxShadow>["shadow"];
+      if (!shadow) return; // `none`：不写入任何项，上一轮的写入由 ledger 撤销
+      const colorItem = requireItem(node, ctx, "color", "font_shadow_color", "text-shadow");
+      const xItem = requireItem(node, ctx, "constant", "shadow_offset_x", "text-shadow");
+      const yItem = requireItem(node, ctx, "constant", "shadow_offset_y", "text-shadow");
+      if (!colorItem || !xItem || !yItem) return;
+      ctx.backend.setColorOverride(node, colorItem, shadow.color);
+      ctx.backend.setConstantOverride(node, xItem, Math.round(shadow.offsetX));
+      ctx.backend.setConstantOverride(node, yItem, Math.round(shadow.offsetY));
+      if (shadow.blur !== 0 && ngDevMode) {
+        ctx.warn(
+          "text-shadow:blur",
+          "text-shadow 的模糊半径无落点：Godot 的文字阴影仅有偏移与颜色，无模糊。已忽略模糊值。",
+          "compat",
+        );
+      }
+    },
+  }],
+
   /* ---- 内边距：落在 stylebox 的 content_margin ---- */
 
   ["padding", {
     level: 1,
     parse: (raw, warnings) => {
-      const value = sides(raw);
-      if (!value) warnings.push(`padding: "${raw}" 期望 1–4 个长度`);
+      const value = sides(raw, "padding", warnings);
       return value;
     },
     apply: (node, value, ctx) => {
@@ -530,7 +698,7 @@ const props = new Map<string, CssProperty>([
       level: 1,
       parse: (raw, warnings) => {
         const value = px(raw);
-        if (value === null) warnings.push(`padding-${side}: "${raw}" 不是长度`);
+        if (ngDevMode && value === null) warnings.push(lengthReject(`padding-${side}`, raw));
         return value;
       },
       apply: (node, value, ctx) => {
@@ -545,23 +713,11 @@ const props = new Map<string, CssProperty>([
 
   /* ---------------- L3 布局（只做翻译提示） ---------------- */
 
-  /** width / min-width 均落在 custom_minimum_size.x——Godot 中没有“等宽”，只有下界 */
-  ["width", {
-    level: 3,
-    parse: (raw, warnings) => minimumAxis(raw, "width", warnings),
-    apply: (node, value, ctx) => ctx.backend.setMinimumSize(node, value as number, null),
-  }],
-
+  /** 尺寸下界：Godot 的 Control 仅有下界，`width` / `height` 因此无落点（见 NO_LANDING） */
   ["min-width", {
     level: 3,
     parse: (raw, warnings) => minimumAxis(raw, "min-width", warnings),
     apply: (node, value, ctx) => ctx.backend.setMinimumSize(node, value as number, null),
-  }],
-
-  ["height", {
-    level: 3,
-    parse: (raw, warnings) => minimumAxis(raw, "height", warnings),
-    apply: (node, value, ctx) => ctx.backend.setMinimumSize(node, null, value as number),
   }],
 
   ["min-height", {
@@ -574,8 +730,7 @@ const props = new Map<string, CssProperty>([
   ["margin", {
     level: 3,
     parse: (raw, warnings) => {
-      const value = sides(raw);
-      if (!value) warnings.push(`margin: "${raw}" 期望 1–4 个长度`);
+      const value = sides(raw, "margin", warnings);
       return value;
     },
     apply: (node, value, ctx) => applyMargin(node, value as FourSides, "margin", ctx),
@@ -587,7 +742,7 @@ const props = new Map<string, CssProperty>([
       level: 3,
       parse: (raw, warnings) => {
         const value = px(raw);
-        if (value === null) warnings.push(`margin-${side}: "${raw}" 不是长度`);
+        if (ngDevMode && value === null) warnings.push(lengthReject(`margin-${side}`, raw));
         return value;
       },
       apply: (node, value, ctx) => {
@@ -628,7 +783,7 @@ const props = new Map<string, CssProperty>([
     apply: (node, value, ctx) => {
       const mapped = ALIGNMENT[value as string];
       if (mapped === undefined) {
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           "justify-content:space",
           `justify-content: ${value} 无落点：Godot 的 BoxContainer.alignment 仅提供 BEGIN / CENTER / END 三档，`
             + "space-between / space-around / space-evenly 无对应取值。已忽略。",
@@ -638,10 +793,10 @@ const props = new Map<string, CssProperty>([
       // Button、LineEdit 等也有 `alignment`，但那是文本对齐（text-align 的落点），
       // 只有容器类的 `alignment` 才是主轴对齐
       if (!classChain(ctx.backend.classOf(node)).includes("Container")) {
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           `prop:${ctx.backend.classOf(node)}:alignment`,
-          `justify-content 需要写入 ${ctx.backend.classOf(node)} 的 alignment，但该节点不是容器`
-            + "（它属于 BoxContainer / FlowContainer 一类）。已忽略。",
+          `justify-content 需要写入 ${ctx.backend.classOf(node)} 的 alignment，但该节点不属于容器`
+            + "（其属于 BoxContainer / FlowContainer 一类）。已忽略。",
         );
         return;
       }
@@ -658,7 +813,11 @@ const props = new Map<string, CssProperty>([
       if (first === "none") return 0;
       const ratio = parseNumber(first);
       if (ratio === null) {
-        warnings.push(`flex: "${raw}" 仅接受单个数字（flex-grow），其余部分无落点`);
+        if (ngDevMode) warnings.push(
+          isPercentage(raw)
+            ? percentReject("flex", raw)
+            : `flex: "${raw}" 仅接受单个数字（flex-grow），其余部分无落点`,
+        );
         return null;
       }
       return ratio;
@@ -672,7 +831,13 @@ const props = new Map<string, CssProperty>([
     level: 3,
     parse: (raw, warnings) => {
       const ratio = parseNumber(raw);
-      if (ratio === null) warnings.push(`flex-grow: "${raw}" 不是数字`);
+      if (ratio === null) {
+        if (ngDevMode) warnings.push(
+          isPercentage(raw)
+            ? percentReject("flex-grow", raw)
+            : `flex-grow: "${raw}" 不是数字`,
+        );
+      }
       return ratio;
     },
     apply: (node, value, ctx) => {
@@ -693,6 +858,55 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
+  /**
+   * overflow → Control.clip_contents。Godot 仅有「是否裁剪子节点」这一个开关，
+   * 因此 hidden / visible 有对应项，滚动（auto / scroll）没有。
+   */
+  ["overflow", {
+    level: 3,
+    parse: (raw) => raw.trim().toLowerCase(),
+    apply: (node, value, ctx) => {
+      const mode = value as string;
+      if (mode !== "hidden" && mode !== "visible") {
+        if (ngDevMode) ctx.warn(
+          `overflow:${mode}`,
+          `overflow: ${mode} 无落点：Godot 的滚动由 ScrollContainer 承担，Control 仅有 clip_contents 这一个裁剪开关。已忽略。`,
+        );
+        return;
+      }
+      if (!hasNodeProperty(ctx, node, "clip_contents", "overflow", "Control")) return;
+      ctx.backend.setNodeBoolean(node, "clip_contents", mode === "hidden");
+    },
+  }],
+
+  /**
+   * pointer-events: none → mouse_filter = IGNORE。Godot 的 IGNORE 仅使节点自身不接收事件，
+   * 不会像 CSS 那样连带屏蔽子节点，因此属于近似。
+   */
+  ["pointer-events", {
+    level: 3,
+    parse: (raw) => raw.trim().toLowerCase(),
+    apply: (node, value, ctx) => {
+      const mode = value as string;
+      if (mode !== "none") {
+        if (ngDevMode) ctx.warn(
+          `pointer-events:${mode}`,
+          `pointer-events: ${mode} 无落点：Godot 的默认鼠标过滤方式因类而异（Button 接收、Label 不接收），`
+            + "无法由 CSS 恢复。如需恢复请删除该条声明。已忽略。",
+        );
+        return;
+      }
+      if (!hasNodeProperty(ctx, node, "mouse_filter", "pointer-events", "Control")) return;
+      // Control.MOUSE_FILTER_IGNORE
+      ctx.backend.setNodeNumber(node, "mouse_filter", 2);
+      if (ngDevMode) ctx.warn(
+        "pointer-events:none",
+        "pointer-events: none 已写入 mouse_filter = IGNORE，但 Godot 的 IGNORE 不屏蔽子节点：子节点仍会接收鼠标事件。",
+        "compat",
+      );
+    },
+  }],
+
   /** text-align → 拥有水平对齐属性的类（Label / RichTextLabel / Button / LineEdit…） */
   ["text-align", {
     level: 3,
@@ -700,15 +914,15 @@ const props = new Map<string, CssProperty>([
     apply: (node, value, ctx) => {
       const mapped = TEXT_ALIGN[value as string];
       if (mapped === undefined) {
-        ctx.warn("text-align", `text-align: ${value} 无对应值（可用 left / center / right），已忽略。`);
+        if (ngDevMode) ctx.warn("text-align", `text-align: ${value} 无对应值（可用 left / center / right），已忽略。`);
         return;
       }
       const prop = textAlignProperty(node, ctx);
       if (!prop) {
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           `prop:${ctx.backend.classOf(node)}:horizontal_alignment`,
           `text-align 需要写入 ${ctx.backend.classOf(node)} 的 horizontal_alignment 或 alignment，`
-            + "但该节点不具备这两个属性（它属于 Label、RichTextLabel、Button、LineEdit 一类）。已忽略。",
+            + "但该节点不具备这两个属性（其属于 Label、RichTextLabel、Button、LineEdit 一类）。已忽略。",
         );
         return;
       }
@@ -723,7 +937,7 @@ const props = new Map<string, CssProperty>([
     apply: (node, value, ctx) => {
       const shape = CURSOR_SHAPE[value as string];
       if (shape === undefined) {
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           `cursor:${value}`,
           `cursor: ${value} 无对应取值（Godot 的 mouse_default_cursor_shape 取值表不同，可用：`
             + `${Object.keys(CURSOR_SHAPE).join(" / ")}）。已忽略。`,
@@ -742,11 +956,11 @@ const props = new Map<string, CssProperty>([
       const parts = splitValueTokens(raw);
       const key = (parts[0] ?? "").toLowerCase();
       if (key === "ellipsis" && parts.length > 1) {
-        warnings.push("text-overflow 的自定义省略号字符串无落点（Godot 固定用 …），已按 ellipsis 处理");
+        if (ngDevMode) warnings.push("text-overflow 的自定义省略号字符串无落点（Godot 固定使用 …），该字符串已忽略，按 ellipsis 处理");
       }
       const mapped = TEXT_OVERRUN[key];
       if (mapped === undefined) {
-        warnings.push(`text-overflow: "${raw}" 无对应取值（可用 clip / ellipsis）`);
+        if (ngDevMode) warnings.push(`text-overflow: "${raw}" 无对应取值（可用 clip / ellipsis）`);
         return null;
       }
       return mapped;
@@ -764,10 +978,10 @@ const props = new Map<string, CssProperty>([
     apply: (node, value, ctx) => {
       const mode = AUTOWRAP[value as string];
       if (mode === undefined) {
-        ctx.warn(
+        if (ngDevMode) ctx.warn(
           `white-space:${value}`,
           `white-space: ${value} 无对应取值（可用 normal / nowrap / pre / pre-wrap / break-all），已忽略。`
-            + "Godot 不折叠空白，源码里的连续空格按原样绘制。",
+            + "Godot 不折叠空白，源码中的连续空格按原样绘制。",
         );
         return;
       }
@@ -783,7 +997,7 @@ const props = new Map<string, CssProperty>([
     apply: (node, value, ctx) => {
       const mapped = LAYOUT_DIRECTION[value as string];
       if (mapped === undefined) {
-        ctx.warn("direction", `direction: ${value} 无对应取值（可用 ltr / rtl），已忽略。`);
+        if (ngDevMode) ctx.warn("direction", `direction: ${value} 无对应取值（可用 ltr / rtl），已忽略。`);
         return;
       }
       if (!hasNodeProperty(ctx, node, "layout_direction", "direction", "Control")) return;
@@ -791,7 +1005,7 @@ const props = new Map<string, CssProperty>([
     },
   }],
 
-  /* ---------------- 明确不做：只为使告警给出有用的描述 ---------------- */
+  /* ---------------- 明确不做：仅为使告警给出有用的描述 ---------------- */
 
   ...Object.entries(NO_LANDING).map(([name, why]): [string, CssProperty] => [
     name,
@@ -799,7 +1013,7 @@ const props = new Map<string, CssProperty>([
       level: 3,
       parse: () => true,
       apply: (_node, _value, ctx) => {
-        ctx.warn(`noland:${name}`, `${name} 无落点：${why}。已忽略。`);
+        if (ngDevMode) ctx.warn(`noland:${name}`, `${name} 无落点：${why}。已忽略。`);
       },
     },
   ]),
@@ -863,18 +1077,18 @@ export function applyCssProperty(
 
   // 全局关键字 / var() / calc() 统一在此处拦截：每个属性各写一遍必然遗漏
   if (isGlobalKeyword(text)) {
-    ctx.warn(`kw:${text}`, `CSS 关键字 "${text}" 无落点（Godot 的 theme 不提供继承链上的 unset），已忽略。`);
+    if (ngDevMode) ctx.warn(`kw:${text}`, `CSS 关键字 "${text}" 无落点（Godot 的 theme 不提供继承链上的 unset），已忽略。`);
     return true;
   }
   if (isVariableReference(text)) {
-    ctx.warn(
+    if (ngDevMode) ctx.warn(
       "kw:var",
       `var(--x) 需要运行时变量求值（"${text}"），当前不支持，已忽略。请在构建期将变量展开为字面量。`,
     );
     return true;
   }
   if (hasCalc(text)) {
-    ctx.warn("kw:calc", `calc() 需要布局引擎配合（"${text}"），当前不支持，已忽略。`);
+    if (ngDevMode) ctx.warn("kw:calc", `calc() 需要布局引擎配合（"${text}"），当前不支持，已忽略。`);
     return true;
   }
 
@@ -909,7 +1123,7 @@ function setGrow(node: CssNode, ratio: number, ctx: ApplyContext, cssName: strin
 function parseColorOr(raw: string, warnings: string[], cssName: string): ColorLike | null {
   const parsed = color(raw);
   if (!parsed) {
-    warnings.push(
+    if (ngDevMode) warnings.push(
       `${cssName}: "${raw}" 不是可解析的颜色（支持 #hex / 命名色 / rgb() / rgba() / hsl() / hwb()）`,
     );
   }
@@ -917,20 +1131,12 @@ function parseColorOr(raw: string, warnings: string[], cssName: string): ColorLi
 }
 
 function minimumAxis(raw: string, cssName: string, warnings: string[]): number | null {
-  const length = parseLength(raw);
-  if (!length) {
-    warnings.push(
-      isUnsupportedUnit(raw)
-        ? `${cssName}: "${raw}" 的相对单位无落点（Godot 仅提供像素下界 custom_minimum_size）`
-        : `${cssName}: "${raw}" 不是长度`,
-    );
+  const value = px(raw);
+  if (value === null) {
+    if (ngDevMode) warnings.push(lengthReject(cssName, raw));
     return null;
   }
-  if (length.unit === "%") {
-    warnings.push(`${cssName}: "${raw}" 的百分比需要父容器尺寸才能计算，无落点`);
-    return null;
-  }
-  return Math.round(length.value);
+  return Math.round(value);
 }
 
 /** gap / row-gap / column-gap 的解析结果：两轴各自可选（null = 本条声明未提及那一轴） */
@@ -942,7 +1148,7 @@ interface GapAxes {
 /** 一个长度 → 一轴；非长度返回 null 并告警 */
 function axisLength(raw: string, cssName: string, warnings: string[]): number | null {
   const value = px(raw);
-  if (value === null) warnings.push(`${cssName}: "${raw}" 不是长度`);
+  if (ngDevMode && value === null) warnings.push(lengthReject(cssName, raw));
   return value === null ? null : Math.round(value);
 }
 
@@ -950,7 +1156,7 @@ function axisLength(raw: string, cssName: string, warnings: string[]): number | 
 function gapAxes(raw: string, cssName: string, warnings: string[]): GapAxes | null {
   const parts = String(raw).trim().split(/\s+/).filter(Boolean);
   if (!parts.length || parts.length > 2) {
-    warnings.push(`${cssName}: "${raw}" 期望 1–2 个长度`);
+    if (ngDevMode) warnings.push(`${cssName}: "${raw}" 期望 1–2 个长度`);
     return null;
   }
   const row = axisLength(parts[0], cssName, warnings);
@@ -1005,28 +1211,28 @@ function applyGap(node: CssNode, axes: GapAxes, cssName: string, ctx: ApplyConte
     }
     return;
   }
-  ctx.warn(
+  if (ngDevMode) ctx.warn(
     `gap:${cls}`,
-    `${cssName} 无落点：${cls} 不是 BoxContainer / GridContainer，不存在 separation 间距常量。`
+    `${cssName} 无落点：${cls} 不属于 BoxContainer / GridContainer，不存在 separation 间距常量。`
       + "容器间距请使用这两个类，或自行调用 add_theme_constant_override。已忽略。",
   );
 }
 
 function noGapAxis(node: CssNode, ctx: ApplyContext, cssName: string, axis: "row" | "column", cls: string): void {
-  ctx.warn(
+  if (ngDevMode) ctx.warn(
     `gap-axis:${cls}:${axis}`,
-    `${cssName} 的 ${axis === "row" ? "row-gap" : "column-gap"} 在 ${cls} 上无落点：BoxContainer 只有一个`
+    `${cssName} 的 ${axis === "row" ? "row-gap" : "column-gap"} 在 ${cls} 上无落点：BoxContainer 仅有单个`
       + " `separation`（单轴），另一轴不产生间距。已忽略。",
   );
 }
 
 function applyMargin(node: CssNode, margin: Partial<FourSides>, cssName: string, ctx: ApplyContext): void {
-  // Godot 4 的 MarginContainer 没有 margin_* 属性，边距是 theme 常量。写入
+  // Godot 4 的 MarginContainer 并无 margin_* 属性，边距是 theme 常量。写入
   // `node.margin_top = 12` 在 GodotJS 中不报错，但引擎完全无感知——静默无效最难定位。
-  // 落在没有 margin_* 的类上必须发出提示（不自动包裹容器）。
+  // 落在不具备 margin_* 的类上必须发出提示（不会自动包裹容器）。
   const cls = ctx.backend.classOf(node);
   if (!hasThemeItem(cls, "constant", "margin_top")) {
-    ctx.warn(
+    if (ngDevMode) ctx.warn(
       `margin:${cls}`,
       `${cssName} 在 ${cls} 上无落点：Godot 的 margin 是 MarginContainer 的 theme 常量 margin_*。` +
         "（不会擅自向节点树插入容器，节点引用由 Angular 持有。）已忽略。",
@@ -1035,7 +1241,7 @@ function applyMargin(node: CssNode, margin: Partial<FourSides>, cssName: string,
   }
   for (const side of BORDER_SIDES) {
     const value = margin[side];
-    // undefined 表示本条声明未提及那一侧，不要修改它（撤销走 clearProperty，不依赖写入 0）
+    // undefined 表示本条声明未提及该侧，不要修改它（撤销走 clearProperty，不依赖写入 0）
     if (value !== undefined) ctx.backend.setConstantOverride(node, `margin_${side}`, Math.round(value));
   }
 }
@@ -1064,7 +1270,7 @@ function hasNodeProperty(
   need: string,
 ): boolean {
   if (ctx.backend.hasNodeProperty(node, prop)) return true;
-  ctx.warn(
+  if (ngDevMode) ctx.warn(
     `prop:${ctx.backend.classOf(node)}:${prop}`,
     `${cssName} 需要写入 ${ctx.backend.classOf(node)}.${prop}，但该节点不具备此属性（它属于 ${need}）。已忽略。`,
   );

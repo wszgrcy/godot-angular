@@ -4,6 +4,6 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["**/*.ts"],
+  "include": ["**/*.ts", "../../typings/**/*.d.ts"],
   "exclude": ["dist/**/*", "**/test/**", "**/*.spec.ts"]
 }

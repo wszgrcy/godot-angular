@@ -1,4 +1,5 @@
-import { parseCss, flattenRules, type CssRule } from "./parser";
+import { parseCss, flattenRules, collectFontFaces, type CssRule } from "./parser";
+import { parseFontFace, type FontFace } from "./runtime/fonts";
 import {
   InvalidSelector,
   SelectorScope,
@@ -11,6 +12,8 @@ import { expandShorthand } from "./shorthand";
 import { matchQuery } from "./mediaquery";
 import { knownClasses } from "./vocabulary";
 import { SelectorTier, type CssNode, type Declaration, type MediaEnvironment } from "./types";
+
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
 
 /**
  * 来源：无
@@ -36,7 +39,7 @@ function checkElementNames(selectors: readonly string[], line: number, warnings:
   for (const text of selectors) {
     const element = LEADING_ELEMENT.exec(text)?.[1];
     if (!element || isKnownClass(element)) continue;
-    warnings.push(
+    if (ngDevMode) warnings.push(
       `第 ${line} 行：元素选择器 "${element}" 不是已知的 Godot 类名，不会命中任何节点` +
         `（元素选择器的落点就是节点类名，不可覆写）`,
     );
@@ -65,6 +68,8 @@ export interface RuleSet {
 export interface BuildResult {
   ruleSets: RuleSet[];
   warnings: string[];
+  /** 样式表中登记成功的 `@font-face`（登记失败者仅输出告警，不纳入此处） */
+  fontFaces: FontFace[];
 }
 
 /**
@@ -90,7 +95,7 @@ function toDeclarations(rule: CssRule, warnings: string[]): Declaration[] {
       out.push({ property: decl.property, value: decl.value, important: decl.important });
       continue;
     }
-    for (const warning of expanded.warnings) warnings.push(warning);
+    for (const warning of expanded.warnings) if (ngDevMode) warnings.push(warning);
     // `!important` 跟随简写一起分发：`border: 1px solid red !important` 的每条
     // longhand 都是 important，而不是只有第一条。
     for (const [property, value] of expanded.longhands) {
@@ -117,15 +122,23 @@ export function buildRuleSets(css: string): BuildResult {
   const warnings = [...sheet.warnings];
   const ruleSets: RuleSet[] = [];
 
+  // 字体登记不参与级联（其无选择器），但告警仍需与普通规则共用同一条通道，
+  // 构建期 lint 与运行期 addCss 方能输出完全一致的文案
+  const fontFaces: FontFace[] = [];
+  for (const face of collectFontFaces(sheet)) {
+    const parsed = parseFontFace(face, face.position.line, warnings);
+    if (parsed) fontFaces.push(parsed);
+  }
+
   for (const rule of flattenRules(sheet)) {
     checkElementNames(rule.selectors, rule.position.line, warnings);
     const selectors: SelectorCore[] = [];
     for (const text of rule.selectors) {
-      const selector = createSelector(text, (message) =>
-        warnings.push(`第 ${rule.position.line} 行 "${text}"：${message}`),
-      );
+      const selector = createSelector(text, (message) => {
+        if (ngDevMode) warnings.push(`第 ${rule.position.line} 行 "${text}"：${message}`);
+      });
       if (selector instanceof InvalidSelector) {
-        warnings.push(`第 ${rule.position.line} 行：选择器 "${text}" 已忽略 —— ${selector.error.message}`);
+        if (ngDevMode) warnings.push(`第 ${rule.position.line} 行：选择器 "${text}" 已忽略 —— ${selector.error.message}`);
         continue;
       }
       selectors.push(selector);
@@ -137,7 +150,7 @@ export function buildRuleSets(css: string): BuildResult {
     if (rule.mediaQueryString) ruleSet.mediaQueryString = rule.mediaQueryString;
     ruleSets.push(ruleSet);
   }
-  return { ruleSets, warnings };
+  return { ruleSets, warnings, fontFaces };
 }
 
 /**

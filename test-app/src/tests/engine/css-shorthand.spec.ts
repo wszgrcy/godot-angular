@@ -145,10 +145,9 @@ describe("background / flex / 明确不做的东西", () => {
     expect(w).toContain("center");
   });
 
-  it("position/inset / outline / text-shadow 一律告警忽略", () => {
+  it("position/inset / outline 一律输出告警并忽略", () => {
     expect(warningsOf("inset", "0")).toContain("anchors");
     expect(warningsOf("outline", "1px solid red")).toContain("outline");
-    expect(warningsOf("text-shadow", "1px 1px red")).toContain("text-shadow");
   });
 
   it("本身就是 longhand 的属性返回 null（透传）", () => {

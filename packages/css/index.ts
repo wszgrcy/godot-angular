@@ -1,3 +1,7 @@
+/// <reference path="../../typings/ng-dev-mode.d.ts" />
+// 上一行并非冗余：`ngDevMode` 为全局声明，只能通过它进入编译程序。本地 tsc 依据
+// tsconfig 的 include，但 ng-packagr 为入口点自建编译程序时不读 include，仅跟随三重斜线引用。
+
 // 对外入口。本包与 NativeScript/packages/core 的对应关系（逐符号的等级与差异见各文件）：
 //   selector.ts   ← ui/styling/css-selector.ts
 //   parser.ts     ← css/lib/parse/index.ts + css/css-tree-parser.ts（产物形状见 css/reworkcss.ts）
@@ -12,23 +16,27 @@ export type {
   CssWarning,
   Declaration,
   ColorLike,
+  FontSource,
   FourCorners,
   FourSides,
   MediaEnvironment,
   RuleSet as CssRuleSetShape,
   StyleBackend,
   StyleBoxHandle,
+  WarnLevel,
 } from "./types";
 export { SelectorTier } from "./types";
 
 export {
   parseCss,
   flattenRules,
+  collectFontFaces,
   splitSelectors,
   type CssStyleSheet,
   type CssRule,
   type CssDeclaration,
   type CssMedia,
+  type CssFontFace,
   type CssPosition,
 } from "./parser";
 
@@ -62,6 +70,7 @@ export {
 } from "./selector";
 
 export { buildRuleSets, StyleSheetIndex, type BuildResult, type RuleSet } from "./ruleset";
+export { fontFamilyKey, type FontFace } from "./runtime/fonts";
 export { expandShorthand, isMultiValue, type Longhand, type ShorthandExpansion } from "./shorthand";
 
 export {
@@ -92,8 +101,6 @@ export {
   styleboxForState,
   itemForStates,
   STATE_PRIORITY,
-  setRegisteredVariations,
-  isRegisteredVariation,
   knownClasses,
   type ThemeItemKind,
   type ThemeVocabulary,
@@ -109,7 +116,7 @@ export {
 } from "./runtime/properties";
 
 export { parseColor, parseHexColor, colorToCss, TRANSPARENT } from "./value/color";
-export { parseLength, parsePx, parseNumber, isUnsupportedUnit, isZero, type CssLength } from "./value/length";
+export { parseLength, parsePx, parseNumber, isUnsupportedUnit, isPercentage, isZero, type CssLength } from "./value/length";
 export { parseBoxShadow, type CssShadow } from "./value/shadow";
 export { fourSidesFromParts, toFourSides, sidesAsArray } from "./value/sides";
 export { splitValueTokens, splitOnSlash } from "./value/tokens";

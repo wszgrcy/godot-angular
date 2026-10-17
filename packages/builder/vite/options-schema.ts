@@ -27,6 +27,50 @@ export const assetPatternSchema = v.union([
 ]);
 
 /**
+ * `optimization` 的一项：布尔等价于所有子项同时开启或同时关闭，对象形式逐项指定。
+ *
+ * 上游另有 `styles` 与 `fonts` 两项，本包无对应处理能力（CSS 不压缩、字体不内联），
+ * 因此不予接受：书写时将被直接拒绝，而非接受后静默无效。
+ *
+ * 此处不带 `v.transform`：JSON Schema 生成器不支持 transform（选项 schema 需参与生成），
+ * 归一化置于 `normalizeOptimization`，由消费方显式调用。
+ *
+ * 子对象使用 `strictObject`：其余选项沿用“丢弃未声明键”的口径，但 `styles` / `fonts` 是
+ * 上游实际存在的键，静默丢弃会造成“配置已写入但无效果”的假象，此处要求直接报错。
+ */
+export const optimizationSchema = v.union([
+  v.boolean(),
+  v.strictObject({
+    scripts: v.optional(
+      v.pipe(
+        v.boolean(),
+        v.description("JS 压缩，并将 ngDevMode 定义为 false（运行期告警随之停止）。"),
+      ),
+    ),
+  }),
+]);
+
+/** 归一化后的 `optimization`：下游仅可见这一种形状 */
+export interface NormalizedOptimization {
+  scripts: boolean;
+}
+
+/**
+ * 将 `true` / `false` / `{ scripts }` 归一为一个对象。
+ *
+ * 来源：angular-cli `utils/normalize-optimization.ts` 的 `normalizeOptimization`
+ * 等级：仅思路一致（上游另需处理 styles / fonts，本包仅涉及 scripts）
+ */
+export function normalizeOptimization(
+  raw: v.InferInput<typeof optimizationSchema> | undefined,
+): NormalizedOptimization {
+  if (raw === undefined || typeof raw === "boolean") return { scripts: raw === true };
+  return { scripts: raw.scripts === true };
+}
+
+/**
+ * 来源：无
+ *
  * 官方 `styles` 的一项：字符串等价于 `{ input }`。上游的 `bundleName` / `inject` 故意
  * 不接受（`v.object` 严格，多余键直接报错）——那两个字段描述的是样式进入哪个 HTML 入口，
  * 而 Godot 没有 HTML。
@@ -261,7 +305,10 @@ export const sharedOptionFields = {
     [],
   ),
   optimization: v.optional(
-    v.pipe(v.boolean(), v.description("生产优化（压缩 + Angular 生产模式）。")),
+    v.pipe(
+      optimizationSchema,
+      v.description("生产优化（压缩 + Angular 生产模式）。可接受布尔值，或按项书写为 { scripts }。"),
+    ),
     false,
   ),
   sourceMap: v.optional(

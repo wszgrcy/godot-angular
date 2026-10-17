@@ -14,6 +14,9 @@ const UNSUPPORTED_UNITS = /^(em|rem|ex|ch|cap|ic|lh|rlh|vw|vh|vmin|vmax|cm|mm|in
 
 const NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?/i;
 
+/** 整串必须就是一个数字。NUMBER 仅保证开头为数字，`50%`、`12px` 同样能通过它 */
+const NUMBER_ONLY = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i;
+
 /**
  * 来源：NativeScript/packages/core/ui/styling/length-shared.ts :: FixedLength.parse / PercentLength.parse
  *      以及 NativeScript/packages/core/css/parser.ts :: parsePercentageOrLength
@@ -65,6 +68,17 @@ export function isUnsupportedUnit(text: string): boolean {
 /**
  * 来源：无
  *
+ * 本值是否为百分比。百分比在 Godot 侧无落点，需要单独给出原因，
+ * 而非混入“解析失败”中
+ */
+export function isPercentage(text: string): boolean {
+  const length = parseLength(text);
+  return length !== null && length.unit === "%";
+}
+
+/**
+ * 来源：无
+ *
  * 0 的多种写法（`0`、`0px`、`0%`）均计为 0
  */
 export function isZero(text: string): boolean {
@@ -75,11 +89,13 @@ export function isZero(text: string): boolean {
 /**
  * 来源：无
  *
- * 解析一个正数（opacity / flex-grow / stretch ratio 这类）
+ * 解析一个无单位数字（opacity / flex-grow / stretch ratio 这类）。
+ * 整串必须均为数字：带单位的值经 parseFloat 亦能读出前导数字，
+ * 若混入并经区间截断，所得结果与使用者实际书写的内容毫无关系
  */
 export function parseNumber(text: string, min = -Infinity, max = Infinity): number | null {
   const trimmed = text.trim();
-  if (!NUMBER.test(trimmed)) return null;
+  if (!NUMBER_ONLY.test(trimmed)) return null;
   const value = Number.parseFloat(trimmed);
   if (!Number.isFinite(value)) return null;
   return Math.min(max, Math.max(min, value));

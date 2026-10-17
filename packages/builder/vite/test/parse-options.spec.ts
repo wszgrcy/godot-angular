@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseOptions } from "../../shared/parse-options";
-import { applicationOptionsSchema } from "../options-schema";
+import { applicationOptionsSchema, normalizeOptimization } from "../options-schema";
 import { filterMatches, filterOf, handlerOf } from "./hook";
 import {
   MANDATORY_POLYFILL_SPECIFIER,
@@ -28,6 +28,21 @@ describe("parseOptions", () => {
   it("显式给的值得赢过默认值（含显式空数组）", () => {
     const o = parseOptions(applicationOptionsSchema, { ...minimal, polyfills: [] }, "application");
     expect(o.polyfills).toEqual([]);
+  });
+
+  it("optimization：布尔与对象均归一为 { scripts }", () => {
+    expect(normalizeOptimization(true)).toEqual({ scripts: true });
+    expect(normalizeOptimization(false)).toEqual({ scripts: false });
+    expect(normalizeOptimization(undefined)).toEqual({ scripts: false });
+    expect(normalizeOptimization({})).toEqual({ scripts: false });
+    expect(normalizeOptimization({ scripts: true })).toEqual({ scripts: true });
+    expect(normalizeOptimization({ scripts: false })).toEqual({ scripts: false });
+  });
+
+  it("optimization 不接受本包不支持的子项（上游的 styles / fonts）", () => {
+    expect(() =>
+      parseOptions(applicationOptionsSchema, { ...minimal, optimization: { styles: true } }, "application"),
+    ).toThrow();
   });
 
   it("虚拟 polyfill 入口：必带项永远第一行，追加项接在后", () => {

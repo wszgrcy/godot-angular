@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flattenRules, parseCss, splitSelectors } from "godot-angular/css";
+import { collectFontFaces, flattenRules, parseCss, splitSelectors } from "godot-angular/css";
 
 describe("css 解析器", () => {
   it("一条基本规则", () => {
@@ -77,16 +77,23 @@ describe("css 解析器", () => {
     expect(sheet.warnings.join("\n")).toContain("动画");
   });
 
-  it("不认识的 at-rule 一律告警而不是静默丢", () => {
+  it("无法识别的 at-rule 一律输出告警，而非静默丢弃", () => {
     const sheet = parseCss(`
       @import url("other.css");
       @supports (display: grid) { Label { color: red } }
-      @font-face { font-family: X }
+      @layer base;
     `);
     const text = sheet.warnings.join("\n");
     expect(text).toContain("@import");
     expect(text).toContain("@supports");
-    expect(text).toContain("@font-face");
+    expect(text).toContain("@layer");
+    expect(flattenRules(sheet)).toHaveLength(0);
+  });
+
+  it("@font-face 已不属于「无法识别」：它走字体登记通道，不产生规则也不报不支持", () => {
+    const sheet = parseCss(`@font-face { font-family: X; src: url("res://a.ttf"); }`);
+    expect(sheet.warnings.join("\n")).not.toContain("不支持");
+    expect(collectFontFaces(sheet)).toHaveLength(1);
     expect(flattenRules(sheet)).toHaveLength(0);
   });
 

@@ -224,10 +224,10 @@ describe("setStyle", () => {
     expect(label.get_theme_font_size("font_size")).toBe(28);
   });
 
-  it("width → custom_minimum_size", () => {
+  it("min-width → custom_minimum_size", () => {
     const { renderer } = makeRenderer();
     const label = renderer.createText("x") as Label;
-    renderer.setStyle(label, "width", "120px");
+    renderer.setStyle(label, "min-width", "120px");
     expect(label.custom_minimum_size.x).toBe(120);
   });
 

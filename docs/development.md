@@ -88,6 +88,15 @@ docs/                    本文 + css-plan.md
 纯 Node 测试的配置是根目录 `vitest.node.config.mts`；引擎测试**没有** vitest 配置文件，
 配置由 builder 从 `angular.json` 生成。
 
+两边各管一段，同一个断言只保留一份：
+
+- **引擎测试**（`test-app/src/tests/engine/`）：凡是需要真引擎才能判定的，全部在这边。
+  典型是「某条 CSS 声明到底写了哪个主题属性」「状态盒是怎么组成的」「上一轮的值有没有被
+  撤掉」。断言只看节点上的主题覆盖与节点属性，不看像素。
+- **Node 测试**（`packages/css/test/`）：只留纯算法与内部成本探针 —— CSS 解析、特异度
+  比较、标脏范围、`hasNodeProperty` 调用次数、是否多排了一次空转 flush。这些量在引擎侧
+  没有对应的可观察出口，搬过去只会变成无法断言或断言无意义。
+
 ---
 
 ## 2. 包设计：一个包，多个入口
@@ -1006,7 +1015,7 @@ GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 | `tools/gen-emmet-snippets.ts` | 生成 Emmet 的 `snippets.json`（模板里的标签展开） |
 | `tools/lib/godot-facts.ts` | 上面两个脚本共用的引擎导出 + Control 系事实表 |
 | `tools/check-schema`（`pnpm check:schema`） | 断言生成的 schema 与形状源一致 |
-| `tools/dump-vocabulary.ts` | 从引擎导出 Godot 主题词汇表 → `packages/css/vocabulary.data.ts` |
+| `tools/dump-vocabulary.ts` | 从引擎导出 Godot 主题词汇表 → `packages/css/vocabulary.data.ts`。类名来自两处并集：ClassDB 的 Control 继承者，以及默认主题 type list 里那些不是 Control 的类（PopupMenu、Window 等）；type list 中不是类的类型名会被过滤 |
 
 两份编辑器补全产物都落在 `dist/` 里，消费方按**文件路径**吃（不是包入口，所以 `exports` 里没它们）：
 

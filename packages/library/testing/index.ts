@@ -17,5 +17,5 @@ export {
 export { initGodotTestEnvironment, GodotTestingModule } from "./test-env";
 
 export { captureWarn, expectWarned, type WarnCapture } from "./spy";
-// 告警去重表的重置开关（定义在 core/warn，此处只是转发到测试入口）。
-export { resetWarnOnce } from "godot-angular/core";
+// 告警去重表与运行期开关的重置（定义于 core/warn，此处仅转发至测试入口）。
+export { resetWarnOnce, setWarnEnabled } from "godot-angular/core";

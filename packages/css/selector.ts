@@ -1,6 +1,8 @@
 import type { CssNode } from "./types";
 import { SelectorTier } from "./types";
 
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
+
 /**
  * 来源：NativeScript/packages/core/ui/styling/css-selector.ts :: Specificity
  * 等级：部分修改（主体一致）
@@ -788,7 +790,16 @@ function tokenizeSelector(text: string): Token[] {
     }
     if (ch === ":") {
       const element = text[i + 1] === ":";
-      if (element) throw new SelectorSyntaxError(`不支持伪元素 "${text.slice(i, i + 8)}"（Godot 无 ::before/::after 的对应落点）`);
+      if (element) {
+        // 名称必须整段读出后再报出。原先按固定长度截断，超过八个字符的伪元素会被截去后半
+        // （`::selection` 报成 `::select`），依据告警排查的人会被引入错误的方向。
+        const name = (IDENT.exec(text.slice(i + 2)) ?? [""])[0].toLowerCase();
+        throw new SelectorSyntaxError(
+          name
+            ? `不支持伪元素 "::${name}"（Godot 无伪元素概念，样式只能落在控件自身的主题属性上）`
+            : `伪元素缺少名称（位置 ${i}）`,
+        );
+      }
       i++;
       const name = readIdent().toLowerCase();
       let argument: string | null = null;
@@ -839,7 +850,7 @@ function simpleFromToken(token: Token, warn: (message: string) => void): SimpleS
     case "attr": {
       const test = ATTRIBUTE_OPERATORS[token.op];
       if (!test) {
-        warn(`不支持属性操作符 "${token.op}"`);
+        if (ngDevMode) warn(`不支持属性操作符 "${token.op}"`);
         return new InvalidSelector(new SelectorSyntaxError(`不支持的属性操作符 ${token.op}`));
       }
       return new AttributeSelector(token.name, test, token.value, token.ignoreCase);
@@ -847,14 +858,14 @@ function simpleFromToken(token: Token, warn: (message: string) => void): SimpleS
     case "pseudo": {
       if (token.argument !== null) {
         if (!FUNCTIONAL_PSEUDOS.has(token.name)) {
-          warn(`不支持函数式伪类 ":${token.name}()"（:has / :nth-child 在 Godot 侧无对应能力）`);
+          if (ngDevMode) warn(`不支持函数式伪类 ":${token.name}()"（:has / :nth-child 在 Godot 侧无对应能力）`);
           return new InvalidSelector(new SelectorSyntaxError(`不支持的函数式伪类 :${token.name}`));
         }
         const args = splitTopLevel(token.argument, ",").map((arg) => createSelector(arg, warn));
         return new FunctionalPseudoClassSelector(token.name === "matches" ? "is" : token.name, args);
       }
       if (!SUPPORTED_PSEUDO_CLASSES.has(token.name)) {
-        warn(`伪类 ":${token.name}" 在 Godot 侧无对应落点，整条选择器已忽略`);
+        if (ngDevMode) warn(`伪类 ":${token.name}" 在 Godot 侧无对应落点，整条选择器已忽略`);
         return new InvalidSelector(new SelectorSyntaxError(`不支持的伪类 :${token.name}`));
       }
       return new PseudoClassSelector(token.name);

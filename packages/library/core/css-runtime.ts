@@ -62,7 +62,8 @@ export class StyleRuntime {
       backend,
       env: options.env,
       schedule: scheduleAtFrameEnd,
-      warn: (key, message) => warnOnce(`css:${key}`, message),
+      // 级联仅输出「落点相关」的告警，未标等级的按忽略级处理
+      warn: (key, message, level) => warnOnce(`css:${key}`, message, level ?? "ignore"),
     });
   }
 

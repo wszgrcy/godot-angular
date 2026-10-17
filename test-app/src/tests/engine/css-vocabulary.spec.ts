@@ -3,11 +3,9 @@ import {
   classChain,
   getVocabulary,
   hasThemeItem,
-  isRegisteredVariation,
   itemForStates,
   knownClasses,
   pickBackgroundStylebox,
-  setRegisteredVariations,
   setVocabulary,
   styleboxForState,
   themeItems,
@@ -111,12 +109,6 @@ describe("主题词汇表", () => {
   it("themeItems 汇总父链上的全集", () => {
     const items = themeItems("VBoxContainer", "constant");
     expect(items).toContain("separation");
-  });
-
-  it("变体名注册（未注册静默回落基类，只能自己校验）", () => {
-    setRegisteredVariations(["PrimaryButton", "DangerButton"]);
-    expect(isRegisteredVariation("PrimaryButton")).toBe(true);
-    expect(isRegisteredVariation("PrimryButton")).toBe(false);
   });
 
   it("knownClasses 与 classes 表一致", () => {

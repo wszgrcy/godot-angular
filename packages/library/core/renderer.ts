@@ -164,7 +164,7 @@ export class GodotRenderer implements Renderer2 {
     if (Ctor === undefined) {
       // 大写开头说明作者本意是某个 Godot 类，值得提醒；小写（div / ui-card）静默降级
       if (/^[A-Z]/.test(tagName)) {
-        this.warn(
+        if (ngDevMode) this.warn(
           `tag:${tagName}`,
           `<${tagName}> 不是可用的 Godot Control，已降级为 VBoxContainer`,
         );
@@ -305,7 +305,7 @@ export class GodotRenderer implements Renderer2 {
       return;
     }
     if (!nodeHasProperty(target, prop)) {
-      this.warn(`${target.get_class()}.${prop}`, `${target.get_class()}.${prop} 不是真实属性，赋值已忽略`);
+      if (ngDevMode) this.warn(`${target.get_class()}.${prop}`, `${target.get_class()}.${prop} 不是真实属性，赋值已忽略`);
       return;
     }
     // 属性名是运行期字符串，而引擎类上没有“任意属性名”索引，只能按表写
@@ -480,7 +480,7 @@ export class GodotRendererFactory implements RendererFactory2 {
         case ViewEncapsulationKind.ShadowDom:
         case ViewEncapsulationKind.ShadowDomSsr:
           if (type.encapsulation !== ViewEncapsulationKind.None) {
-            warnOnce(
+            if (ngDevMode) warnOnce(
               `css:shadow-dom:${type.encapsulation}`,
               "组件的 encapsulation 为 ShadowDom，Godot 无 shadow root，已按 None（全局）处理。",
             );

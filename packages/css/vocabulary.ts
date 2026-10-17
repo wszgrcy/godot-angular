@@ -226,22 +226,6 @@ export function itemForStates(
   return base;
 }
 
-/**
- * 来源：无
- *
- * 变体名是否已注册（未注册的变体静默回落到基类，没有任何提示，因此只能自行校验）。
- * 词汇表中没有变体信息，由调用方（构建期 / bootstrap）将已注册的名称写入。
- */
-let registeredVariations: Set<string> = new Set();
-
-export function setRegisteredVariations(names: Iterable<string>): void {
-  registeredVariations = new Set(names);
-}
-
-export function isRegisteredVariation(name: string): boolean {
-  return registeredVariations.has(name);
-}
-
 /** 词汇表中出现过的类名。构建期用它校验元素选择器拼写（见 ruleset.ts） */
 export function knownClasses(): string[] {
   return Object.keys(vocabulary.classes);

@@ -129,6 +129,13 @@ export interface StyleBoxHandle {
   setBorderWidths(widths: Partial<FourSides>): void;
   setBorderColor(color: ColorLike | null): void;
   setShadow(shadow: { color: ColorLike; size: number; offsetX: number; offsetY: number }): void;
+  /**
+   * 纹理（`background-image` 的落点）。path 是 `res://` 路径，由实现侧加载。
+   *
+   * 一个 StyleBox 只能绘制底色或纹理此中的一种（StyleBoxFlat 无 texture，StyleBoxTexture 无
+   * bg_color），因此该条与 `setBackground` 互斥，何者生效由层叠顺序决定。
+   */
+  setTexture(path: string): void;
   /** 内容留白（Godot 的 content_margin）—— CSS 的 padding 落在这里 */
   setContentMargin(margin: Partial<FourSides>): void;
 }
@@ -144,6 +151,16 @@ export interface StyleBoxHandle {
  *
  * 每个方法只负责一件事，且**不自行做去重 / 记账**——那些属于级联层职责。
  */
+/**
+ * `font-family` 的两种落点。
+ *
+ * - `{ path }`：`@font-face` 已登记的工程内资源（确定答案，跨平台一致）。
+ * - `{ systemFontNames }`：全部未登记，整串候选交给 `SystemFont.font_names`，
+ *   由引擎按序选取系统中首个存在的字体；若全部不存在则由引擎回退至默认字体。
+ *   本库仅负责“尽力回退”，不判定最终是否生效。
+ */
+export type FontSource = { path: string } | { systemFontNames: string[] };
+
 export interface StyleBackend {
   /** 节点类名（引擎侧 = `get_class()`）；元素选择器与 theme_type 都依赖它 */
   classOf(node: CssNode): string;
@@ -159,7 +176,16 @@ export interface StyleBackend {
   setFontSizeOverride(node: CssNode, item: string, size: number): void;
   setConstantOverride(node: CssNode, item: string, value: number): void;
 
-  /** 最小尺寸（CSS 的 width/height 落点，**下界**而非等值）；null 表示不修改这一轴 */
+  /**
+   * 字体覆盖（`font-family` 的落点），两种来源见 {@link FontSource}。加载与缓存由实现侧负责。
+   *
+   * 返回 false 仅可能发生在 `path` 分支：资源加载失败。调用方必须输出告警——静默回落至主题
+   * 默认字体是最难排查的一类问题。`systemFontNames` 分支恒返回 true：系统安装了哪些字体
+   * 本库无法查得（TextServer 未提供该 API），是否生效交由引擎处理。
+   */
+  setFontOverride(node: CssNode, item: string, source: FontSource): boolean;
+
+  /** 最小尺寸（CSS 的 min-width / min-height 落点，**下界**而非等值）；null 表示不修改这一轴 */
   setMinimumSize(node: CssNode, width: number | null, height: number | null): void;
   /** opacity → modulate.a（连子树一起调制） */
   setOpacity(node: CssNode, alpha: number): void;
@@ -193,6 +219,9 @@ export interface StyleBackend {
    * `states`：声明所在的选择器自身要求的状态伪类（见 `MergedDeclaration.states`）。
    * 空集 = 基规则或内联，写基 item；非空 = 写引擎在该状态下读取的 item。落点完全由它
    * 推导，与节点当前处于哪些状态无关。
+   *
+   * `resolveFont`：将 `font-family` 的家族名解析为 `@font-face` 登记的资源路径。仅样式表
+   * 中才含 `@font-face`，因此内联与裸声明通道不传该字段。
    */
   applyProperty(
     node: CssNode,
@@ -200,6 +229,7 @@ export interface StyleBackend {
     raw: string,
     warnings: string[],
     states: ReadonlySet<string>,
+    resolveFont?: (family: string) => string | null,
   ): boolean;
 }
 
@@ -224,9 +254,22 @@ export interface MediaEnvironment {
 /**
  * 来源：无
  *
+ * 告警等级。两者的区别在于使用者是否需要修改代码：
+ * - `ignore`：完全不支持，该条声明被丢弃，Godot 侧无对应实现，必须改写。
+ * - `compat`：已写入并生效，但 Godot 的语义与 CSS 不同，结果仅为近似，
+ *   能否接受由使用者判断。
+ *
+ * 两者都只在开发模式输出（见构建器对 `ngDevMode` 的处理）。
+ */
+export type WarnLevel = "ignore" | "compat";
+
+/**
+ * 来源：无
+ *
  * 解析 / 应用过程中产生的一次告警
  */
 export interface CssWarning {
   key: string;
   message: string;
+  level?: WarnLevel;
 }

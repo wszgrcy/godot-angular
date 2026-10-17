@@ -455,6 +455,11 @@ Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集编译到 `Theme
 仅做转换提示；第三类没有落点，输出告警后忽略。下列清单与 `packages/css/runtime/properties.ts`
 中的属性表逐条对应，`css-sweep.spec.ts` 校验两者保持一致。
 
+关于单位：长度仅接受 `px` 与无单位数字。百分比一律输出告警并忽略——Godot 的落点（theme
+常量、StyleBoxFlat 的圆角与边框、尺寸下界）均以像素计，百分比需要可参照的父盒，
+而本包不参与布局计算；`em`、`rem`、`vw` 等相对单位同理。`opacity`、`flex-grow` 这类
+无单位数字属性同样不接受百分比：CSS 中 `opacity: 50%` 等价于 `0.5`，本包不展开此种等价关系。
+
 ### 等价落点的属性
 
 | 属性 | Godot 落点 |
@@ -462,8 +467,10 @@ Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集编译到 `Theme
 | `color` | theme 颜色 `font_color`；处于 `:hover` 等状态时自动改用对应的状态项（如 `font_hover_color`） |
 | `caret-color` | theme 颜色 `caret_color`（LineEdit、TextEdit） |
 | `font-size` | theme 字号 `font_size` |
+| `font-family` | theme 字体 `font`：已登记者取 `@font-face` 登记的资源，未登记者将整串候选交给 `SystemFont.font_names`（见下节） |
 | `opacity` | `CanvasItem.modulate.a` |
 | `background-color`、`background` | 该类实际绘制的 stylebox 的 `bg_color`（Button 为 `normal`，PanelContainer 为 `panel`） |
+| `background-image` | 将同一 stylebox 替换为 `StyleBoxTexture` 并设置 `texture`（与 `background-color` 互斥，见下节） |
 | `border-color` | StyleBoxFlat 的 `border_color` |
 | `border-top-color` 等单边颜色 | 同上。Godot 的 StyleBoxFlat 只有一个 `border_color`，四边同色；单边属性名输出告警，并按整圈边框处理 |
 | `border-top-width` 等四边宽度 | StyleBoxFlat 的 `border_width_*`，四边相互独立 |
@@ -489,13 +496,16 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 
 | 属性 | 落点与差异 |
 | --- | --- |
-| `width`、`min-width` | `custom_minimum_size.x`。Godot 只提供尺寸下界，不存在固定宽度；`%`、`em`、`rem` 输出告警并忽略 |
-| `height`、`min-height` | 同上，写入 `custom_minimum_size.y` |
+| `min-width` | `custom_minimum_size.x`（尺寸下界）。`%`、`em`、`rem` 输出告警并忽略 |
+| `min-height` | 同上，写入 `custom_minimum_size.y` |
 | `margin`、`margin-top` 等 | MarginContainer 的 theme 常量 `margin_*`。其他类不具备该常量，输出告警并忽略；本包不会为承载 margin 而向节点树插入容器 |
 | `gap`、`row-gap`、`column-gap` | BoxContainer 的 theme 常量 `separation`（单轴，轴向由 `vertical` 决定）；GridContainer、FlowContainer、ItemList 的 `h_separation` 与 `v_separation`。`gap: 4px 8px` 表示行间距 4px、列间距 8px |
 | `justify-content` | `BoxContainer.alignment`，仅支持 `flex-start`、`center`、`flex-end`；`space-between` 等取值输出告警。仅对容器类生效 |
 | `flex`、`flex-grow` | 置位 `size_flags_*` 的 `SIZE_EXPAND` 并写入 `size_flags_stretch_ratio`；`flex-basis` 与 `flex-shrink` 无落点 |
+| `text-shadow` | Label / RichTextLabel 的 `font_shadow_color` + 常量 `shadow_offset_x` / `shadow_offset_y`。与 `box-shadow` 无关（后者落在 stylebox）；模糊半径无落点，输出告警 |
 | `visibility` | `CanvasItem.visible`；`hidden` 对应 `false` |
+| `overflow` | `Control.clip_contents`。`hidden` 与 `visible` 可用；`auto`、`scroll` 无落点（滚动由 ScrollContainer 承担） |
+| `pointer-events` | `none` → `Control.mouse_filter = IGNORE`。Godot 的 IGNORE 仅使本节点不接收鼠标事件，**不屏蔽子节点**，与 CSS 不同；`auto` 等其余取值无落点 |
 | `text-align` | `horizontal_alignment`；不具备该属性的非容器类（Button、LineEdit）改用 `alignment` |
 | `cursor` | `Control.mouse_default_cursor_shape`。支持 `pointer`、`text`、`move`、`not-allowed`、`*-resize` 等关键字，表外取值输出告警 |
 | `text-overflow` | `Label.text_overrun_behavior`。`clip` 与 `ellipsis` 可用；自定义省略号字符串无落点，引擎固定使用 `…` |
@@ -511,26 +521,132 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 | --- | --- |
 | 布局结构 | `display`、`flex-direction`、`flex-flow`、`flex-wrap`、`flex-basis`、`flex-shrink`、`align-items`、`align-self`、`align-content`、`justify-items`、`order`、`aspect-ratio`、`grid`、`grid-template-columns` |
 | 定位 | `position`、`inset`、`top`、`right`、`bottom`、`left`、`float`、`z-index` |
-| 尺寸 | `max-width`、`max-height`（Godot 无尺寸上界）、`box-sizing` |
-| 字体排印 | `font-family`、`font-weight`、`font-style`、`line-height`、`letter-spacing`、`word-spacing`、`text-decoration`、`text-transform`、`writing-mode` |
-| 背景与边框 | `background-image`（`url()` 与 gradient）、`outline`、`border-style` 的非实线取值 |
+| 尺寸 | `width`、`height`、`max-width`、`max-height`（Godot 无尺寸上界）、`box-sizing` |
+| 字体排印 | `font-weight`、`font-style`、`line-height`、`letter-spacing`、`word-spacing`、`text-decoration`、`text-transform`、`writing-mode` |
+| 背景与边框 | `outline`、`border-style` 的非实线取值 |
 | 视觉与动画 | `transform`、`transition`、`animation`、`animation-name`、`filter`、`backdrop-filter`、`will-change` |
-| 交互与其他 | `overflow`、`user-select`、`pointer-events`、`content`、`::before`、`::after` |
+| 交互与其他 | `user-select`、`content`、`::before`、`::after` |
 
-关于 `outline`：Godot 的 StyleBoxFlat 没独立的描边层，因此 `outline` 无落点。引擎的
-`expand_margin_*` 与 CSS 的 `outline` 有一点相似——都绘制在控件矩形之外且不影响布局（引擎
-文档亦建议它配合 `border_width_*` 在控件矩形外描边），但它扩展的是整个 stylebox：底色一并
-外扩，描边也只能沿用同一 stylebox 的 `border_color` 与 `border_width_*`，无法独立取色，
+关于 `width` 与 `height`：Godot 的 Control 具有 `size`，但该尺寸仅在节点未加入容器时
+保持稳定。容器在每次布局时都会依据 `custom_minimum_size`（下界）、`size_flags`（填充与扩展）
+与主题的 `separation` 重新分配子节点尺寸，直接设置的 `size` 将被下一次布局覆盖。因此本包
+不提供 `width` / `height`：需要表达下界请书写 `min-width` / `min-height`，需要参与剩余空间
+分配请书写 `flex-grow`。尺寸上界直至 Godot 4.7 才以 `custom_maximum_size` 引入，在此之前
+`max-width` 同样无对应实现。
+
+关于 `overflow` 与 `pointer-events`：前者仅有「是否裁剪子节点」一个开关，因此 `hidden` 与
+`visible` 可以对应，滚动类取值则不能——Godot 的滚动是一种独立的容器类型，而非一项样式开关。
+后者的差异在于作用范围：CSS 的 `pointer-events: none` 会连带子树一并不接收指针事件，Godot 的
+`MOUSE_FILTER_IGNORE` 仅作用于本节点，子节点仍可接收事件，因此写入时会输出一条 `[兼容]` 告警。
+`auto` 则完全无落点：Godot 的默认鼠标过滤方式因类而异（`Button` 接收、`Label` 不接收），本包
+无法由 CSS 恢复其原有取值，如需恢复请删除该条声明。
+
+关于 `outline`：Godot 的 StyleBoxFlat 没有独立的描边层，因此 `outline` 无落点。引擎的
+`expand_margin_*` 与 CSS 的 `outline` 略有相似——都绘制在控件矩形之外且不影响布局（引擎
+文档亦建议它配合 `border_width_*` 在控件矩形外描边），但它扩展的是整个 stylebox：底色随之
+外扩，描边亦只能沿用同一 stylebox 的 `border_color` 与 `border_width_*`，无法独立取色，
 因此不构成 `outline` 的落点。另需注意 theme 常量 `outline_size` 与颜色 `font_outline_color`
-指的是文字描边（对应 CSS 的 `-webkit-text-stroke`），与 `outline` 无关。
+指代的是文字描边，与 `outline` 无关。
 
-因此**焦点环必须用 `:focus` 自己画**：主题给 `Button/focus` 盒的描边（`border_width_* = 2`）
-属于“没声明的字段”，只要基规则没写 `border-*` 就原样保留；一旦基规则写了 `border-color`
-或 `border-width`，按层叠它会在 `focus` 盒里覆盖掉主题那圈描边，键盘焦点就看不见了。
-写 `Button:focus { border-color: …; border-width: 2px; }` 即可恢复。
+因此**焦点环必须由 `:focus` 自行绘制**：主题给 `Button/focus` 盒的描边（`border_width_* = 2`）
+属于“未声明的字段”，只要基规则未书写 `border-*` 便原样保留；一旦基规则书写了 `border-color`
+或 `border-width`，按层叠关系它将在 `focus` 盒中覆盖主题原有的描边，键盘焦点随之不可见。
+书写 `Button:focus { border-color: …; border-width: 2px; }` 即可恢复。
 
-关于 `box-shadow`：第四段长度（spread）与 `inset` 无落点——本引擎的 StyleBoxFlat 没有
-`shadow_expand`，也不支持内阴影，解析时输出告警（多层阴影仅取第一层）。
+关于 `box-shadow`：第四段长度（spread）与 `inset` 无落点——本引擎的 StyleBoxFlat 无
+`shadow_expand`，亦不支持内阴影，解析时输出告警（多层阴影仅取第一层）。
+
+关于伪元素：Godot 无伪元素概念，样式只能落在控件自身的主题属性上，因此 `::before`、
+`::after` 这类写法没有落点。书写伪元素会使整条规则失效，并输出一条告警，告警中完整给出
+所书写的伪元素名称；双冒号之后缺少名称时，告警将直接指出名称缺失及其位置。
+
+### 字体：`@font-face` 与 `font-family`
+
+Godot 的字体是资源，而非名称。本包仅借用 `@font-face` 的语法完成一件事：将一份引擎可加载的
+字体资源关联到一个家族名下，`font-family` 此后方可解析到该资源。它并非 CSS Fonts 规范的
+实现，写法因此受到严格限制：
+
+```css
+@font-face {
+  font-family: "Source Han Sans";
+  src: url("res://assets/fonts/SourceHanSansSC-Regular.otf");
+}
+
+.title {
+  font-family: "Source Han Sans";
+}
+```
+
+规则如下：
+
+- `src` 仅允许**一个** `url()`。CSS 的候选源列表（`url(a) format("woff2"), url(b)`）依赖
+  「逐个尝试直至可用」，Godot 的一份 FontFile 不存在该机制，书写多个将被直接拒收。
+- 路径必须以 `res://` 开头。CSS 编译后会被内联进 JS，组件样式来自 `styleUrls` 时连文件名
+  也不再保留，相对路径在运行时已无参照物。`res://` 是引擎的虚拟根，指向 `project.godot`
+  所在目录；置于工程目录内的字体文件会随工程一并导出，运行时直接加载。
+- `local()` 在 `@font-face` 中无落点（登记仅用于将一份工程内资源关联到名称；系统字体无需登记，
+  直接在 `font-family` 中书写名称即可，见下）。
+- 后缀必须是引擎可识别的字体容器（`ttf` `ttc` `otf` `otc` `woff` `woff2` `pfb`），或者包含
+  Font 派生类型的 `tres` / `res` 资源（`FontVariation` 在工程中即以 `.tres` 形式存在）。
+- `font-weight`、`font-style`、`font-stretch`、`font-display`、`unicode-range` 无落点：
+  Godot 中一个字体名仅对应一份字体文件，不存在「同一家族按字重或字形选择变体」这一层。书写时
+  会输出告警，但登记本身仍然有效。
+- 家族名不区分大小写，引号可加可不加。
+
+#### `font-family` 的两级解析
+
+`font-family` 的落点是 theme 字体项 `font`，候选列表整串均有意义：
+
+```
+font-family: A, B, C
+  1. 按序查 @font-face 登记表，首个命中者生效 → 使用其 res:// 资源
+  2. 全部未命中 → new SystemFont(); font_names = ["A", "B", "C"] → 同一个 override
+     引擎按序选取系统中首个存在的字体；若全部不存在 → 由引擎静默回退至默认字体
+```
+
+已登记的字体由本库负责校验（资源加载失败时告警会点名路径）；未登记者属于**尽力回退**，本库
+仅将整串名称交给 `SystemFont`，最终是否生效由引擎决定，本库不探测结果，也不输出告警。
+
+以下两点需要留意：
+
+- **登记优先，与候选顺序无关**。按 CSS 严格语义，候选应逐个尝试、可用者先生效，已安装的
+  系统字体亦可插队；但 TextServer 未提供「查询系统是否安装某字体」的 API，本库无法判定是否
+  应当让位，因此一律登记优先（`res://` 资源是工程内的确定答案，跨平台表现一致）。
+- **Godot 的回退是字形级，而非字体级**。`Font.fallbacks` 与 `allow_system_fallback`（默认开启）
+  处理的是「当前字体缺少某个字形」，而非「当前字体未安装」。引擎默认字体（`ThemeDB.fallback_font`）
+  本身不含中文字形，但渲染中文时会自动从系统获取字形，因此在不配置任何字体的情况下中文仍可显示。
+
+移除一段包含 `@font-face` 的样式表时，由其建立的字体覆盖一并撤销，与其它属性同口径。
+
+### 背景图：`background-image`
+
+`background-image: url()` 落在同一个 stylebox 上，仅将该 stylebox 替换为 `StyleBoxTexture`：
+
+```css
+.panel {
+  background-image: url("res://assets/ui/panel.png");
+}
+```
+
+规则与 `@font-face` 的 `src` 完全一致（共用同一套校验）：仅允许**一个** `url()`、路径必须
+以 `res://` 开头、后缀必须是引擎可导入的图片（`png` `svg` `jpg` `jpeg` `webp` `bmp` `ktx2`）
+或包含 Texture2D 的 `tres` / `res` 资源。`gradient` 仍无落点（Godot 的 StyleBoxTexture
+仅接受纹理，不接受渐变），将单独输出告警，而非按 `url()` 写法错误处理。
+
+**与 `background-color` 互斥。** Godot 的一个 StyleBox 只能绘制其中一种：StyleBoxFlat 无
+`texture`，StyleBoxTexture 无 `bg_color`。CSS 允许两者同时声明，本库不叠加，也不代为推断，
+**按层叠顺序取最后一条**，口径与 `width:1px;width:2px` 完全一致：
+
+```css
+.a { background-color: blue; background-image: url("res://a.png"); } /* 图赢 */
+.b { background-image: url("res://a.png"); background-color: blue; } /* 色赢 */
+```
+
+跨规则同样如此：特异度更高（或特异度相同但登记更晚）的那一条决定该位置绘制何种内容。前一条
+仅失去填充字段，圆角、边框、`padding` 等几何字段仍照常叠加在同一 stylebox 上。纹理声明被
+撤销后，底色会重新生效（互斥关系并非永久占用）。
+
+纹理资源加载失败时，该条声明按「无落点」处理并输出告警，不会遗留一个不绘制任何内容的空纹理盒。
 
 ### 通用属性与限定属性
 
@@ -545,7 +661,7 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 | --- | --- |
 | `opacity` | `CanvasItem.modulate.a` |
 | `visibility` | `CanvasItem.visible` |
-| `width`、`min-width`、`height`、`min-height` | `Control.custom_minimum_size` |
+| `min-width`、`min-height` | `Control.custom_minimum_size` |
 | `flex`、`flex-grow` | `Control.size_flags_*` 与 `size_flags_stretch_ratio` |
 | `cursor` | `Control.mouse_default_cursor_shape` |
 | `direction` | `Control.layout_direction` |
@@ -812,16 +928,54 @@ HBoxContainer Label {
 `preprocessCSS`（与组件 `styleUrls` 使用同一入口），由预处理器展开嵌套后再交给解析器。
 全局样式与 `styleUrls` 均适用；扩展名为 `.css` 的文件不做预处理。
 
-长度单位仅支持 `px`、`%` 与不带单位的数值（按 `px` 处理）。`em`、`rem`、`vw`、`vh`、`cm`、
-`pt` 等单位会告警并丢弃该条声明。
+长度单位仅支持 `px` 与不带单位的数值。`%`、`em`、`rem`、`vw`、`vh`、`cm`、`pt` 等单位
+均无落点，将输出告警并丢弃该条声明（详见「样式」一节关于单位的说明）。
 
 `add_theme_*_override` 与 `theme_type_variation` 按条目互斥：已写入 override 的条目在切换变体后
 仍返回 override 值。同一条目不应同时使用静态主题变体与运行时级联，默认全部使用运行时级联。
+
+class 选择器与 `theme_type_variation` 无关。变体是节点上的单值属性，而一个节点可以同时具有
+多个 class，两者无法一一对应；变体名还必须预先注册在主题资源里，构建期无从推断。如需使用变体，
+请自行设置节点属性，本包不会由 class 推导变体名。
 
 无显示环境（CI、无头模式）中根窗口是个 dummy 值：实测 `Window.size` 与 `get_visible_rect()` 均为
 `64×64`（4.6.1 与 4.8-dev6 一致），`DisplayServer.screen_get_size()` 为 `(0, 0)`，`is_dark_mode()`
 恒为 `false`。也就是说无头下媒体查询会静默落在**窄屏分支**（64 ≤ 任意 `max-width` 断点），要
 确定性结果就显式 `setEnv`。真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
+
+### 告警与生产构建
+
+运行期告警分两级，输出里用标记区分：
+
+| 标记 | 含义 | 应当如何处理 |
+| --- | --- | --- |
+| `[忽略]` | 完全不支持，该条声明被丢弃，Godot 侧无对应实现 | 改写，或者接受该效果不存在 |
+| `[兼容]` | 已写入并生效，但 Godot 的语义与 CSS 不同，结果仅为近似 | 判断近似能否接受，不能接受则改用其它写法 |
+
+例：`border-top-color` 只能落在四边共用的 `border_color` 上，写入后生效，但四边将同色，
+因此是 `[兼容]`；`outline` 在 Godot 中没有不占位的描边层，无法写入，因此是 `[忽略]`。
+
+运行期告警统一受开发模式标记控制，使用的即 Angular 自身的 `ngDevMode`。此处的口径是
+**编译期消除，而非运行时不打印**：构建器在两个方向均将 `ngDevMode` 固定（`optimization.scripts`
+开启时为 `false`，否则为 `true`），每一条告警（连同其文案）均整条包裹于 `if (ngDevMode)` 中，
+整个分支将被折叠消除，产物中既不拼接字符串，也不保留提示文字。仅将守卫置于被调用函数内部是
+无效的：调用点的模板字符串仍会进入产物。开发构建的取值为 `true`，告警全部保留——告警的意义
+在于开发阶段被发现并修正。
+
+标识符仅声明一次（仓库根 `typings/ng-dev-mode.d.ts`，类型为 `boolean`）：其值在编译期固定，
+运行期仅有 `true` / `false` 两种，无需 `typeof` 探测。应用产物由构建器的 `define` 覆盖；
+builder 自身在 Node 中需 `import "godot-angular/css"` 做样式 lint，该依赖通常作为 external
+的发布物（ng-packagr 不做 define，其中会残留自由标识符），因此 `tools/vite-build.ts` 将其
+内联至 builder 产物，并对这份副本 `define: { ngDevMode: "true" }`——Node 侧的问题在 Node
+的构建配置中解决，源码中不保留运行期全局赋值。
+
+该口径由回归测试保障（将构建产物再次交由打包器处理，在产物中检索告警用词）：仅 css 包体积
+就相差 6.4 KB / 16.7%，生产构建不收集这些文案。
+
+构建期检查（选择器拼写、属性名、词汇表）不受此标记影响，无论是否开启优化都会输出：其属于
+一次性成本，且仅在开发阶段发生。
+
+同一类问题仅报告一次（按“属性 + 原因”去重），不会逐帧重复输出。
 
 ## 路由
 
@@ -1072,7 +1226,8 @@ ng test --reporters=json
 | `resRoot` | `outputPath` 对应的 `res://` 前缀 |
 | `viteConfig` | vite 配置文件路径，叠加在本 builder 之上；`plugins` 为追加而非替换 |
 | `styles` | 全局样式表，构建期解析并编入产物，运行时作为 application 层样式参与级联。不接受 `bundleName` 与 `inject` |
-| `tsConfig` `outputPath` `optimization` `sourceMap` `define` | 与官方同名同义 |
+| `tsConfig` `outputPath` `sourceMap` `define` | 与官方同名同义 |
+| `optimization` | 同名但仅接受 `true` / `false` 或 `{ scripts }`。`scripts` 开启 JS 压缩并将 `ngDevMode` 固定为 `false`（运行期告警随之停止），关闭时固定为 `true`。不接受 `styles` 与 `fonts`：本包不压缩 CSS、不内联字体，书写时直接报错，而非静默无效 |
 | `polyfills` | 追加的 polyfill 说明符，默认 `[]`。构建器始终先生成一个入口，首行固定引入它自带的补丁模块（`builder/vite/polyfills.ts`），本选项的条目追加其后，无法关闭必带项。注意：只能写包名或绝对路径，`./xxx` 这种相对路径解析不了（虚拟入口无目录基准） |
 | `externalDependencies` | 不打入产物、运行时由外部提供的包。口径与官方一致，`godot` 固定为外部依赖 |
 | `fileReplacements` | 按文件替换，`{replace, with}` |

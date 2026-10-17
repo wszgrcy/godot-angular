@@ -6,6 +6,7 @@ import {
   readStashedState,
   stashState,
   type CssNode,
+  type FontSource,
   type StyleBackend,
   type StyleBoxHandle,
 } from "godot-angular/css";
@@ -52,6 +53,7 @@ class Recorder implements StyleBackend {
   mutateStyleBox(node: CssNode, item: string, apply: (box: StyleBoxHandle) => void): void {
     apply({
       setBackground: (c) => this.write(node, `bg:${c ? `${c.r},${c.g},${c.b}` : "null"}`),
+      setTexture: (path) => this.write(node, `texture:${path}`),
       setCornerRadii: (r) => this.write(node, `radius:${JSON.stringify(r)}`),
       setBorderWidths: (w) => this.write(node, `border:${JSON.stringify(w)}`),
       setBorderColor: (c) => this.write(node, `borderColor:${c ? `${c.r},${c.g},${c.b}` : "null"}`),
@@ -67,6 +69,11 @@ class Recorder implements StyleBackend {
   }
   setConstantOverride(node: CssNode, item: string, value: number): void {
     this.write(node, `constant:${item}:${value}`);
+  }
+  setFontOverride(node: CssNode, item: string, source: FontSource): boolean {
+    const what = "path" in source ? source.path : `sys:${source.systemFontNames.join("|")}`;
+    this.write(node, `font:${item}:${what}`);
+    return true;
   }
   setMinimumSize(node: CssNode, width: number | null, height: number | null): void {
     this.write(node, `min:${width ?? "-"}x${height ?? "-"}`);

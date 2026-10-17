@@ -7,7 +7,9 @@ import {
   SUPPORTED_PSEUDO_CLASSES,
 } from "../selector";
 import type { SelectorCore } from "../selector";
-import type { CssNode, Declaration, MediaEnvironment, StyleBackend } from "../types";
+import type { CssNode, Declaration, MediaEnvironment, StyleBackend, WarnLevel } from "../types";
+
+/** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
 import { Invalidator } from "./invalidation";
 import {
   NodeStates,
@@ -74,8 +76,8 @@ export interface CascadeOptions {
   env?: MediaEnvironment;
   /** 帧末调度的注入点：引擎侧提供 rAF，不提供则只能手动 flush */
   schedule?: (flush: () => void) => void;
-  /** 告警出口，不提供则静默 */
-  warn?: (key: string, message: string) => void;
+  /** 告警出口，不提供则静默。`level` 省略表示不带等级标记 */
+  warn?: (key: string, message: string, level?: WarnLevel) => void;
 }
 
 /**
@@ -178,7 +180,7 @@ export class Cascade {
   readonly stats: CascadeStats = { flushes: 0, applied: 0, cleared: 0, nodes: 0, skipped: 0 };
 
   constructor(private readonly options: CascadeOptions) {
-    this.sheets = new SheetRegistry(options.env ?? {}, (key, message) => this.warn(key, message));
+    this.sheets = new SheetRegistry(options.env ?? {}, (key, message, level) => this.warn(key, message, level));
     this.invalidator = new Invalidator(
       this.states,
       options.backend,
@@ -516,7 +518,7 @@ export class Cascade {
       // 去重放在前面：告警文案是拼出来的，不能每个节点每轮都拼一遗
       if (this.warnedStates.has(key)) continue;
       this.warnedStates.add(key);
-      this.warn(
+      if (ngDevMode) this.warn(
         key,
         `${support.className} 没有 ${prop} 属性，:${state} 在它身上推不出来（不会自动生效）。`
           + `如需该外观，请走 class 通道（[class."${state}"]="…" 配合 CSS .x.${state}）。`,
@@ -641,7 +643,7 @@ export class Cascade {
       }
       const expanded = resolveVars(decl.value, (name) => this.lookupVar(node, name));
       if (expanded === null) {
-        this.warn(
+        if (ngDevMode) this.warn(
           `var:${decl.property}:${decl.value}`,
           `"${decl.value}" 中的变量无法解析且未提供 fallback（${decl.property}），该条声明已忽略。` +
             `如需默认值，请写作 var(--x, 默认值)。`,
@@ -689,16 +691,19 @@ export class Cascade {
           decl.value,
           warnings,
           decl.states,
+          // 字体登记仅存在于样式表文本中，因此只有经由样式表这条路径才能查到
+          (family) => this.sheets.findFontFace(family)?.path ?? null,
         );
         if (!known) {
-          this.warn(`unknown:${decl.property}`, `样式 "${decl.property}" 无 Godot 对应，已忽略`);
+          if (ngDevMode) this.warn(`unknown:${decl.property}`, `样式 "${decl.property}" 无 Godot 对应，已忽略`);
           continue;
         }
         applied.set(slotKey(decl.property, decl.statesKey), decl.value);
         this.stats.applied++;
       }
     });
-    for (const message of warnings) this.warn(`value:${message}`, message);
+    // 解析阶段的告警只可能是「值被丢弃」，固定按忽略级输出
+    if (ngDevMode) for (const message of warnings) this.warn(`value:${message}`, message, "ignore");
     return true;
   }
 
@@ -717,7 +722,7 @@ export class Cascade {
     return undefined;
   }
 
-  private warn(key: string, message: string): void {
-    this.options.warn?.(key, message);
+  private warn(key: string, message: string, level?: WarnLevel): void {
+    this.options.warn?.(key, message, level);
   }
 }

@@ -12,7 +12,7 @@ beforeEach(() => {
  * 确实无法获取 item 时会说明是哪个类的哪个 item。 */
 function flat(node: any, item: string): StyleBoxFlat {
   const box = node.get_theme_stylebox(item);
-  expect(box, `${node.get_class()} 拿不到 stylebox "${item}"`).not.toBeNull();
+  expect(box, `${node.get_class()} 无法获取 stylebox "${item}"`).not.toBeNull();
   return box as StyleBoxFlat;
 }
 
@@ -204,22 +204,22 @@ describe("布局落点：只做提示式翻译", () => {
     expect(box.get_theme_constant("margin_left")).toBe(5);
   });
 
-  it("width 是下界不是等值", () => {
+  it("min-width 是下界不是等值", () => {
     const label = new Label();
-    applyStyle(label, "width", "120px");
+    applyStyle(label, "min-width", "120px");
     expect(label.custom_minimum_size.x).toBe(120);
     expect(label.custom_minimum_size.y).toBe(0);
-    applyStyle(label, "height", "40px");
+    applyStyle(label, "min-height", "40px");
     // 另一个轴不会被本次写入抹除——这是 setMinimumSize 分轴的意义
     expect(label.custom_minimum_size.x).toBe(120);
     expect(label.custom_minimum_size.y).toBe(40);
   });
 
-  it("撤 width 不抹 height：两轴各自记账", () => {
+  it("撤销 min-width 不影响 min-height：两轴分别记账", () => {
     const label = new Label();
-    applyStyle(label, "width", "120px");
-    applyStyle(label, "height", "40px");
-    clearStyle(label, "width");
+    applyStyle(label, "min-width", "120px");
+    applyStyle(label, "min-height", "40px");
+    clearStyle(label, "min-width");
     expect(label.custom_minimum_size.x).toBe(0);
     expect(label.custom_minimum_size.y).toBe(40);
   });
@@ -279,5 +279,73 @@ describe("重复应用与撤销", () => {
     clearStyle(label, "color");
     applyStyle(label, "color", "red");
     expect(label.has_theme_color_override("font_color")).toBe(true);
+  });
+});
+
+describe("节点属性落点：裁剪与鼠标", () => {
+  it("overflow: hidden → clip_contents，撤销后回到不裁剪", () => {
+    const box = new PanelContainer();
+    applyStyle(box, "overflow", "hidden");
+    expect(box.clip_contents).toBe(true);
+    clearStyle(box, "overflow");
+    expect(box.clip_contents).toBe(false);
+  });
+
+  it("overflow: visible 显式关闭裁剪（并非「不做任何处理」）", () => {
+    const box = new PanelContainer();
+    box.clip_contents = true;
+    applyStyle(box, "overflow", "visible");
+    expect(box.clip_contents).toBe(false);
+  });
+
+  it("overflow: auto 无落点：说明滚动由 ScrollContainer 承担", () => {
+    const box = new PanelContainer();
+    const { warn } = captureWarn(() => applyStyle(box, "overflow", "auto"));
+    expectWarned(warn);
+    expect(box.clip_contents).toBe(false);
+  });
+
+  it("pointer-events: none → mouse_filter = IGNORE，并说明子节点不受屏蔽", () => {
+    const label = new Label();
+    const { warn } = captureWarn(() => applyStyle(label, "pointer-events", "none"));
+    // Control.MOUSE_FILTER_IGNORE
+    expect(label.mouse_filter).toBe(2);
+    expectWarned(warn);
+    expect(warn.warnings.join("\n")).toContain("子节点");
+  });
+
+  it("pointer-events: auto 不推测类别的默认值", () => {
+    const label = new Label();
+    const before = label.mouse_filter;
+    const { warn } = captureWarn(() => applyStyle(label, "pointer-events", "auto"));
+    expect(label.mouse_filter, "auto 不该被当成 STOP").toBe(before);
+    expectWarned(warn);
+  });
+});
+
+describe("文字阴影与文字描边", () => {
+  it("text-shadow → font_shadow_color + shadow_offset_x / shadow_offset_y", () => {
+    const label = new Label();
+    applyStyle(label, "text-shadow", "2px 3px red");
+    expect(label.get_theme_constant("shadow_offset_x")).toBe(2);
+    expect(label.get_theme_constant("shadow_offset_y")).toBe(3);
+    expect(label.get_theme_color("font_shadow_color").r).toBeCloseTo(1, 3);
+    clearStyle(label, "text-shadow");
+    expect(label.has_theme_color_override("font_shadow_color")).toBe(false);
+    expect(label.has_theme_constant_override("shadow_offset_x")).toBe(false);
+  });
+
+  it("text-shadow 的模糊半径：偏移照常写入，模糊单独输出告警", () => {
+    const label = new Label();
+    const { warn } = captureWarn(() => applyStyle(label, "text-shadow", "2px 3px 4px red"));
+    expectWarned(warn);
+    expect(label.get_theme_constant("shadow_offset_x")).toBe(2);
+  });
+
+  it("不具备这些主题项的类：不写入，并说明原因", () => {
+    const box = new PanelContainer();
+    const { warn } = captureWarn(() => applyStyle(box, "text-shadow", "2px 3px red"));
+    expectWarned(warn);
+    expect(styleLedger(box)).toEqual([]);
   });
 });

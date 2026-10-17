@@ -57,9 +57,7 @@ const LANDED: Array<[property: string, value: string, make: () => any]> = [
   ["opacity", "0.5", () => new Label()],
   ["visibility", "hidden", () => new Label()],
   ["text-align", "center", () => new Label()],
-  ["width", "40px", () => new Label()],
   ["min-width", "40px", () => new Label()],
-  ["height", "20px", () => new Label()],
   ["min-height", "20px", () => new Label()],
   ["flex", "1", () => new Label()],
   ["flex-grow", "2", () => new Label()],
@@ -93,6 +91,8 @@ const LANDED: Array<[property: string, value: string, make: () => any]> = [
   ["caret-color", "red", () => new LineEdit()],
   ["cursor", "pointer", () => new Label()],
   ["text-overflow", "ellipsis", () => new Label()],
+  ["overflow", "hidden", () => new PanelContainer()],
+  ["text-shadow", "2px 3px red", () => new Label()],
   ["white-space", "nowrap", () => new Label()],
   ["direction", "rtl", () => new Label()],
 ];
@@ -106,6 +106,7 @@ const LANDED_WITH_WARNING: Array<[property: string, value: string, make: () => a
   ["border-right-color", "red", () => new PanelContainer()],
   ["border-bottom-color", "red", () => new PanelContainer()],
   ["border-left-color", "red", () => new PanelContainer()],
+  ["pointer-events", "none", () => new Label()],
 ];
 
 /** 明确知道没有落点的属性：必须发出提示，不能静默吞掉 */
@@ -123,7 +124,8 @@ const IGNORED: Array<[property: string, value: string]> = [
   ["aspect-ratio", "1"],
   ["max-width", "10px"],
   ["max-height", "10px"],
-  ["background-image", "url(a.png)"],
+  ["width", "40px"],
+  ["height", "20px"],
   ["box-sizing", "border-box"],
   ["writing-mode", "vertical-rl"],
   ["filter", "blur(2px)"],
@@ -141,7 +143,6 @@ const IGNORED: Array<[property: string, value: string]> = [
   ["float", "left"],
   ["grid", "1px 1px"],
   ["grid-template-columns", "1px 1px"],
-  ["font-family", "sans-serif"],
   ["font-weight", "bold"],
   ["font-style", "italic"],
   ["line-height", "1.5"],
@@ -154,9 +155,20 @@ const IGNORED: Array<[property: string, value: string]> = [
   ["animation", "spin 1s"],
   ["animation-name", "spin"],
   ["z-index", "2"],
-  ["overflow", "hidden"],
+  ["overflow", "auto"],
   ["user-select", "none"],
-  ["pointer-events", "none"],
+];
+
+/**
+ * 需要额外上下文才能落点的属性：仅一条 `.s { … }` 无法判定。
+ *
+ * `font-family` 需先存于 `@font-face` 登记才能解析到资源，登记本身不是声明，
+ * 无法纳入上述三张表。其真正的落点取证位于 css-font.spec.ts，列于此仅为满足
+ * 「新增属性必须登记」这一项护栏，不得将其作为「未测试」的推据。
+ */
+const NEEDS_CONTEXT: Array<[property: string, value: string]> = [
+  ["font-family", "Fixture"],
+  ["background-image", 'url("res://fixtures/css-texture-fixture.tres")'],
 ];
 
 describe("属性全表", () => {
@@ -186,6 +198,7 @@ describe("属性全表", () => {
       ...LANDED.map(([p]) => p),
       ...LANDED_WITH_WARNING.map(([p]) => p),
       ...IGNORED.map(([p]) => p),
+      ...NEEDS_CONTEXT.map(([p]) => p),
     ]);
     const unlisted = cssPropertyNames().filter((n) => !listed.has(n));
     expect(unlisted, "这些属性还没进扫表").toEqual([]);
@@ -300,13 +313,59 @@ describe("长度与四边", () => {
 
   it("单位：px 与 0 收，百分比 / em / calc 要出声", () => {
     for (const value of ["12px", "0"]) {
-      const [, warnings] = apply(`width: ${value}`, () => new Label());
+      const [, warnings] = apply(`min-width: ${value}`, () => new Label());
       expect(warnings, value).toEqual([]);
     }
     for (const value of ["50%", "2em", "2rem", "calc(1px + 2px)", "abc", "12px 12px"]) {
-      const [, warnings] = apply(`width: ${value}`, () => new Label());
+      const [, warnings] = apply(`min-width: ${value}`, () => new Label());
       expect(warnings.length, value).toBeGreaterThan(0);
     }
+  });
+
+  it("百分比一律不落地，不得被当成像素", () => {
+    // 此前的行为：`50%` 被当作 50 像素静默生效。Godot 的落点均为像素，且无可参照的
+    // 父盒，百分比只能输出告警并忽略，不得推测
+    const [padding] = apply("padding: 50%", () => new PanelContainer());
+    expect(padding.has_theme_stylebox_override("panel")).toBe(false);
+
+    const [radius] = apply("border-top-left-radius: 50%", () => new PanelContainer());
+    expect(radius.has_theme_stylebox_override("panel")).toBe(false);
+
+    const [font] = apply("font-size: 50%", () => new Label());
+    expect(font.has_theme_font_size_override("font_size")).toBe(false);
+
+    const [alpha] = apply("opacity: 50%", () => new Label());
+    expect(alpha.modulate.a).toBe(1);
+
+    const [grow] = apply("flex-grow: 50%", () => new Label());
+    // 未生效时必须停在引擎默认值上：stretch_ratio 的默认是 1，不是 0
+    expect(grow.size_flags_stretch_ratio).toBe(1);
+
+    const [gap] = apply("gap: 50%", () => new HBoxContainer());
+    expect(gap.has_theme_constant_override("separation")).toBe(false);
+  });
+
+  it("百分比的告警需写明为百分比，而非笼统的解析失败", () => {
+    const cases: Array<[string, () => any]> = [
+      ["padding: 50%", () => new PanelContainer()],
+      ["font-size: 50%", () => new Label()],
+      ["opacity: 50%", () => new Label()],
+      ["flex-grow: 50%", () => new Label()],
+      ["gap: 50%", () => new HBoxContainer()],
+      ["min-width: 50%", () => new Label()],
+    ];
+    for (const [css, make] of cases) {
+      const [, warnings] = apply(css, make);
+      expect(warnings.join("\n"), css).toContain("百分比");
+    }
+  });
+
+  it("像素与无单位数字仍正常落地", () => {
+    const [node] = apply("padding: 8px; font-size: 12; opacity: .5", () => new Label());
+    const box = node.get_theme_stylebox("normal") as any;
+    expect(box.content_margin_left).toBe(8);
+    expect(node.get_theme_font_size("font_size")).toBe(12);
+    expect(node.modulate.a).toBe(0.5);
   });
 });
 
@@ -461,7 +520,7 @@ describe("选择器", () => {
     expect(checked.has_theme_color_override("font_color")).toBe(false);
   });
 
-  it("不认识的伪类 / 伪元素整条作废并出声", () => {
+  it("无法识别的伪类 / 伪元素使整条规则失效并输出告警", () => {
     // 告警在 addCss 那一刻发出（不是 flush）：此处必须将两个窗口都覆盖
     for (const selector of ["Label:hoverry", "Label::before", "Label:nth-child(2)"]) {
       const local = new StyleRuntime();
