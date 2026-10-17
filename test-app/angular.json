@@ -15,9 +15,9 @@
             "resRoot": "res://dist-engine-test",
             "optimization": false,
             "sourceMap": false,
-            "specInclude": ["src/tests/engine/zz-probe-size.spec.ts"],
+            "specInclude": ["src/tests/engine/*.spec.ts"],
             "coverage": {
-              "enabled": false,
+              "enabled": true,
               "include": ["../packages/library/**/*.ts", "../packages/css/**/*.ts"],
               "exclude": ["**/*.spec.ts", "**/test/**", "**/typings/**", "**/*.d.ts"],
               "reportsDirectory": "../coverage",

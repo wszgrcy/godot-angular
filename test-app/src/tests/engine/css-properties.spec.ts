@@ -282,7 +282,7 @@ describe("L3 布局属性（只做翻译提示）", () => {
   it("justify-content 仅作用于容器：Button 的 alignment 是文本对齐，不在此接管", () => {
     const r = apply("Button", "justify-content", "center");
     expect(r.calls).toEqual([]);
-    expect(r.backend.warned.join("\n")).toContain("不是容器");
+    expect(r.backend.warned.join("\n")).toContain("不属于容器");
   });
 
   it("flex: n → size_flags 加 EXPAND 并设 stretch_ratio", () => {
