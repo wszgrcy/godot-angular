@@ -5,6 +5,7 @@ import {
   Color,
   Label,
   LineEdit,
+  LinkButton,
   PanelContainer,
   StyleBoxFlat,
   TabBar,
@@ -348,7 +349,7 @@ describe("各状态各自核对属性", () => {
     expect(box(cb, "hover_pressed").content_margin_top).toBe(6);
   });
 
-  it("Button 没有 hover_pressed 盒 → 不得凭空造一个引擎永远不读的盒", async () => {
+  it("Button 的 hover_pressed 盒：默认主题没配值，但画法读它，合成态要落这里", async () => {
     runtime.addCss(`.btn { padding: 6px; }\n.btn:hover:active { background-color: rgb(1, 2, 3); }`);
     const btn = make(new Button(), "btn");
 
@@ -356,10 +357,11 @@ describe("各状态各自核对属性", () => {
     btn.emit_signal("button_down");
     await awaitFrames(1);
 
-    expect(btn.has_theme_stylebox_override("hover_pressed")).toBe(false);
-    // 合成 item 不存在时回落 pressed（vocabulary 的既有口径），字段照样要跟过去
-    expect(btn.has_theme_stylebox_override("pressed")).toBe(true);
-    expect(box(btn, "pressed").content_margin_top).toBe(6);
+    // 文档把 hover_pressed 列为 Button 的 theme item（默认主题只给 CheckBox 配了值），
+    // 引擎在悬停 + 按住时读的就是它；退回 pressed 会让这条声明看不见。
+    expect(btn.has_theme_stylebox_override("hover_pressed")).toBe(true);
+    expect(box(btn, "hover_pressed").content_margin_top).toBe(6);
+    expect(hex(box(btn, "hover_pressed").bg_color)).toBe(hex(css(1, 2, 3)));
   });
 });
 
@@ -403,6 +405,27 @@ describe("Godot 没有的能力不硬造", () => {
       expect(bar.has_theme_stylebox_override("tab_focus")).toBe(false);
     });
     expect(captured.warn.warnings.join("\n")).toContain("无落点");
+  });
+
+  it("LinkButton 只有 focus 盒：基规则的底色不写它，并告警", () => {
+    const captured = captureWarn(() => {
+      runtime.addCss(`.link { background-color: rgb(255, 224, 138); }`);
+      const link = make(new LinkButton(), "link");
+      // 基规则不能把底色退到焦点盒上：那等于平时看不见、Tab 键选中才冒出来
+      expect(link.has_theme_stylebox_override("focus")).toBe(false);
+    });
+    expect(captured.warn.warnings.join("\n")).toContain("无落点");
+  });
+
+  it("LinkButton 的焦点底色由 :focus 写入 focus 盒", async () => {
+    runtime.addCss(`.link:focus { background-color: rgb(255, 224, 138); }`);
+    const link = make(new LinkButton(), "link");
+    expect(link.has_theme_stylebox_override("focus")).toBe(false);
+
+    link.emit_signal("focus_entered");
+    await awaitFrames(1);
+    expect(link.has_theme_stylebox_override("focus")).toBe(true);
+    expect(hex(box(link, "focus").bg_color)).toBe(hex(css(255, 224, 138)));
   });
 });
 

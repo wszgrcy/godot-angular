@@ -161,17 +161,18 @@ function color(raw: string): ColorLike | null {
  */
 function backgroundItem(node: CssNode, ctx: ApplyContext, cssName: string): string | null {
   const cls = ctx.backend.classOf(node);
-  const item = pickBackgroundStylebox(cls);
-  if (!item) {
-    if (ngDevMode) ctx.warn(
-      `bg:${cls}:${cssName}`,
-      `${cssName} 在 ${cls} 上无落点：${cls} 不绘制任何 stylebox（Godot 仅为会绘制背景的类提供 item，`
-        + "如 Button 的 normal、PanelContainer 的 panel）。如需为其设置底色，请使用 PanelContainer 包裹该节点，"
-        + "或对该节点调用 add_theme_stylebox_override 传入 StyleBoxFlat。",
-    );
-  }
-  if (!item) return null;
-  return itemForStates(cls, "stylebox", item, ctx.states);
+  // 基盒缺失时用 "normal" 当状态推导的基准名：`LinkButton:focus` 仍应落 focus 盒，
+  // 而基规则解析出的 normal 不存在，会走下面的告警分支被忽略。
+  const item = itemForStates(cls, "stylebox", pickBackgroundStylebox(cls) ?? "normal", ctx.states);
+  if (hasThemeItem(cls, "stylebox", item)) return item;
+  if (ngDevMode) ctx.warn(
+    `bg:${cls}:${cssName}`,
+    `${cssName} 在 ${cls} 上无落点：${cls} 没有 ${item} 这个 stylebox（Godot 仅为会绘制背景的类提供 `
+      + "item，如 Button 的 normal、PanelContainer 的 panel）。状态专属的盒只由对应伪类写入，基规则"
+      + "不会退到它上面。如需为其设置底色，请使用 PanelContainer 包裹该节点，"
+      + "或对该节点调用 add_theme_stylebox_override 传入 StyleBoxFlat。",
+  );
+  return null;
 }
 
 /**

@@ -70,8 +70,15 @@ export function classChain(className: string): string[] {
 }
 
 
+/**
+ * 文档的 Theme Properties 列出、但默认主题没登记值的 item。
+ *
+ * override 不要求默认主题先有值，只要绘制代码读它就会被读到；而沿类链回退覆盖不到这些
+ * （`LinkButton` 的父类是 `BaseButton`，链上没有 `Button`）。
+ */
 const DOCUMENTED_ITEMS: Record<string, Partial<Record<ThemeItemKind, readonly string[]>>> = {
   LinkButton: { color: ["font_disabled_color", "font_hover_pressed_color"] },
+  Button: { stylebox: ["hover_pressed"] },
 };
 
 /**
@@ -112,9 +119,15 @@ export function themeItems(className: string, kind: ThemeItemKind): string[] {
  * 不同类的 stylebox 名称不一样，因此按候选逐个尝试，第一个在该类词汇表中存在的即采用。
  * 全部不存在 → 该属性对这类控件无落点（告警并忽略）。
  */
-const STYLEBOX_CANDIDATES: readonly string[] = ["panel", "normal", "background", "hover", "focus"];
+const STYLEBOX_CANDIDATES: readonly string[] = ["panel", "normal", "background"];
 
-/** 为控件寻找一个可当作“底色”的 stylebox item */
+/**
+ * 为控件寻找一个可当作“底色”的 stylebox item。
+ *
+ * 只认基状态盒：`hover` / `focus` 这类状态盒不能当基规则的落点——那会把平时看不见的
+ * 底色画进焦点提示里（`LinkButton` 只有 `focus` 盒，`background-color` 退过去后只有
+ * Tab 键选中时才看得到）。想要状态底色请写 `:focus` / `:hover`，由状态规则自己落。
+ */
 export function pickBackgroundStylebox(className: string): string | null {
   for (const candidate of STYLEBOX_CANDIDATES) {
     if (hasThemeItem(className, "stylebox", candidate)) return candidate;

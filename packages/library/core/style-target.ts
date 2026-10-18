@@ -8,7 +8,7 @@ import type {
   StyleBackend,
   StyleBoxHandle,
 } from "godot-angular/css";
-import { applyCssProperty, pickBackgroundStylebox, themeItems } from "godot-angular/css";
+import { applyCssProperty, hasThemeItem, pickBackgroundStylebox, themeItems } from "godot-angular/css";
 import { classHasProperty, nodeHasProperty } from "./registry";
 import { warnOnce } from "./warn";
 import { asGodotControl, asGodotNode, type GodotControl } from "./godot-node";
@@ -297,9 +297,11 @@ function boxModelOf(node: GodotControl): BoxModel | null {
   if (existing) return existing;
 
   const cls = node.get_class();
-  const baseItem = pickBackgroundStylebox(cls);
-  if (!baseItem) return null; // 该类不绘制任何 stylebox，properties.ts 已先告警
+  // 基盒可以缺席（如 LinkButton 只有 focus 盒）：只要还有状态盒就得建模型，否则
+  // `:focus` 这类状态规则没有盒可建。两者都没有时该类一个盒都不画。
+  const baseItem = pickBackgroundStylebox(cls) ?? "normal";
   const stateItems = stateItemsOf(cls, baseItem);
+  if (!hasThemeItem(cls, "stylebox", baseItem) && stateItems.length === 0) return null;
 
   const engine = new Map<string, StyleBox>();
   for (const item of [baseItem, ...stateItems]) {

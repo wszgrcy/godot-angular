@@ -89,15 +89,19 @@ describe("主题词汇表", () => {
     // checked → pressed 家族：CheckBox 勾选时引擎读的就是 font_pressed_color / pressed 盒
     expect(itemForStates("CheckBox", "color", "font_color", new Set(["checked"]))).toBe("font_pressed_color");
     expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["checked"]))).toBe("pressed");
-    // 勾选 + hover → 合成盒 hover_pressed（CheckBox 有，普通 Button 没有 → 回到 pressed）
+    // 勾选 + hover → 合成盒 hover_pressed：默认主题只给 CheckBox 登记了值，Button 那一栏
+    // 是空的，但文档列了它，两个类都该落这里
     expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("hover_pressed");
-    expect(itemForStates("Button", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("pressed");
+    expect(itemForStates("Button", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("hover_pressed");
     // 合成色优先：hover + 按下时引擎读的是合成 item，不是先命中哪个算哪个。
     // LinkButton 的 font_hover_pressed_color 默认主题未登记，但文档列了它（与
-    // font_disabled_color 同一类），所以照样是正确落点；没有合成 item 的类才退回
-    // 单状态优先级（上面 Button 的 stylebox 那条就是这条路）。
+    // font_disabled_color 同一类），所以照样是正确落点。
     expect(itemForStates("LinkButton", "color", "font_color", new Set(["hover", "checked"]))).toBe(
       "font_hover_pressed_color",
+    );
+    // 真没有合成色的类（PopupMenu 无 font_hover_pressed_color）才退回单状态优先级
+    expect(itemForStates("PopupMenu", "color", "font_color", new Set(["hover", "checked"]))).toBe(
+      "font_hover_color",
     );
     // selected：ItemList / Tree 有，其他类退回基 item
     expect(itemForStates("ItemList", "color", "font_color", new Set(["selected"]))).toBe("font_selected_color");

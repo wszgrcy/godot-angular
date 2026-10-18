@@ -263,6 +263,27 @@ describe("多状态共存与逐个撤销", () => {
     expect(boxHex(cb, "hover")).toBe("#0a0a0a");
   });
 
+  it("Button：悬停 + 按住写 hover_pressed 盒，松手退回 hover 盒", async () => {
+    // 默认主题只给 CheckBox 登记了 hover_pressed 盒，但 Button 的画法同样读它，
+    // 所以两个类的合成态落点应该一致（而不是退回 pressed 盒）
+    runtime.addCss(`.btn:hover { background-color: rgb(10, 10, 10); }`);
+    runtime.addCss(`.btn:hover:active { background-color: rgb(90, 90, 90); }`);
+    const btn = mount(new Button(), root, ["btn"]);
+    settle();
+
+    await enter(btn);
+    expect(boxHex(btn, "hover")).toBe("#0a0a0a");
+
+    await press(btn);
+    expect(boxHex(btn, "hover_pressed")).toBe("#5a5a5a");
+    // 合成盒与单状态盒各写各的，谁也不盖谁
+    expect(boxHex(btn, "hover")).toBe("#0a0a0a");
+
+    await release(btn);
+    expect(btn.has_theme_stylebox_override("hover_pressed")).toBe(false);
+    expect(boxHex(btn, "hover")).toBe("#0a0a0a");
+  });
+
   it("disabled 参与时不走合成 item：引擎在禁用态只读 disabled 那一支", async () => {
     runtime.addCss(`.btn:hover:active { color: rgb(77, 77, 77); }`);
     runtime.addCss(`.btn:disabled { color: rgb(128, 128, 128); }`);

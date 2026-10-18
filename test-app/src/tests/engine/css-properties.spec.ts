@@ -189,7 +189,7 @@ describe("L1 外观属性", () => {
   it("不绘制背景的类（VBoxContainer）写入背景 → 输出告警并说明处理方式，不假装成功", () => {
     const { calls, backend } = apply("VBoxContainer", "background-color", "red");
     expect(calls).toEqual([]);
-    expect(backend.warned.join("\n")).toContain("不绘制任何 stylebox");
+    expect(backend.warned.join("\n")).toContain("无落点");
     expect(backend.warned.join("\n")).toContain("PanelContainer");
   });
 
@@ -401,7 +401,7 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
 
   it("在不绘制背景的类上写入底色：告警说明处理方式，不发出任何写入", () => {
     const r = apply("VBoxContainer", "background", "red");
-    expect(warned(r)).toContain("不绘制任何 stylebox");
+    expect(warned(r)).toContain("无落点");
     expect(r.calls).toEqual([]);
   });
 
