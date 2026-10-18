@@ -233,6 +233,8 @@ godot --headless --path . --import
 `VBoxContainer`。
 
 插值表达式 `{{ value }}` 生成 `Label` 节点。富文本与图文混排请直接使用 `RichTextLabel`。
+文字一律按 `<Label text="…" />` 写：单独插值只是兜底，不是 CSS 的书写面（它不占样式语义，
+兄弟组合器也不为它做特例）。
 
 ### 属性
 
@@ -243,6 +245,13 @@ Godot 的 `@export` 变量对应 Angular 的属性绑定，例如 `[text]`、`[c
   枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`。扁平写法
   （`Control.SIZE_EXPAND_FILL`）为 `undefined`。
 - `[anchors_preset]` 可用，渲染器将其转换为 `set_anchors_preset()` 调用。
+- `name` 写入的是引擎里的真实节点名。这个 JS 绑定没有为 `Node.name` 生成属性访问器，
+  通用赋值只会写出一个 JS 字段而引擎侧不变（`find_child` / `get_node` 查不到），因此渲染器
+  为它单开分支走 `set_name()`。引擎语义照旧：同级重名会被自动改名（自动名形如 `@Button@4`），
+  `. : @ / " %` 会被替换成下划线（`name="a.b"` → `a_b`）。读取节点名用 `get_name()`，
+  JS 上的 `.name` 不是事实来源。`[attr.name]="null"` 不会清空名字：引擎不接受空名（树内
+  `set_name("")` 被忽略），而 ClassDB 的默认值是 `null`，“回到未命名”在引擎里没有对应操作，
+  因此只能保持现值，改名只能再绑一个新值。
 - 移除属性：`[attr.x]="null"` 或 `[x]="null"` 将属性还原为该类创建时的默认值。Godot 属性为强类型，不接受 `null`。
 
 自定义组件的宿主元素同时是模板中的一个元素，静态属性与输入属性是两条独立通道。静态字符串属性
@@ -734,6 +743,8 @@ font-family: A, B, C
   节点本身。`.card:hover .btn` 要求的是卡片悬停，与按钮自身状态无关，因此仍写基 item
   （`:not(:hover)` 同理不计入状态要求）。基规则的 `color` 永远写 `font_color`，不会被顶进
   `font_disabled_color`——那条 override 属于 `:disabled` 规则，基规则没资格写。
+  落点取的是「主体段要求的状态 ∩ 节点此刻挂着的状态」：`:is(:hover, :focus)` 要求两支之一，
+  只有键盘聚焦成立时值必须写 `font_focus_color`，写进 `font_hover_color` 引擎读不到。
 - **stylebox 走层叠合成，与颜色是两套口径**。Godot 为每个状态各存一个完整、互不继承的盒，
   而 CSS 的 `:hover` 只覆盖它自己声明的那几条、其余沿用基规则。因此本库按字段来源合成：
 
@@ -756,16 +767,30 @@ Button.primary:focus  { border-color: #6cb2f5; }        /* 焦点环同理，见
 
   两个盒名集合之外的状态不参与合成：`Tree` 的 `hovered`、`TabBar` 的 `tab_hovered`、
   `FoldableContainer` 的 `title_hover_panel` 是**行级 / 标签级 / 标题条级**状态，CSS 的
-  `:hover` 说的不是它们，因此 `Tree:hover` 落的是整棵树的 `panel`，不是行高亮盒。
+  `:hover` 说的不是它们，因此 `Tree:hover` 改的是整棵树的盒与文字色，不是某一行的；
+  行级外观请直接设置主题。
 
-- **基规则与状态规则各自写自己的 item，互不覆盖**。`Button.primary { color: 蓝 }` 写 `font_color`，
-  `Button.primary:hover { color: 红 }` 写 `font_hover_color`，两份 override 同时存在，引擎按当前
-  状态各自读取。层叠的“后者覆盖前者”只在**同一落点内**比较特异度与源码顺序：
+- **基规则与状态规则各写各的主题项，互不覆盖**。`Button.primary { color: 蓝 }` 写 `font_color`，
+  `Button.primary:hover { color: 红 }` 写 `font_hover_color`，两个值同时存在，引擎按当前
+  状态各自读取。层叠的“后者覆盖前者”只在**同一个主题项内**比较特异度与源码顺序：
 
 ```css
 Button.primary       { color: #2b7fff; }  /* → font_color */
 Button.primary:hover { color: #ff4040; }  /* → font_hover_color，不被下一条抢走 */
 Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点的基规则 */
+```
+
+  前提是该类真有对应的状态项。没有时两条声明只能抢同一个主题项（`Label` 只有 `font_color`；
+  `font-size` 与 `gap` 这类常量全类都没有状态变体），此时回到正常的层叠比较，状态规则**没有**
+  优先权：
+
+```css
+.title:hover { color: #ff4040; }   /* 0,2,0 在前 */
+.title.on    { color: #00c853; }   /* 0,2,0 在后 → 悬停时仍是它（Label 无 font_hover_color） */
+
+.menu        { font-size: 14px; }
+.menu:hover  { font-size: 18px; }  /* font-size 无状态变体，与下一条同抢 font_size */
+.menu.open   { font-size: 20px; }  /* 同为 0,2,0 且在后 → 展开 + 悬停仍是 20 */
 ```
 
   状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的
@@ -855,10 +880,14 @@ inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回�
 `ViewEncapsulation` 的分层与浏览器端一致：`Emulated`（默认）为局部层，`None` 与 `ShadowDom`
 归入全局层；Godot 没有 shadow root，`ShadowDom` 会告警并按 `None` 处理。
 
-支持的选择器：`*`、类型选择器（对应节点类名）、`.class`、`#id`（对应 Angular 的 `id` 绑定，
-不是 `node.name`）、`[attr]`、`[attr=v]`、后代 `A B`、子选择器 `A > B`、相邻 `A + B`、
-兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与 `:host.on` 由 Angular 编译为宿主
-属性选择器。
+支持的选择器：`*`、类型选择器（对应节点类名）、`.class`、`[attr]`、`[attr=v]`、后代 `A B`、
+子选择器 `A > B`、相邻 `A + B`、兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与
+`:host.on` 由 Angular 编译为宿主属性选择器。
+
+不支持 `#id`：Godot 节点没有 `id` 属性，`name` 可重名不能当 id，单点选中请用 class（样式表里
+出现 `#id` 会告警一次，选择器解析本身保留）。兄弟组合器
+只在元素之间成立：`@if` / `@for` 的锚点不占兄弟位，也不被兄弟选择器命中（与浏览器里
+`nextElementSibling` 跳过注释节点一致）；插入与移除节点后，同级兄弟的 `+` / `~` 会自动重算。
 
 `@media` 支持 `width`、`height`、`orientation`、`prefers-color-scheme`（`aspect-ratio` 这类
 特性不在环境键里，写了也不会命中）。自动注入只提供 `width` / `height` /

@@ -13,9 +13,9 @@ import type { TrackingClassSet } from "godot-angular/css";
 import { PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import { godotClass } from "./godot-host";
 import { warnOnce } from "./warn";
-import { coerceToProperty, isControlClass, nodeHasProperty, resolveTag } from "./registry";
+import { coerceToProperty, hasJsAccessor, isControlClass, nodeHasProperty, resolveTag } from "./registry";
 import { NOOP, tryConnectGodotSignal } from "./godot-events";
-import { isGodotNode } from "./godot-node";
+import { isGodotNode, markCssStructural } from "./godot-node";
 import {
   defaultStyleRuntime,
   ViewEncapsulationKind,
@@ -172,21 +172,22 @@ export class GodotRenderer implements Renderer2 {
       Ctor = VBoxContainer;
     }
     const node = new Ctor();
-    node.name = tagName;
+    node.set_name(tagName);
     this.enroll(node);
     return node;
   }
 
   createText(value: string): Node {
     const node = new Label();
-    node.name = "text";
+    node.set_name("text");
     node.text = value
     return node;
   }
 
   createComment(value: string): Node {
     const node = new Node();
-    node.name = "anchor";
+    node.set_name("anchor");
+    markCssStructural(node);
     return node;
   }
 
@@ -197,8 +198,8 @@ export class GodotRenderer implements Renderer2 {
 
   // ------------------------------------------------------------------ 结构
   // 结构变化需要标脏（祖先变化后，后代可能命中不同的后代选择器）。只标受影响的子树，
-  // 否则一个大模板创建完就是 O(n²)。removeChild 不标脏：剩下的兄弟组合器需要时由
-  // 调用方 invalidateTree(父)。
+  // 否则一个大模板创建完就是 O(n²)。插入与移除另需标脏父节点的直接子级：`+` / `~` 匹配
+  // 的是「邻居是谁」，邻居换人引擎不发任何通知。
 
   appendChild(parent: Node, newChild: Node): void {
     // 对已挂父节点的子节点再次 add_child，引擎只打错误不抛异常，必须自己先摘除
@@ -206,6 +207,8 @@ export class GodotRenderer implements Renderer2 {
     if (oldParent) oldParent.remove_child(newChild);
     parent.add_child(newChild);
     this.runtime.invalidateTree(newChild);
+    this.runtime.invalidateSiblings(parent);
+    if (oldParent && oldParent !== parent) this.runtime.invalidateSiblings(oldParent);
   }
 
   /**
@@ -226,16 +229,24 @@ export class GodotRenderer implements Renderer2 {
     if (ref) parent.move_child(newChild, ref.get_index());
 
     this.runtime.invalidateTree(newChild);
+    this.runtime.invalidateSiblings(parent);
+    if (oldParent && oldParent !== parent) this.runtime.invalidateSiblings(oldParent);
   }
 
   removeChild(_parent: Node | null, child: Node): void {
     const parent = child.get_parent();
-    if (parent) parent.remove_child(child);
+    if (!parent) return;
+    parent.remove_child(child);
+    // 被摘掉的那个位置空了：它原来的左右邻居现在互为邻居，`+` / `~` 得重查
+    this.runtime.invalidateSiblings(parent);
   }
 
   destroyNode(node: Node): void {
     const parent = node.get_parent();
-    if (parent) parent.remove_child(node);
+    if (parent) {
+      parent.remove_child(node);
+      this.runtime.invalidateSiblings(parent);
+    }
     // 必须在 queue_free 前断开级联登记：`attachedNodes()` 与反向索引是强引用，不 detach
     // 相当于每个销毁过的节点被永久保留，反向索引里还会留着指向已 free 节点的键。
     // removeChild 不 detach：节点可能只是被移动，下一帧还要依靠原状态重算。
@@ -272,6 +283,14 @@ export class GodotRenderer implements Renderer2 {
       this.writeProperty(target, "size_flags_vertical", value);
       return;
     }
+    // name 在 ClassDB 里存在，但这个绑定没给 Node.name 生成 JS 访问器（实测整条原型链
+    // Label→Control→CanvasItem→Node→Object 都没有），走通用赋值只会写出一个 JS 自有属性，
+    // 引擎侧静默不变，find_child / get_node 全部查不到。只能显式走 setter。
+    if (name === "name") {
+      if (value == null) return;   // 撤名字没有合理语义，见 removeAttribute
+      target.set_name(String(value));
+      return;
+    }
     this.writeProperty(target, name, value);
   }
 
@@ -284,6 +303,10 @@ export class GodotRenderer implements Renderer2 {
       this.setClasses(target, "");
       return;
     }
+    // 名字撤不回：引擎不接受空名（树内 `set_name("")` 被直接忽略），而 ClassDB 给的默认值
+    // 是 null（写回去会把节点改成字面量 "null"）。“回到未命名”在引擎里没有对应操作，
+    // 只能保持现值；要改名只能再绑一个新值。
+    if (name === "name") return;
     if (name === "size_flags") {
       this.revertProperty(target, "size_flags_horizontal");
       this.revertProperty(target, "size_flags_vertical");
@@ -307,6 +330,17 @@ export class GodotRenderer implements Renderer2 {
     if (!nodeHasProperty(target, prop)) {
       if (ngDevMode) this.warn(`${target.get_class()}.${prop}`, `${target.get_class()}.${prop} 不是真实属性，赋值已忽略`);
       return;
+    }
+    // ClassDB 有这条属性 ≠ JS 能写：绑定只为部分属性生成访问器。缺访问器时赋值只写出
+    // JS 自有属性，引擎一点不变，开发期必须报出来，否则又是一条无人知晓的空写入。
+    // 写入照旧执行（空写入无害），不在此处改变行为：万一某属性的暴露方式不走原型访问器，
+    // 也不该被这条检查误拦。
+    if (ngDevMode && !hasJsAccessor(target, prop)) {
+      this.warn(
+        `accessor:${target.get_class()}.${prop}`,
+        `${target.get_class()}.${prop} 在 ClassDB 里存在，但这个 JS 绑定没为它生成属性访问器，` +
+          `赋值不会进入引擎；请改用对应的 set_xxx() 方法（如 name → set_name()）`,
+      );
     }
     // 属性名是运行期字符串，而引擎类上没有“任意属性名”索引，只能按表写
     const next = coerceToProperty(target, prop, value);

@@ -6,7 +6,7 @@ import { parseBoxShadow } from "../value/shadow";
 import { fourSidesFromParts } from "../value/sides";
 import { splitValueTokens } from "../value/tokens";
 import { extractResourceUrl, unquote } from "../value/resource-url";
-import { hasThemeItem, itemForStates, pickBackgroundStylebox, classChain } from "../vocabulary";
+import { hasThemeItem, itemForStates, pickBackgroundStylebox, colorItemsForStates, themeItems, classChain } from "../vocabulary";
 
 /**
  * 告警点约定：每一条 `warnings.push` 均整条包裹于 `if (ngDevMode)` 中。
@@ -151,12 +151,8 @@ function color(raw: string): ColorLike | null {
 /**
  * 来源：无
  *
- * 将基 item 替换为选择器所要求状态对应的 item：引擎在 hover 时读取的是 `font_hover_color`，
- * 写入 `font_color` 不会显示。词汇表中没有这个变体时退回基 item，不告警。
+ * 颜色的落点解析集中在 `colorItemsForStates`：一条声明可能要写多个 item（见那边注释）。
  */
-function stateItem(node: CssNode, ctx: ApplyContext, kind: "color" | "stylebox", base: string): string {
-  return itemForStates(ctx.backend.classOf(node), kind, base, ctx.states);
-}
 
 /**
  * 来源：无
@@ -209,9 +205,28 @@ function requireItem(
   if (hasThemeItem(cls, kind, target)) return target;
   if (ngDevMode) ctx.warn(
     `item:${cls}:${kind}:${item}:${cssName}`,
-    `${cssName} 需要写入 ${cls} 的 ${kind} "${item}"，但 ${cls} 的词汇表中不存在该项（已沿父链查找），已忽略。`,
+    `${cssName} 需要写入 ${cls} 的 ${kind} "${item}"，但 ${cls} 的词汇表中不存在该项（已沿父链查找），已忽略。` +
+      sameFamilyHint(cls, kind, target),
   );
   return null;
+}
+
+/**
+ * 来源：无
+ *
+ * 同一语义在该类上换了名字时（TabBar 的字色按状态分成 font_unselected_color /
+ * font_selected_color / font_hovered_color / font_disabled_color，没有通用的 font_color），
+ * 只说“不存在”等于把作者卡住。这里把同类项列出来，作者照着写状态规则就能落地。
+ */
+function sameFamilyHint(cls: string, kind: "color" | "font_size" | "constant", item: string): string {
+  const cut = item.lastIndexOf("_");
+  if (cut <= 0) return "";
+  const prefix = item.slice(0, cut);
+  const suffix = item.slice(cut);
+  const near = themeItems(cls, kind).filter((name) => name !== item && name.startsWith(prefix) && name.endsWith(suffix));
+  if (!near.length) return "";
+  const shown = near.slice(0, 6).join(", ");
+  return `${cls} 上同类的 ${kind} 有：${shown}${near.length > 6 ? " 等" : ""}，需要时请直接写这些 item 对应的状态规则。`;
 }
 
 /* ------------------------------------------------------------------ *
@@ -408,9 +423,13 @@ const props = new Map<string, CssProperty>([
     level: 1,
     parse: (raw, warnings) => parseColorOr(raw, warnings, "color"),
     apply: (node, value, ctx) => {
-      const item = requireItem(node, ctx, "color", "font_color", "color");
-      if (!item) return;
-      ctx.backend.setColorOverride(node, stateItem(node, ctx, "color", item), value as ColorLike);
+      // 先按状态解析落点、再查存在性：TabBar 这类没有 font_color、只有 font_selected_color /
+      // font_disabled_color 的类，状态规则本身有落点，先查基 item 会被一票否决。基 item 被拆成
+      // 多个状态 item 时这里返回多个，逐个写（撤销由后端逐次 undo 登记兼顾）。
+      for (const target of colorItemsForStates(ctx.backend.classOf(node), "font_color", ctx.states)) {
+        const item = requireItem(node, ctx, "color", target, "color");
+        if (item) ctx.backend.setColorOverride(node, item, value as ColorLike);
+      }
     },
   }],
 

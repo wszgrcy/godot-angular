@@ -579,9 +579,19 @@ describe("元素选择器必须是已知 Godot 类名", () => {
     expect(warningsOf("Button { color: red }")).toEqual([]);
   });
 
-  it("只查开头的元素名，类/ID/伪类/通配一律放过", () => {
+  it("只查开头的元素名，类/伪类/通配一律放过", () => {
     expect(warningsOf(".my-card > Label { color: red }")).toEqual([]);
-    expect(warningsOf("#x, .y, *:hover { color: red }")).toEqual([]);
+    expect(warningsOf(".y, *:hover { color: red }")).toEqual([]);
+  });
+
+  it("#id 能解析但在 Godot 无落点，要单独报一次", () => {
+    const text = warningsOf("#x, .y { color: red }").join("\n");
+    expect(text).toContain("#id");
+    // 与元素名拼错无关，不串成另一条告警
+    expect(text).not.toContain("不是已知的 Godot 类名");
+    // 写在后面也要抓到；属性值里的 # 不算
+    expect(warningsOf("Label.x#y { color: red }").join("\n")).toContain("#id");
+    expect(warningsOf('Label[title="#x"] { color: red }')).toEqual([]);
   });
 
   it("组件作用域标记不影响判断（scope 是追加在元素名后面的）", () => {

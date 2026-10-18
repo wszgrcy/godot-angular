@@ -220,7 +220,7 @@ describe("contentChild：ng-content 投影进来的节点", () => {
     expect(titleNode.get_class()).toBe("Label");
     expect(titleNode.text).toBe("projected-title");
     // 投影是真实挂载过去的：标题的父节点是卡片内部的 VBoxContainer，而不是宿主
-    expect(titleNode.get_parent().name).toBe("cardInner");
+    expect(titleNode.get_parent().get_name()).toBe("cardInner");
     expect(texts(fixture)).toEqual(["projected-title", "body"]);
   });
 
@@ -267,7 +267,7 @@ describe("contentChild：ng-content 投影进来的节点", () => {
     await fixture.whenStable();
     expect(bar.actions().length).toBe(1);
     // 投影容器中也只剩一个按钮（不是查询缓存未清理）
-    const inner = findAllNodes(fixture.nativeElement, "HBoxContainer").find((n) => n.name === "barInner")!;
+    const inner = findAllNodes(fixture.nativeElement, "HBoxContainer").find((n) => n.get_name() === "barInner")!;
     expect(findAllNodes(inner, "Button").length).toBe(1);
   });
 
@@ -296,7 +296,7 @@ describe("contentChild：ng-content 投影进来的节点", () => {
 
     const fixture = await render(EmptyHost);
     expect(fixture.componentInstance.card().title()).toBeUndefined();
-    const inner = findAllNodes(fixture.nativeElement, "VBoxContainer").find((n) => n.name === "emptyInner")!;
+    const inner = findAllNodes(fixture.nativeElement, "VBoxContainer").find((n) => n.get_name() === "emptyInner")!;
     expect(childNodes(inner).map((n) => (n as { text?: string }).text)).toEqual(["only-body"]);
   });
 
@@ -325,7 +325,7 @@ describe("contentChild：ng-content 投影进来的节点", () => {
 
     const fixture = await render(SlotHost);
     const card = fixture.componentInstance.card();
-    const inner = findAllNodes(fixture.nativeElement, "VBoxContainer").find((n) => n.name === "cardInner")!;
+    const inner = findAllNodes(fixture.nativeElement, "VBoxContainer").find((n) => n.get_name() === "cardInner")!;
     expect(inner).toBeTruthy();
     expect(card.body().length).toBe(1);
     expect(findAllNodes(inner, "Label").length).toBe(1);

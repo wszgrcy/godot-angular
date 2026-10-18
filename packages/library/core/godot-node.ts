@@ -31,3 +31,15 @@ export function asGodotControl(node: Node | CssNode): GodotControl {
 export function isGodotNode(value: unknown): value is Node {
   return typeof (value as { get_class?: unknown } | null)?.get_class === "function";
 }
+
+
+const CSS_STRUCTURAL = "__cujsStructural";
+
+export function markCssStructural(node: Node): void {
+  (node as unknown as Record<string, unknown>)[CSS_STRUCTURAL] = true;
+}
+
+/** 未标记的节点一律当元素：测试与命令式拼装的节点不该被当成记账节点跳过 */
+export function isCssStructural(node: Node): boolean {
+  return (node as unknown as Record<string, unknown>)[CSS_STRUCTURAL] === true;
+}

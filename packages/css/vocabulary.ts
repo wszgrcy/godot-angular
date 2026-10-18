@@ -69,6 +69,11 @@ export function classChain(className: string): string[] {
   return chain;
 }
 
+
+const DOCUMENTED_ITEMS: Record<string, Partial<Record<ThemeItemKind, readonly string[]>>> = {
+  LinkButton: { color: ["font_disabled_color", "font_hover_pressed_color"] },
+};
+
 /**
  * 来源：无
  *
@@ -80,7 +85,7 @@ export function hasThemeItem(className: string, kind: ThemeItemKind, item: strin
     const entry = vocabulary.classes[cls];
     if (entry && (entry[key] as readonly string[]).includes(item)) return true;
   }
-  return false;
+  return DOCUMENTED_ITEMS[className]?.[kind]?.includes(item) ?? false;
 }
 
 /**
@@ -151,6 +156,34 @@ const STATE_COLOR_INFIX: Readonly<Record<string, readonly string[]>> = {
   "read-only": ["readonly", "uneditable"],
 };
 
+/**
+ * 来源：引擎 dump 逐类核对
+ *
+ * 状态 item 的**整体换名**方言：下方机制只会往基 item 里插中缀（font_color → font_hover_color），
+ * 而这几个类的悬停字色不叫这个名字，推不出来就会静默退回基 item，写了等于没写。
+ *
+ * 只登记「悬停对象就是控件本身」的类：`TabBar` / `TabContainer` 只画标签，鼠标进了控件就在某个
+ * 标签上；`FoldableContainer` 悬停会变的只有标题条。`ItemList` / `Tree` 的 `font_hovered_color`
+ * 是**行级**状态（悬停第 3 行只亮第 3 行），CSS 的 `:hover` 说的不是它们，登记进来反而错。
+ */
+const STATE_ITEM_ALIAS: Readonly<Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>> = {
+  TabBar: { font_color: { hover: "font_hovered_color" } },
+  TabContainer: { font_color: { hover: "font_hovered_color" } },
+  FoldableContainer: { font_color: { hover: "hover_font_color" } },
+};
+
+/**
+ * 来源：无
+ *
+ * 基 item 在该类被**拆成多个状态 item** 时，CSS 的通用名要一次覆盖哪几个。`TabBar` 没有
+ * `font_color`，标签字色按选中与否分成两个；只写 unselected 会让作者看到“就选中那个标签没变色”。
+ * 一条声明写多个 item 的撤销由后端的逐次 undo 登记兼顾（`text-shadow` 已是先例）。
+ */
+const BASE_ITEM_SPLIT: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  TabBar: { font_color: ["font_unselected_color", "font_selected_color"] },
+  TabContainer: { font_color: ["font_unselected_color", "font_selected_color"] },
+};
+
 export function styleboxForState(state: string): string | null {
   return STATE_STYLEBOX[state] ?? null;
 }
@@ -179,6 +212,8 @@ export const STATE_PRIORITY: readonly string[] = [
 
 /** 该状态在这类属性上可选的 item 名（按优先级） */
 function stateItemCandidates(className: string, kind: "stylebox" | "color", base: string, state: string): string[] {
+  const alias = kind === "color" ? STATE_ITEM_ALIAS[className]?.[base]?.[state] : undefined;
+  if (alias) return [alias];
   const item = STATE_STYLEBOX[state];
   if (!item) return [];
   if (kind === "stylebox") return [item];
@@ -224,6 +259,28 @@ export function itemForStates(
     }
   }
   return base;
+}
+
+/**
+ * 来源：无
+ *
+ * 一条颜色声明在该类上要写的**全部** item：
+ * - 状态变体存在，或基 item 本身就存在 → 一个
+ * - 基 item 在该类被拆成多个状态 item（`TabBar` 没有 `font_color`）→ 全部写，否则作者会看到
+ *   “就选中那个标签没变色”
+ * - 两者都不存在 → 原样返回基 item，由调用方的存在性检查告警
+ */
+export function colorItemsForStates(
+  className: string,
+  base: string,
+  states: { has(name: string): boolean },
+): string[] {
+  const item = itemForStates(className, "color", base, states);
+  if (item !== base || hasThemeItem(className, "color", base)) return [item];
+  const split = BASE_ITEM_SPLIT[className]?.[base];
+  if (!split) return [base];
+  const items = split.filter((name) => hasThemeItem(className, "color", name));
+  return items.length ? items : [base];
 }
 
 /** 词汇表中出现过的类名。构建期用它校验元素选择器拼写（见 ruleset.ts） */

@@ -150,6 +150,29 @@ function selectorStates(selector: SelectorCore): RequiredStates {
 }
 
 /**
+ * 来源：无（本侧特有问题的修正）
+ *
+ * 落点用的状态集 = 选择器要求的状态 ∩ 节点此刻挂着的状态。
+ *
+ * `:is(:hover, :focus)` 要求的是并集，但让规则成立的可能只有 `:focus`；值要写进引擎此刻
+ * 会读的那个 item（font_focus_color），而不是并集里优先级最高的那个。并列伪类
+ * （`.b:hover:active`）要求全部成立才匹配，交集等于要求集，行为不变。
+ *
+ * 账本键跟着换：状态集变了而值没变时，落点变了仍属“有变化”，diff 不能跳过。
+ * 属性驱动的伪类（:disabled / :checked / :read-only）在 merge 前已同步到节点上
+ * （drain 与 applyNow 都先跑 syncPropertyPseudoClasses），因此交集不会漏掉它们。
+ */
+function landingStates(required: RequiredStates, node: CssNode): RequiredStates {
+  if (required.names.size === 0) return required;
+  const held = node.cssPseudoClasses;
+  if (!held) return required;
+  const names = new Set<string>();
+  for (const name of required.names) if (held.has(name)) names.add(name);
+  if (names.size === required.names.size) return required;
+  return names.size === 0 ? EMPTY_REQUIRED : { names, key: statesKey(names) };
+}
+
+/**
  * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: StyleScope
  *      + NativeScript/packages/core/ui/styling/style-scope.ts :: CssState
  * 等级：仅思路一致（合成类）
@@ -319,6 +342,16 @@ export class Cascade {
   /** 整棵子树标脏（appendChild / removeChild 之后可调用） */
   invalidateTree(root: CssNode): void {
     this.invalidator.invalidateTree(root);
+  }
+
+  /**
+   * 某个父节点的子集合发生变化（插入 / 删除 / 移动）后标脏它的直接子级。
+   *
+   * `+` / `~` 的匹配结果取决于邻居是谁，而邻居换人引擎不发任何通知，只能由结构变更方显式
+   * 标脏；样式表未使用兄弟组合器时该调用不产生任何标记。
+   */
+  invalidateSiblings(parent: CssNode): void {
+    this.invalidator.invalidateSiblings(parent);
   }
 
   /** 全部已登记节点标脏 */
@@ -588,7 +621,7 @@ export class Cascade {
     const normal: Pending[] = [];
     const important: Pending[] = [];
     for (const selector of selectors) {
-      const required = selectorStates(selector);
+      const required = landingStates(selectorStates(selector), node);
       for (const decl of declarations.get(selector) ?? []) {
         (decl.important ? important : normal).push({ decl, required });
       }
@@ -656,7 +689,17 @@ export class Cascade {
     const toWrite: MergedDeclaration[] = [];
     /** 账本键 → 声明：用来判断哪些条目从本轮消失了 */
     const want = new Map<string, MergedDeclaration>();
-    for (const decl of resolved) want.set(slotKey(decl.property, decl.statesKey), decl);
+    /**
+     * 账本键 → 该槽胜者在合并序列里的位置。同一个槽被多条规则抢时，Map 记下的是它**首次**出现的
+     * 位置，而胜者是最后写入的那条，因此整组重写时必须按这里的位置排写入顺序，
+     * 否则低优先级的槽会反而后写。
+     */
+    const slotRank = new Map<string, number>();
+    resolved.forEach((decl, index) => {
+      const key = slotKey(decl.property, decl.statesKey);
+      want.set(key, decl);
+      slotRank.set(key, index);
+    });
 
     // 条目消失 = 该 CSS 属性名下有 theme item 不再被声明。`clearProperty` 的粒度是整个属性名，
     // 只能整组撤销再整组重写。残留必须撤掉：否则引擎在那个状态下仍会读到上一轮的过期值。
@@ -664,9 +707,29 @@ export class Cascade {
     for (const key of applied.keys()) {
       if (!want.has(key)) regrouped.add(propertyOfSlot(key));
     }
+    /*
+     * 基槽与状态槽落在同一个 theme item 时（`Label` 只有 font_color；font-size / constant 全类
+     * 无状态变体），只写“变了的那一格”会让状态槽后写覆盖基槽，特异度与源码顺序全部不参与。
+     * 因此同一属性名下有两格以上参与、且其中一格变了，就把整个属性名按级联顺序重写一遍：
+     * 同一个 item 的最终归属由级联顺序决定（后写者赢），落在不同 item 上的槽重写一次也不改变结果。
+     * 只有一格时仍直接覆盖：值本身就是它，先撤再写会多一次无意义的 clearProperty。
+     */
+    const slotCount = new Map<string, number>();
+    for (const key of want.keys()) {
+      const property = propertyOfSlot(key);
+      slotCount.set(property, (slotCount.get(property) ?? 0) + 1);
+    }
+    for (const [key, decl] of want) {
+      if (regrouped.has(decl.property)) continue;
+      if (applied.get(key) === decl.value) continue;
+      if ((slotCount.get(decl.property) ?? 1) > 1) regrouped.add(decl.property);
+    }
     for (const [key, decl] of want) {
       if (regrouped.has(decl.property)) toWrite.push(decl); // 整组重写，连带重写
       else if (applied.get(key) !== decl.value) toWrite.push(decl);
+    }
+    if (toWrite.length > 1) {
+      toWrite.sort((a, b) => slotRank.get(slotKey(a.property, a.statesKey))! - slotRank.get(slotKey(b.property, b.statesKey))!);
     }
     if (toWrite.length === 0 && regrouped.size === 0) {
       this.stats.skipped++;

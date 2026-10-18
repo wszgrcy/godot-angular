@@ -230,7 +230,7 @@ describe("指令与输入输出", () => {
     class UiPanelHost {
       private readonly el = inject(ElementRef);
       panelName(): string {
-        return this.el.nativeElement.name;
+        return this.el.nativeElement.get_name();
       }
     }
 
@@ -252,7 +252,7 @@ describe("指令与输入输出", () => {
     const fixture = await render(PanelHost);
     // host 元数据中的 name 已写入组件宿主（VBoxContainer）
     const panel = findAllNodes(fixture.nativeElement, "VBoxContainer")[0];
-    expect(panel.name).toBe("themedPanel");
+    expect(panel.get_name()).toBe("themedPanel");
     expect(nodeTexts(fixture.nativeElement)).toEqual(["inside"]);
   });
 });

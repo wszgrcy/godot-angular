@@ -132,6 +132,35 @@ export function classHasProperty(className: string, prop: string): boolean {
   return collectProperties(className).has(prop);
 }
 
+const accessorCache = new Map<string, boolean>();
+
+/**
+ * 该属性在 JS 侧是否真有访问器。
+ *
+ * 来源：无（本绑定特有的坑）
+ *
+ * `classHasProperty` 查的是 ClassDB，但绑定只为部分属性在原型上生成 getter/setter：
+ * `name`、`pause_mode`、`duplicate_at_end`、`properties_overridden` 等就没有，对它们赋值
+ * 只会写出一个 JS 自有属性，引擎侧一点不变。只看原型链不看实例：之前误写出来的自有属性
+ * 不能算访问器存在。结果按「类名 + 属性名」缓存，每个组合只走一次原型链。
+ */
+export function hasJsAccessor(node: Node, prop: string): boolean {
+  const key = `${node.get_class()}.${prop}`;
+  const cached = accessorCache.get(key);
+  if (cached !== undefined) return cached;
+  let found = false;
+  let proto: object | null = Object.getPrototypeOf(node);
+  while (proto !== null) {
+    if (Object.getOwnPropertyDescriptor(proto, prop) !== undefined) {
+      found = true;
+      break;
+    }
+    proto = Object.getPrototypeOf(proto);
+  }
+  accessorCache.set(key, found);
+  return found;
+}
+
 const propertyTypeCache = new Map<string, Map<string, number>>();
 
 /** Godot Variant 类型常量（Variant::Type 中本库使用到的那几个） */

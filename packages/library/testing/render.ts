@@ -70,7 +70,7 @@ export function makeRenderer(options: { parent?: Node } = {}): {
   renderer: GodotRenderer;
 } {
   const root = new Control();
-  root.name = "RendererSpecRoot";
+  root.set_name("RendererSpecRoot");
   const parent = options.parent ?? sceneRoot;
   // 场景根可能还没建（纯 renderer 单测）：没有就只创建不挂载
   if (parent) parent.add_child(root);

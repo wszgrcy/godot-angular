@@ -64,6 +64,7 @@ export {
   resolveTag,
   resolveSignalName,
   nodeHasProperty,
+  hasJsAccessor,
   coerceToProperty,
   propertyVariantType,
   GODOT_TYPE,

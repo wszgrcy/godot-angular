@@ -5,7 +5,7 @@ import { backend } from "./style-target";
 import { warnOnce } from "./warn";
 import { bindPseudoClasses, warnUnboundPseudoClasses } from "./css-pseudo";
 import { tryConnectGodotSignal } from "./godot-events";
-import { asGodotNode, type GodotNode } from "./godot-node";
+import { asGodotNode, isCssStructural, type GodotNode } from "./godot-node";
 
 /** `new StyleRuntime()` 的选项。 */
 export interface StyleRuntimeOptions {
@@ -71,7 +71,7 @@ export class StyleRuntime {
   addCss(css: string, options?: { tier?: SelectorTier }): number {
     const before = this.cascade.pseudoClassVersion();
     const handle = this.cascade.addCss(css, options);
-    warnUnboundPseudoClasses(this.cascade.usedPseudoClasses());
+    if (ngDevMode) warnUnboundPseudoClasses(this.cascade.usedPseudoClasses());
     // 新样式表带来了新的伪类 → 已登记的节点需要补连信号（否则先创建的元素收不到 :hover）
     if (this.cascade.pseudoClassVersion() !== before) {
       for (const node of this.cascade.attachedNodes()) this.bindPseudo(asGodotNode(node));
@@ -107,12 +107,45 @@ export class StyleRuntime {
    * 兄弟组合器（`+` / `~`）依靠父节点上的三个 JS 风格方法回溯（selector.ts 的
    * previousSibling 读取 getChildIndex / getChildAt / getChildrenCount），而 Godot 节点
    * 只有 get_index / get_child / get_child_count。不挂载这三个方法，`Label + Button` 会静默不命中。
+   *
+   * 三个访问器只在「作者写的元素」上计数：模板锚点是 Angular 的记账节点，
+   * DOM 里 `nextElementSibling` 会跳过它，这里也必须跳过（两个方向都跳：既不占兄弟位，
+   * 也不被兄弟选择器命中），否则 `@if` / `@for` 一展开，锚点卡在两个元素中间，
+   * 相邻兄弟选择器就静默失配。插值文本不在考虑范围内（文字一律用 `<Label text>` 写）。
    */
   private bindSiblingAccessors(node: GodotNode): void {
     if (node.getChildIndex !== undefined) return; // 重复 attach 不重复挂载
-    node.getChildIndex = (child: CssNode) => Number(asGodotNode(child).get_index());
-    node.getChildAt = (index: number) => node.get_child(index);
-    node.getChildrenCount = () => Number(node.get_child_count());
+    node.getChildIndex = (child: CssNode) => {
+      const target = asGodotNode(child);
+      if (isCssStructural(target)) return -1;
+      let index = 0;
+      const count = Number(node.get_child_count());
+      for (let i = 0; i < count; i++) {
+        const current = node.get_child(i);
+        if (current === target) return index;
+        if (!isCssStructural(current)) index++;
+      }
+      return -1;
+    };
+    node.getChildAt = (index: number) => {
+      let seen = 0;
+      const count = Number(node.get_child_count());
+      for (let i = 0; i < count; i++) {
+        const current = node.get_child(i);
+        if (isCssStructural(current)) continue;
+        if (seen === index) return current;
+        seen++;
+      }
+      return null as unknown as CssNode;
+    };
+    node.getChildrenCount = () => {
+      let seen = 0;
+      const count = Number(node.get_child_count());
+      for (let i = 0; i < count; i++) {
+        if (!isCssStructural(node.get_child(i))) seen++;
+      }
+      return seen;
+    };
   }
 
   detach(node: Node): void {
@@ -124,6 +157,14 @@ export class StyleRuntime {
   /** 节点子树发生变化（appendChild / removeChild 之后） */
   invalidateTree(node: Node): void {
     this.cascade.invalidateTree(asGodotNode(node));
+  }
+
+  /**
+   * 某个父节点的子集合变了（插入 / 删除 / 移动）：`+` / `~` 匹配的是「邻居是谁」，而邻居换人
+   * 引擎不发任何通知，只能由结构变更方显式标脏。样式表未用兄弟组合器时不产生标记。
+   */
+  invalidateSiblings(node: Node): void {
+    this.cascade.invalidateSiblings(asGodotNode(node));
   }
 
   /**

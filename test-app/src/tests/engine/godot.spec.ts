@@ -8,14 +8,14 @@ describe("真节点树", () => {
     const box = new VBoxContainer();
     const a = new Label();
     const b = new Label();
-    a.name = "a";
-    b.name = "b";
+    a.set_name("a");
+    b.set_name("b");
     box.add_child(a);
     box.add_child(b);
     expect(box.get_child_count()).toBe(2);
     expect(a.get_index()).toBe(0);
     expect(b.get_index()).toBe(1);
-    expect(box.get_child(1).name).toBe("b");
+    expect(box.get_child(1).get_name()).toBe("b");
     box.free();
   });
 

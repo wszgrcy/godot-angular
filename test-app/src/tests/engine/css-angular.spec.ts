@@ -40,7 +40,7 @@ function findByName(node: any, name: string): any {
   const count = node.get_child_count();
   for (let i = 0; i < count; i++) {
     const child = node.get_child(i);
-    if (child.name === name) return child;
+    if (child.get_name() === name) return child;
     const deeper = findByName(child, name);
     if (deeper) return deeper;
   }

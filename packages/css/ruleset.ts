@@ -35,13 +35,41 @@ const LEADING_ELEMENT = /^([A-Za-z][\w-]*)/;
  * 放在 buildRuleSets 而不是构建期插件：选择器原文与告警通道都现成，且组件 CSS 与
  * 全局 CSS 一次覆盖。
  */
+/**
+ * 来源：无
+ *
+ * 元素选择器拼错 Godot 类名时静默零命中，这里是若不提示就无人提示的唯一渠道。
+ * 放在 buildRuleSets 而不是构建期插件：选择器原文与告警通道都现成，且组件 CSS 与
+ * 全局 CSS 一次覆盖。调用点已按 `ngDevMode` 门控，生产构建里整个检查（含正则与集合
+ * 查找）不执行，也不负责「摇除文案」以外的任何开销。
+ */
 function checkElementNames(selectors: readonly string[], line: number, warnings: string[]): void {
   for (const text of selectors) {
     const element = LEADING_ELEMENT.exec(text)?.[1];
     if (!element || isKnownClass(element)) continue;
-    if (ngDevMode) warnings.push(
+    warnings.push(
       `第 ${line} 行：元素选择器 "${element}" 不是已知的 Godot 类名，不会命中任何节点` +
         `（元素选择器的落点就是节点类名，不可覆写）`,
+    );
+  }
+}
+
+/** `#id` 的开头（先剔除属性选择器，`[title="#x"]` 里的 `#` 不算） */
+const ID_SELECTOR = /#-?[A-Za-z_]/;
+const ATTRIBUTE_SELECTOR = /\[[^\]]*\]/g;
+
+/**
+ * 来源：无
+ *
+ * `#id` 能解析但无落点：Godot 节点没有 id 属性，`name` 可重名不能当 id。解析能力保留
+ * （纯选择器引擎仍照 id 比较），但接到 Godot 上时它永远零命中，不提示就是假可用。
+ */
+function checkIdSelectors(selectors: readonly string[], line: number, warnings: string[]): void {
+  for (const text of selectors) {
+    if (!ID_SELECTOR.test(text.replace(ATTRIBUTE_SELECTOR, ""))) continue;
+    warnings.push(
+      `第 ${line} 行：选择器里的 "#id" 在 Godot 无落点（节点没有 id 属性，name 可重名不能当 id），` +
+        `不会命中任何节点；单点选中请改用 class`,
     );
   }
 }
@@ -131,7 +159,10 @@ export function buildRuleSets(css: string): BuildResult {
   }
 
   for (const rule of flattenRules(sheet)) {
-    checkElementNames(rule.selectors, rule.position.line, warnings);
+    if (ngDevMode) {
+      checkElementNames(rule.selectors, rule.position.line, warnings);
+      checkIdSelectors(rule.selectors, rule.position.line, warnings);
+    }
     const selectors: SelectorCore[] = [];
     for (const text of rule.selectors) {
       const selector = createSelector(text, (message) => {

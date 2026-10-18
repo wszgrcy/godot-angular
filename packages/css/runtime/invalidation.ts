@@ -117,6 +117,20 @@ export class Invalidator {
   }
 
   /**
+   * 来源：NativeScript/packages/core/ui/layouts/layout-base-common.ts :: LayoutBase._invalidateSiblingCssState
+   * 等级：仅思路一致
+   * 差异：上游由布局基类在子视图增删时向兄弟广播事件，本侧由结构变更方（渲染器）显式调用。
+   *
+   * 一个父节点的子集合发生变化后标脏它的直接子级：`+` / `~` 的结果取决于邻居是谁，而邻居
+   * 换人不会有任何通知。只标直接子级——后代组合器只看父链，子集合增删影响不到它。
+   */
+  invalidateSiblings(parent: CssNode): void {
+    if (!this.flags.siblingSensitive) return;
+    for (const child of this.backend.childrenOf(parent)) this.markDirty(child);
+    this.scheduleFlush();
+  }
+
+  /**
    * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: StyleScope._increaseApplicationCssSelectorVersion
    * 等级：部分修改（主体一致）
    * 改动：上游遍历 _cssSelectionsByView 逐个重查，本侧只把已登记节点入队。

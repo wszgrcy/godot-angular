@@ -52,13 +52,13 @@ export function parseFontFace(
   const at = `第 ${line} 行：@font-face`;
   const family = unquote(node.descriptors["font-family"] ?? "");
   if (!family) {
-    if (warnings) warnings.push(`${at} 缺少 font-family，已忽略（该描述符即 font-family 属性查找所用的名称）`);
+    if (ngDevMode) warnings.push(`${at} 缺少 font-family，已忽略（该描述符即 font-family 属性查找所用的名称）`);
     return null;
   }
 
   const src = node.descriptors["src"];
   if (!src) {
-    if (warnings) warnings.push(`${at} "${family}" 缺少 src，已忽略`);
+    if (ngDevMode) warnings.push(`${at} "${family}" 缺少 src，已忽略`);
     return null;
   }
 
@@ -72,7 +72,7 @@ export function parseFontFace(
 
   // 这些描述符在 CSS 中用于「同一家族选择变体」，Godot 的 FontFile 无对应概念
   for (const ignored of ["font-weight", "font-style", "font-stretch", "font-display", "unicode-range"]) {
-    if (node.descriptors[ignored] !== undefined && warnings) {
+    if (node.descriptors[ignored] !== undefined && ngDevMode) {
       warnings.push(`${at} "${family}" 的 ${ignored} 无落点，已忽略：Godot 中一个字体名仅对应一份字体文件`);
     }
   }

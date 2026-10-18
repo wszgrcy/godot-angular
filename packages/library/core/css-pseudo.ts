@@ -201,9 +201,10 @@ export function bindPseudoClasses(node: Node, names: Iterable<string>, set: Pseu
 
 /** 样式表使用了、但既无信号也无属性来源的伪类：提示一次，不静默忽略。 */
 export function warnUnboundPseudoClasses(names: Iterable<string>): void {
+  if (!ngDevMode) return;
   for (const name of names) {
     if (hasPseudoBinder(name)) continue;
-    if (ngDevMode) warnOnce(
+    warnOnce(
       `css:pseudo-unbound:${name}`,
       `样式表使用了 :${name}，但 Godot 无对应的信号/属性，它不会自动生效。可选方案：` +
         `① 通过 class 通道表达该状态（如 [class."${name}"]="…" 配合 CSS .x.${name}），class 变化会触发通知；` +
