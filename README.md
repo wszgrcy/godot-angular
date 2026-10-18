@@ -1,7 +1,6 @@
 # godot-angular
 
-在 Godot 中运行 Angular。组件模板被渲染为 Godot 的 `Control` 节点树，不依赖 WebView，
-也不需要编写 GDScript 界面代码。
+在 Godot 中运行 Angular。组件模板被渲染为 Godot 的 `Control` 节点树，不依赖 WebView，也不需要编写 GDScript 界面代码。
 
 - 运行时为 [GodotJS](https://github.com/GodotJS/GodotJS)（将 V8 集成进引擎的 C++ 模块）
 - Angular 使用 AOT 编译与 zoneless 变更检测
@@ -145,9 +144,7 @@ npm install godot-angular
 
 ### 2. 安装引擎
 
-必须使用 [GodotJS](https://github.com/godotjs/GodotJS/releases) 提供的引擎构建，
-官方 Godot 无法加载 `.js` 脚本。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`，
-目录名与文件名需与下列一致，工具会自动按平台定位，无需配置环境变量：
+必须使用 [GodotJS](https://github.com/godotjs/GodotJS/releases) 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`，目录名与文件名需与下列一致，工具会自动按平台定位，无需配置环境变量：
 
 ```
 bin/
@@ -170,8 +167,7 @@ $env:GODOT_BIN = "C:\path\to\engine.exe"  # Windows PowerShell
 npx godot-typings --out typings
 ```
 
-该命令由 `godot-angular` 提供，输出目录需为专用目录。已配置 `GODOT_BIN` 或 `bin/` 时无需
-额外参数，否则通过 `--bin <路径>` 指定引擎。
+该命令由 `godot-angular` 提供，输出目录需为专用目录。已配置 `GODOT_BIN` 或 `bin/` 时无需额外参数，否则通过 `--bin <路径>` 指定引擎。
 
 ### 4. 构建并运行
 
@@ -197,8 +193,7 @@ godot --headless --path . --import
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
 
-官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报
-`No loader found for resource: res://dist/main.js (expected type: Script)`。
+官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://dist/main.js (expected type: Script)`。
 
 ## 模板语法
 
@@ -225,38 +220,22 @@ godot --headless --path . --import
 
 2. 未命中别名表时按原样作为类名处理：`<Label>` 创建 `Label`。类名区分大小写。
 
-无法得到可用 `Control` 时降级为
-`VBoxContainer`；标签名以大写字母开头时额外输出告警。判定基于 `ClassDB`，引擎新增控件无需
-额外配置。
+无法得到可用 `Control` 时降级为 `VBoxContainer`；标签名以大写字母开头时额外输出告警。判定基于 `ClassDB`，引擎新增控件无需额外配置。
 
-自定义组件的选择器建议使用小写且不与 Godot 类名冲突的形式（如 `ui-card`），其宿主元素降级为
-`VBoxContainer`。
+自定义组件的选择器建议使用小写且不与 Godot 类名冲突的形式（如 `ui-card`），其宿主元素降级为 `VBoxContainer`。
 
-插值表达式 `{{ value }}` 生成 `Label` 节点。富文本与图文混排请直接使用 `RichTextLabel`。
-文字一律按 `<Label text="…" />` 写：单独插值只是兜底，不是 CSS 的书写面（它不占样式语义，
-兄弟组合器也不为它做特例）。
+插值表达式 `{{ value }}` 生成 `Label` 节点。富文本与图文混排请直接使用 `RichTextLabel`。文字一律按 `<Label text="…" />` 写：单独插值只是兜底，不是 CSS 的书写面（它不占样式语义，兄弟组合器也不为它做特例）。
 
 ### 属性
 
-Godot 的 `@export` 变量对应 Angular 的属性绑定，例如 `[text]`、`[custom_minimum_size]`、
-`[size_flags]`。
+Godot 的 `@export` 变量对应 Angular 的属性绑定，例如 `[text]`、`[custom_minimum_size]`、`[size_flags]`。
 
-- `size_flags` 同时写入 `size_flags_horizontal` 与 `size_flags_vertical`。取值来自引擎枚举，
-  枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`。扁平写法
-  （`Control.SIZE_EXPAND_FILL`）为 `undefined`。
+- `size_flags` 同时写入 `size_flags_horizontal` 与 `size_flags_vertical`。取值来自引擎枚举，枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`。扁平写法（`Control.SIZE_EXPAND_FILL`）为 `undefined`。
 - `[anchors_preset]` 可用，渲染器将其转换为 `set_anchors_preset()` 调用。
-- `name` 写入的是引擎里的真实节点名。这个 JS 绑定没有为 `Node.name` 生成属性访问器，
-  通用赋值只会写出一个 JS 字段而引擎侧不变（`find_child` / `get_node` 查不到），因此渲染器
-  为它单开分支走 `set_name()`。引擎语义照旧：同级重名会被自动改名（自动名形如 `@Button@4`），
-  `. : @ / " %` 会被替换成下划线（`name="a.b"` → `a_b`）。读取节点名用 `get_name()`，
-  JS 上的 `.name` 不是事实来源。`[attr.name]="null"` 不会清空名字：引擎不接受空名（树内
-  `set_name("")` 被忽略），而 ClassDB 的默认值是 `null`，“回到未命名”在引擎里没有对应操作，
-  因此只能保持现值，改名只能再绑一个新值。
+- `name` 写入的是引擎中的真实节点名。该 JS 绑定未为 `Node.name` 生成属性访问器，通用赋值只会写入一个 JS 字段而引擎侧不变（`find_child` / `get_node` 查不到），因此渲染器为其单独调用 `set_name()`。引擎语义不变：同级重名会被自动改名（自动名形如 `@Button@4`），`. : @ / " %` 会被替换为下划线（`name="a.b"` → `a_b`）。读取节点名使用 `get_name()`，JS 上的 `.name` 不是事实来源。`[attr.name]="null"` 不会清空名字：引擎不接受空名（树内 `set_name("")` 被忽略），而 ClassDB 的默认值是 `null`，“回到未命名”在引擎中没有对应操作，因此只能保持现值，改名需重新绑定新值。
 - 移除属性：`[attr.x]="null"` 或 `[x]="null"` 将属性还原为该类创建时的默认值。Godot 属性为强类型，不接受 `null`。
 
-自定义组件的宿主元素同时是模板中的一个元素，静态属性与输入属性是两条独立通道。静态字符串属性
-按节点属性写入宿主，宿主为 `VBoxContainer` 时不存在 `title`，因此输出一条「不是真实属性」告警；
-输入通道仍会送达该值，显示不受影响。为组件输入传字符串字面量时应写成属性绑定：
+自定义组件的宿主元素同时是模板中的一个元素，静态属性与输入属性是两条独立通道。静态字符串属性按节点属性写入宿主，宿主为 `VBoxContainer` 时不存在 `title`，因此输出一条「不是真实属性」告警；输入通道仍会送达该值，显示不受影响。为组件输入传字符串字面量时应写成属性绑定：
 
 ```html
 <ui-card [title]="'文本'"></ui-card>
@@ -282,8 +261,7 @@ readonly expand = Control.SizeFlags.SIZE_EXPAND_FILL;
 
 Godot signal 与 Angular signal 是两套互不相关的机制。本文档中 Angular signal 指响应式状态。
 
-事件名解析有两条路径：DOM 习惯名查别名表；其余名称原样作为 Godot 信号名查询。事件名不进行
-大小写转换，`(buttonDown)`、`(textChanged)` 等驼峰写法无法解析。
+事件名解析有两条路径：DOM 习惯名查别名表；其余名称原样作为 Godot 信号名查询。事件名不进行大小写转换，`(buttonDown)`、`(textChanged)` 等驼峰写法无法解析。
 
 | 写法 | 连接的 Godot 信号（按顺序取该控件拥有的第一个） |
 | --- | --- |
@@ -294,28 +272,19 @@ Godot signal 与 Angular signal 是两套互不相关的机制。本文档中 An
 | `(focus)` / `(blur)` | `focus_entered` / `focus_exited` |
 | `(button_down)` | `button_down`（引擎信号名，原样命中） |
 
-`$event` 的规则只有一条：**实参个数永远与引擎信号一致**，不做任何补偿。
-`LineEdit.text_changed(new_text)` 的 `$event` 就是新文本，无需回读属性；
-`BaseButton.pressed()` 零参数，所以 `(click)` / `(pressed)` 的 `$event` 就是 `undefined`。
+`$event` 的规则只有一条：**实参个数永远与引擎信号一致**，不做任何补偿。`LineEdit.text_changed(new_text)` 的 `$event` 就是新文本，无需回读属性；`BaseButton.pressed()` 零参数，所以 `(click)` / `(pressed)` 的 `$event` 就是 `undefined`。
 
-Godot 信号不携带事件对象（对比 DOM：每个监听器都收到一个 `MouseEvent`）。但“谁触发的”仍然
-知道 —— `Callable` 绑在具体节点上，模板里每个元素有自己的闭包。需要真实输入事件（坐标 /
-双击 / 修饰键）时绑 `Control.gui_input(event: InputEvent)`，那个信号递的是真的 `InputEvent`；
-只是 `pressed` 把它丢掉了。
+Godot 信号不携带事件对象（对比 DOM：每个监听器都收到一个 `MouseEvent`）。但“谁触发的”仍然知道 —— `Callable` 绑在具体节点上，模板里每个元素有自己的闭包。需要真实输入事件（坐标 /双击 / 修饰键）时绑 `Control.gui_input(event: InputEvent)`，那个信号递的是真的 `InputEvent`；只是 `pressed` 把它丢掉了。
 
-代价是依赖 `$event.xxx` 的第三方指令用不了，目前已知只有 `RouterLink`（见[路由](#路由)）。
-曾经为了它补过一个事件对象，但那是拿全局语义换一个小功能，已推翻。
+代价是依赖 `$event.xxx` 的第三方指令无法使用，目前已知仅 `RouterLink`（见[路由](#路由)）。曾为其补过一个事件对象，但那是以全局语义换取单一功能，已推翻。
 
-无法解析的事件名被静默忽略。Angular 会为每个 `(...)` 绑定调用 `renderer.listen()`，指令的
-`@Output` 名称（`ngModelChange`、`textChange`）同样经过该路径，其行为与浏览器中
-`addEventListener("ngModelChange")` 不触发、不报错一致。
+无法解析的事件名被静默忽略。Angular 会为每个 `(...)` 绑定调用 `renderer.listen()`，指令的 `@Output` 名称（`ngModelChange`、`textChange`）同样经过该路径，其行为与浏览器中 `addEventListener("ngModelChange")` 不触发、不报错一致。
 
 
 
 ### 组件查询
 
-`viewChild()`、`viewChildren()`、`contentChild()`、`contentChildren()` 均可用，返回
-`ElementRef`，其 `nativeElement` 为对应的 Godot 节点：
+`viewChild()`、`viewChildren()`、`contentChild()`、`contentChildren()` 均可用，返回 `ElementRef`，其 `nativeElement` 为对应的 Godot 节点：
 
 ```ts
 readonly ok = viewChild.required<ElementRef>("ok");
@@ -326,11 +295,7 @@ readonly ok = viewChild.required<ElementRef>("ok");
 
 以下行为由引擎的布局规则决定，写错时不报错也不告警，只表现为界面绘制异常。
 
-**只有 `Container` 会为子节点分配尺寸。** `Button`、`Panel`、`Label` 均不是 `Container`：挂在
-其下的子节点停留在自身最小尺寸，也不计入父节点的最小尺寸。含内容的按钮不能写成
-`<Button><VBoxContainer>…</VBoxContainer></Button>`——`VBoxContainer` 拿不到宽度，内部 `Label`
-会被压成一列竖排文字。可用的写法是 `PanelContainer`（属于 `Container`，把矩形分配给每一个
-子节点）叠加一层 flat `Button` 作为点击层：
+**只有 `Container` 会为子节点分配尺寸。** `Button`、`Panel`、`Label` 均不是 `Container`：挂在其下的子节点停留在自身最小尺寸，也不计入父节点的最小尺寸。含内容的按钮不能写成 `<Button><VBoxContainer>…</VBoxContainer></Button>`——`VBoxContainer` 拿不到宽度，内部 `Label` 会被压成一列竖排文字。可用的写法是 `PanelContainer`（属于 `Container`，把矩形分配给每一个子节点）叠加一层 flat `Button` 作为点击层：
 
 ```html
 <PanelContainer class="card-btn">
@@ -342,11 +307,9 @@ readonly ok = viewChild.required<ElementRef>("ok");
 **`white-space` 在两个方向上都会改变最小宽度。** 它映射到 `autowrap_mode`：
 
 - 不折行时，`Label` 的最小宽度等于整行文本宽度。中文不含空格，整条容器链会被顶宽。
-- 折行时，`Label` 的最小宽度退化为 1px。在 `HBoxContainer` 中未设置 `SIZE_EXPAND_FILL` 的
-  `Label` 会被压成一列竖排文字。
+- 折行时，`Label` 的最小宽度退化为 1px。在 `HBoxContainer` 中未设置 `SIZE_EXPAND_FILL` 的 `Label` 会被压成一列竖排文字。
 
-因此不要全局统一设置，按容器区分：纵向容器内默认折行，横向容器内默认不折行，横向容器内确需
-折行时单独声明。类选择器的特异度高于类型选择器，`.wrap` 可覆盖 `HBoxContainer > Label`：
+因此不要全局统一设置，按容器区分：纵向容器内默认折行，横向容器内默认不折行，横向容器内确需折行时单独声明。类选择器的特异度高于类型选择器，`.wrap` 可覆盖 `HBoxContainer > Label`：
 
 ```scss
 Label { white-space: normal; }
@@ -354,14 +317,11 @@ HBoxContainer > Label { white-space: nowrap; }
 .wrap { white-space: normal; }
 ```
 
-装饰用的色块使用 `Panel` 而不是空 `Label`：空 `Label` 仍占一行文字高度，`Panel` 的最小尺寸仅
-来自 `width` / `min-height`，配合 `size_flags_horizontal = SHRINK_BEGIN` 可保持在指定的小尺寸
-上。
+装饰用的色块使用 `Panel` 而不是空 `Label`：空 `Label` 仍占一行文字高度，`Panel` 的最小尺寸仅来自 `width` / `min-height`，配合 `size_flags_horizontal = SHRINK_BEGIN` 可保持在指定的小尺寸上。
 
 ## 状态与变更检测
 
-本项目仅支持 zoneless 变更检测。`tick()` 每帧执行，但只刷新被标记为脏的视图；普通字段赋值
-不会标记视图，模板读取不到新值。
+本项目仅支持 zoneless 变更检测。`tick()` 每帧执行，但只刷新被标记为脏的视图；普通字段赋值不会标记视图，模板读取不到新值。
 
 ```ts
 // 不支持：模板读取不到变化
@@ -389,16 +349,13 @@ export class App {
 }
 ```
 
-状态全部由 signal 驱动时不需要 `ChangeDetectorRef`。若必须调用 `markForCheck()` 才能更新界面，
-说明该状态应改为 signal，或由某个 signal 派生（`computed`、`linkedSignal`）。本项目不提供
-强制触发变更检测的接口。
+状态全部由 signal 驱动时不需要 `ChangeDetectorRef`。若必须调用 `markForCheck()` 才能更新界面，说明该状态应改为 signal，或由某个 signal 派生（`computed`、`linkedSignal`）。本项目不提供强制触发变更检测的接口。
 
 需要立即读取更新结果时，等待一帧后再读取。
 
 ## 表单
 
-表单通过 Angular Forms 的 `ControlValueAccessor` 协议接入。内置指令由 `godot-angular/forms`
-提供，该入口独立于 `core`，不使用表单时不会被计入产物。
+表单通过 Angular Forms 的 `ControlValueAccessor` 协议接入。内置指令由 `godot-angular/forms` 提供，该入口独立于 `core`，不使用表单时不会被计入产物。
 
 ```ts
 import { FormsModule } from "@angular/forms";
@@ -433,7 +390,7 @@ export class Login {
 
 - 未包裹在 `<form>` 中的 `ngModel` 必须声明 `[ngModelOptions]="{standalone: true}"`。缺少该声明时在 Promise 中抛出错误，运行环境不处理未捕获的 Promise 拒绝，表现为无提示的失败。
 - `writeValue(null)` 在表单初始化时必然被调用。Godot 的 `text` 等属性不接受 `null`，会中断后续赋值。上表列出了各指令对空值的处理，自定义 `ControlValueAccessor` 必须同样处理。
-- 适配器只负责搬运值，不进行类型转换、范围限制与去重。类型不符由引擎报错；越界下标由 Godot按自身规则处理。数据校验应在模型侧完成。
+- 适配器只负责搬运值，不进行类型转换、范围限制与去重。类型不符由引擎报错；越界下标由 Godot 按自身规则处理。数据校验应在模型侧完成。
 - `ItemList` 的候选项通过 `add_item` 添加，`ngModel` 仅表达选中下标集合。
 - `HScrollBar`、`VScrollBar`、`ItemList`、`ColorPicker` 没有 `disabled` 与 `editable` 属性，禁用通过 `mouse_filter = IGNORE` 实现，解除禁用时恢复原值。
 
@@ -454,22 +411,19 @@ export class AppStepper extends GodotControlBase<number> {
 }
 ```
 
-`registerOnChange`、`registerOnTouched`、`setDisabledState` 由基类实现。值存储在 Godot 属性上时
-覆写 `writeValue`，并先调用 `super.writeValue(value)`。
+`registerOnChange`、`registerOnTouched`、`setDisabledState` 由基类实现。值存储在 Godot 属性上时覆写 `writeValue`，并先调用 `super.writeValue(value)`。
 
 ## 样式
 
-Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集编译到 `Theme`、`StyleBoxFlat` 与节点属性。
-按支持程度，属性分为三类：第一类在 Godot 中有等价落点；第二类有落点但语义不完全等价，
-仅做转换提示；第三类没有落点，输出告警后忽略。下列清单与 `packages/css/runtime/properties.ts`
-中的属性表逐条对应，`css-sweep.spec.ts` 校验两者保持一致。
+Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集翻译为 Godot 的主题项（`Theme`）、盒子（`StyleBoxFlat`）与节点属性。下文将每条 CSS 属性最终写入的 Godot 对象统一称为**落点**。按支持程度分为三类：
 
-关于单位：长度仅接受 `px` 与无单位数字。百分比一律输出告警并忽略——Godot 的落点（theme
-常量、StyleBoxFlat 的圆角与边框、尺寸下界）均以像素计，百分比需要可参照的父盒，
-而本包不参与布局计算；`em`、`rem`、`vw` 等相对单位同理。`opacity`、`flex-grow` 这类
-无单位数字属性同样不接受百分比：CSS 中 `opacity: 50%` 等价于 `0.5`，本包不展开此种等价关系。
+- **等价**：Godot 存在对应实现，效果与 CSS 一致。
+- **近似**：可以书写，但 Godot 的模型与 CSS 不同，结果为近似值（差异见各条说明）。
+- **不支持**：Godot 无对应概念，书写后输出告警并忽略，不会静默生效。
 
-### 等价落点的属性
+**长度单位仅支持 `px` 与不带单位的数值。** 百分比、`em`、`rem`、`vw` 一律输出告警并忽略：这类单位需要参照尺寸才能换算，而本包不参与布局计算，无法取得参照值。`opacity: 50%` 等写法同样不支持，应写 `opacity: 0.5`。
+
+### 等价：Godot 有对应实现
 
 | 属性 | Godot 落点 |
 | --- | --- |
@@ -487,19 +441,23 @@ Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集编译到 `Theme
 | `box-shadow` | StyleBoxFlat 的 `shadow_*` |
 | `padding`、`padding-top` 等 | StyleBoxFlat 的 `content_margin_*` |
 
-关于命名：`padding` 落在 `content_margin_*`，是命名差异而非语义差异。Godot 从内容视角命名
-（stylebox 内侧为内容预留的空白，增大即压缩内容可用空间），CSS 从盒子视角命名（边框以内
-的填充），两者指同一段距离。引擎另有 `expand_margin_*`，用于把绘制范围向外扩展到控件矩形
-之外，不影响尺寸下界与可点击区域，与 padding 无关，本包不使用。反向的对应关系同样存在：
-CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，MarginContainer 的 theme
-常量 `margin_*` 实际是它为子节点预留的内侧空白，语义上更接近 padding。
+**`padding` 对应 `content_margin_*`，属于命名差异，语义相同。** Godot 以内容视角命名（盒子内部为内容预留的空白），CSS 以盒子视角命名（边框以内的填充），两者指同一段距离。需要区分以下两项：
 
-简写属性在构建期展开为 longhand，级联因此定义在 longhand 上。参与展开的简写有：`border`、
-`border-width`、`border-style`、`border-radius`、`background`、`margin`、`padding`、`flex`、`font`。
-其中 `border-style` 仅识别 `solid` 与 `none`，其余线型无落点；`font` 仅提取字号，例如
-`font: 14px/1.5 sans-serif` 展开为 `font-size: 14px`，字体族、字重与行高无落点。
+- 引擎另有 `expand_margin_*`，用于将绘制范围扩展至控件矩形之外，与 padding 无关，本包不使用该项。
+- `MarginContainer` 的主题常量同样名为 `margin_*`，但其含义是为**子节点**预留的内侧空白，语义上更接近 padding，并非 CSS 的 margin。CSS 的 margin（外边距）在 Godot 的 Control 上不存在对应概念。
 
-### 仅做转换提示的属性
+**无背景盒的类不支持背景相关属性。** 底色、边框、`padding`、`box-shadow` 均需写入某个盒子，而部分类默认不绘制任何盒子。典型为 `LinkButton`（HTML 的 `a`）：它仅绘制文字与下划线，默认主题中不存在 `normal` 盒，唯一的盒子是获得键盘焦点时绘制的 `focus`。因此：
+
+```css
+a { background-color: #ffe08a; }        /* 不生效并输出告警：LinkButton 无背景盒 */
+a:focus { background-color: #ffe08a; }  /* 生效：获得键盘焦点时显示该底色 */
+```
+
+本包不会将基规则的底色改写到 `focus` 盒：那样该底色仅在获得键盘焦点时可见，与声明意图不符。需要状态底色时，应显式书写状态伪类。`TabBar` 同样不支持底色声明（其盒子按标签状态命名，如 `tab_selected`，不属于背景盒）。需要常驻底色时，使用 `PanelContainer` 包裹该节点，并将底色声明在 `PanelContainer` 上。
+
+简写属性在构建期展开为 longhand，级联因此定义在 longhand 上。参与展开的简写有：`border`、`border-width`、`border-style`、`border-radius`、`background`、`margin`、`padding`、`flex`、`font`。其中 `border-style` 仅识别 `solid` 与 `none`，其余线型无落点；`font` 仅提取字号，例如 `font: 14px/1.5 sans-serif` 展开为 `font-size: 14px`，字体族、字重与行高无落点。
+
+### 近似：支持，但为近似实现
 
 这类属性有落点，但 Godot 的模型与 CSS 不同，落点为近似值（属性表中标记为 `level: 3`）。
 
@@ -521,10 +479,9 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 | `white-space` | `Label.autowrap_mode`。`nowrap`、`normal`、`pre`、`pre-wrap`、`break-all` 可用。Godot 不折叠空白，源码中的连续空格按原样绘制 |
 | `direction` | `Control.layout_direction`。`ltr` 与 `rtl` 可用；`inherit` 属于 CSS 全局关键字，在进入属性表之前即被拦截 |
 
-### 无落点的属性
+### 不支持：输出告警并忽略
 
-以下属性不会生效。其落点要么是节点树结构（由 Angular 持有，本包不予修改），要么在 Godot 中
-不存在对应概念。书写这些属性时输出一条说明原因的告警，不静默忽略。
+以下属性不会生效：其落点要么涉及节点树结构（由 Angular 持有，本包不修改），要么在 Godot 中不存在对应概念。书写时输出一条说明原因的告警，不静默忽略。
 
 | 分组 | 属性 |
 | --- | --- |
@@ -536,44 +493,31 @@ CSS 的 `margin`（外边距）在 Godot 的 Control 上不存在对应概念，
 | 视觉与动画 | `transform`、`transition`、`animation`、`animation-name`、`filter`、`backdrop-filter`、`will-change` |
 | 交互与其他 | `user-select`、`content`、`::before`、`::after` |
 
-关于 `width` 与 `height`：Godot 的 Control 具有 `size`，但该尺寸仅在节点未加入容器时
-保持稳定。容器在每次布局时都会依据 `custom_minimum_size`（下界）、`size_flags`（填充与扩展）
-与主题的 `separation` 重新分配子节点尺寸，直接设置的 `size` 将被下一次布局覆盖。因此本包
-不提供 `width` / `height`：需要表达下界请书写 `min-width` / `min-height`，需要参与剩余空间
-分配请书写 `flex-grow`。尺寸上界直至 Godot 4.7 才以 `custom_maximum_size` 引入，在此之前
-`max-width` 同样无对应实现。
+**本包不提供 `width` / `height`。** Godot 的控件具有 `size`，但控件位于容器内时，容器每次布局都会重新分配子节点尺寸，直接设置的值会在下一次布局时被覆盖。因此：
 
-关于 `overflow` 与 `pointer-events`：前者仅有「是否裁剪子节点」一个开关，因此 `hidden` 与
-`visible` 可以对应，滚动类取值则不能——Godot 的滚动是一种独立的容器类型，而非一项样式开关。
-后者的差异在于作用范围：CSS 的 `pointer-events: none` 会连带子树一并不接收指针事件，Godot 的
-`MOUSE_FILTER_IGNORE` 仅作用于本节点，子节点仍可接收事件，因此写入时会输出一条 `[兼容]` 告警。
-`auto` 则完全无落点：Godot 的默认鼠标过滤方式因类而异（`Button` 接收、`Label` 不接收），本包
-无法由 CSS 恢复其原有取值，如需恢复请删除该条声明。
+- 需要规定最小尺寸时，使用 `min-width` / `min-height`
+- 需要参与剩余空间分配时，使用 `flex-grow`
+- `max-width` / `max-height` 同样不提供：Godot 直至 4.7 才引入尺寸上界
 
-关于 `outline`：Godot 的 StyleBoxFlat 没有独立的描边层，因此 `outline` 无落点。引擎的
-`expand_margin_*` 与 CSS 的 `outline` 略有相似——都绘制在控件矩形之外且不影响布局（引擎
-文档亦建议它配合 `border_width_*` 在控件矩形外描边），但它扩展的是整个 stylebox：底色随之
-外扩，描边亦只能沿用同一 stylebox 的 `border_color` 与 `border_width_*`，无法独立取色，
-因此不构成 `outline` 的落点。另需注意 theme 常量 `outline_size` 与颜色 `font_outline_color`
-指代的是文字描边，与 `outline` 无关。
+**`overflow` 仅支持 `hidden` 与 `visible`。** Godot 只提供“是否裁剪超出部分”这一个开关。`scroll` 与 `auto` 不支持：滚动在 Godot 中是一种容器（`ScrollContainer`），而非样式开关。
 
-因此**焦点环必须由 `:focus` 自行绘制**：主题给 `Button/focus` 盒的描边（`border_width_* = 2`）
-属于“未声明的字段”，只要基规则未书写 `border-*` 便原样保留；一旦基规则书写了 `border-color`
-或 `border-width`，按层叠关系它将在 `focus` 盒中覆盖主题原有的描边，键盘焦点随之不可见。
-书写 `Button:focus { border-color: …; border-width: 2px; }` 即可恢复。
+**`pointer-events: none` 的作用范围小于 CSS。** CSS 中该声明会使整棵子树都不接收指针事件；Godot 的 `MOUSE_FILTER_IGNORE` 仅作用于本节点，子节点仍可接收事件，因此书写该声明时输出一条 `[兼容]` 告警。`pointer-events: auto` 不支持：Godot 各控件的默认值不一致（`Button` 接收、`Label` 不接收），本包无法据此恢复原值；需要恢复时请删除该条声明。
 
-关于 `box-shadow`：第四段长度（spread）与 `inset` 无落点——本引擎的 StyleBoxFlat 无
-`shadow_expand`，亦不支持内阴影，解析时输出告警（多层阴影仅取第一层）。
+**`outline` 无对应实现。** Godot 的盒子没有独立的描边层。引擎的 `expand_margin_*` 与之相似（同样绘制在控件矩形之外且不影响布局），但它扩展的是整个盒子：底色随之外扩，描边只能沿用同一盒子的 `border_color`，无法单独取色。**`outline_size` 与 `font_outline_color` 指文字描边**，与 `outline` 无关。
 
-关于伪元素：Godot 无伪元素概念，样式只能落在控件自身的主题属性上，因此 `::before`、
-`::after` 这类写法没有落点。书写伪元素会使整条规则失效，并输出一条告警，告警中完整给出
-所书写的伪元素名称；双冒号之后缺少名称时，告警将直接指出名称缺失及其位置。
+**焦点框需由 `:focus` 自行声明。** 主题的 `Button/focus` 盒自带 2px 描边：未书写 `border-*` 时原样保留；基规则一旦声明 `border-color` 或 `border-width`，将覆盖该描边，键盘焦点不再可见。补充一条声明即可恢复：
+
+```css
+Button:focus { border-color: #6cb2f5; border-width: 2px; }
+```
+
+**`box-shadow` 仅取第一段阴影的偏移与颜色。** 第四段扩散值（spread）与内阴影 `inset` 不支持（本引擎的 StyleBoxFlat 无 `shadow_expand`，也不绘制内阴影），多层阴影仅取第一层。
+
+**不支持 `::before` / `::after`。** Godot 无伪元素概念，样式只能声明在控件自身。书写伪元素会使整条规则失效并输出告警，告警中原样给出所书写的伪元素名称。
 
 ### 字体：`@font-face` 与 `font-family`
 
-Godot 的字体是资源，而非名称。本包仅借用 `@font-face` 的语法完成一件事：将一份引擎可加载的
-字体资源关联到一个家族名下，`font-family` 此后方可解析到该资源。它并非 CSS Fonts 规范的
-实现，写法因此受到严格限制：
+Godot 的字体是资源，而非名称。本包仅借用 `@font-face` 的语法完成一件事：将一份引擎可加载的字体资源关联到一个家族名下，`font-family` 此后方可解析到该资源。它并非 CSS Fonts 规范的实现，写法因此受到严格限制：
 
 ```css
 @font-face {
@@ -588,18 +532,11 @@ Godot 的字体是资源，而非名称。本包仅借用 `@font-face` 的语法
 
 规则如下：
 
-- `src` 仅允许**一个** `url()`。CSS 的候选源列表（`url(a) format("woff2"), url(b)`）依赖
-  「逐个尝试直至可用」，Godot 的一份 FontFile 不存在该机制，书写多个将被直接拒收。
-- 路径必须以 `res://` 开头。CSS 编译后会被内联进 JS，组件样式来自 `styleUrls` 时连文件名
-  也不再保留，相对路径在运行时已无参照物。`res://` 是引擎的虚拟根，指向 `project.godot`
-  所在目录；置于工程目录内的字体文件会随工程一并导出，运行时直接加载。
-- `local()` 在 `@font-face` 中无落点（登记仅用于将一份工程内资源关联到名称；系统字体无需登记，
-  直接在 `font-family` 中书写名称即可，见下）。
-- 后缀必须是引擎可识别的字体容器（`ttf` `ttc` `otf` `otc` `woff` `woff2` `pfb`），或者包含
-  Font 派生类型的 `tres` / `res` 资源（`FontVariation` 在工程中即以 `.tres` 形式存在）。
-- `font-weight`、`font-style`、`font-stretch`、`font-display`、`unicode-range` 无落点：
-  Godot 中一个字体名仅对应一份字体文件，不存在「同一家族按字重或字形选择变体」这一层。书写时
-  会输出告警，但登记本身仍然有效。
+- `src` 仅允许**一个** `url()`。CSS 的候选源列表（`url(a) format("woff2"), url(b)`）依赖「逐个尝试直至可用」，Godot 的一份 FontFile 不存在该机制，书写多个将被直接拒收。
+- 路径必须以 `res://` 开头。CSS 编译后会被内联进 JS，组件样式来自 `styleUrls` 时连文件名也不再保留，相对路径在运行时已无参照物。`res://` 是引擎的虚拟根，指向 `project.godot` 所在目录；置于工程目录内的字体文件会随工程一并导出，运行时直接加载。
+- `local()` 在 `@font-face` 中无落点（登记仅用于将一份工程内资源关联到名称；系统字体无需登记，直接在 `font-family` 中书写名称即可，见下）。
+- 后缀必须是引擎可识别的字体容器（`ttf` `ttc` `otf` `otc` `woff` `woff2` `pfb`），或者包含 Font 派生类型的 `tres` / `res` 资源（`FontVariation` 在工程中即以 `.tres` 形式存在）。
+- `font-weight`、`font-style`、`font-stretch`、`font-display`、`unicode-range` 无落点：Godot 中一个字体名仅对应一份字体文件，不存在「同一家族按字重或字形选择变体」这一层。书写时会输出告警，但登记本身仍然有效。
 - 家族名不区分大小写，引号可加可不加。
 
 #### `font-family` 的两级解析
@@ -613,17 +550,12 @@ font-family: A, B, C
      引擎按序选取系统中首个存在的字体；若全部不存在 → 由引擎静默回退至默认字体
 ```
 
-已登记的字体由本库负责校验（资源加载失败时告警会点名路径）；未登记者属于**尽力回退**，本库
-仅将整串名称交给 `SystemFont`，最终是否生效由引擎决定，本库不探测结果，也不输出告警。
+已登记的字体由本包校验，资源加载失败时告警会点名路径；未登记的候选属于**尽力回退**，是否生效由引擎决定，本包不探测结果，也不输出告警。
 
 以下两点需要留意：
 
-- **登记优先，与候选顺序无关**。按 CSS 严格语义，候选应逐个尝试、可用者先生效，已安装的
-  系统字体亦可插队；但 TextServer 未提供「查询系统是否安装某字体」的 API，本库无法判定是否
-  应当让位，因此一律登记优先（`res://` 资源是工程内的确定答案，跨平台表现一致）。
-- **Godot 的回退是字形级，而非字体级**。`Font.fallbacks` 与 `allow_system_fallback`（默认开启）
-  处理的是「当前字体缺少某个字形」，而非「当前字体未安装」。引擎默认字体（`ThemeDB.fallback_font`）
-  本身不含中文字形，但渲染中文时会自动从系统获取字形，因此在不配置任何字体的情况下中文仍可显示。
+- **登记优先，与候选顺序无关**。`@font-face` 登记的字体总是优先于同名系统字体，无论它在候选列表中的位置。引擎未提供「查询系统是否安装某字体」的能力，无法按 CSS 语义逐个尝试。
+- **Godot 的回退是字形级，而非字体级**。`Font.fallbacks` 与 `allow_system_fallback`（默认开启）处理的是「当前字体缺少某个字形」，而非「当前字体未安装」。引擎默认字体（`ThemeDB.fallback_font`）本身不含中文字形，但渲染中文时会自动从系统获取字形，因此在不配置任何字体的情况下中文仍可显示。
 
 移除一段包含 `@font-face` 的样式表时，由其建立的字体覆盖一并撤销，与其它属性同口径。
 
@@ -637,32 +569,22 @@ font-family: A, B, C
 }
 ```
 
-规则与 `@font-face` 的 `src` 完全一致（共用同一套校验）：仅允许**一个** `url()`、路径必须
-以 `res://` 开头、后缀必须是引擎可导入的图片（`png` `svg` `jpg` `jpeg` `webp` `bmp` `ktx2`）
-或包含 Texture2D 的 `tres` / `res` 资源。`gradient` 仍无落点（Godot 的 StyleBoxTexture
-仅接受纹理，不接受渐变），将单独输出告警，而非按 `url()` 写法错误处理。
+规则与 `@font-face` 的 `src` 完全一致（共用同一套校验）：仅允许**一个** `url()`、路径必须以 `res://` 开头、后缀必须是引擎可导入的图片（`png` `svg` `jpg` `jpeg` `webp` `bmp` `ktx2`）或包含 Texture2D 的 `tres` / `res` 资源。`gradient` 仍无落点（Godot 的 StyleBoxTexture 仅接受纹理，不接受渐变），将单独输出告警，而非按 `url()` 写法错误处理。
 
-**与 `background-color` 互斥。** Godot 的一个 StyleBox 只能绘制其中一种：StyleBoxFlat 无
-`texture`，StyleBoxTexture 无 `bg_color`。CSS 允许两者同时声明，本库不叠加，也不代为推断，
-**按层叠顺序取最后一条**，口径与 `width:1px;width:2px` 完全一致：
+**与 `background-color` 互斥。** Godot 的一个 StyleBox 只能绘制其中一种：StyleBoxFlat 无 `texture`，StyleBoxTexture 无 `bg_color`。CSS 允许两者同时声明，本包不叠加，也不代为推断，**按层叠顺序取最后一条**，口径与 `width:1px;width:2px` 完全一致：
 
 ```css
 .a { background-color: blue; background-image: url("res://a.png"); } /* 图赢 */
 .b { background-image: url("res://a.png"); background-color: blue; } /* 色赢 */
 ```
 
-跨规则同样如此：特异度更高（或特异度相同但登记更晚）的那一条决定该位置绘制何种内容。前一条
-仅失去填充字段，圆角、边框、`padding` 等几何字段仍照常叠加在同一 stylebox 上。纹理声明被
-撤销后，底色会重新生效（互斥关系并非永久占用）。
+跨规则同样如此：特异度更高（或特异度相同但登记更晚）的那一条决定该位置绘制何种内容。前一条仅失去填充字段，圆角、边框、`padding` 等几何字段仍照常叠加在同一 stylebox 上。纹理声明被撤销后，底色会重新生效（互斥关系并非永久占用）。
 
 纹理资源加载失败时，该条声明按「无落点」处理并输出告警，不会遗留一个不绘制任何内容的空纹理盒。
 
-### 通用属性与限定属性
+### 与控件类型相关的属性
 
-上述清单中的落点能否真正生效，还取决于节点所属的类。判定依据有二：一是 theme 词汇表
-（由 `pnpm dump:vocabulary` 从引擎导出，当前覆盖 44 个类），二是节点自身的属性。两者任一
-不满足，运行期输出一条告警并忽略，不会写入不生效的 override。构建期 lint 仅校验语法与
-选择器拼写，不包含这项检查。
+上述落点是否真正生效，还取决于节点所属的类。判定依据有两条：一是该类的主题中是否存在对应项，二是节点自身是否具备对应属性。任一条件不满足，运行时输出告警并忽略，不会写入无效的覆盖值。构建期 lint 仅校验语法与选择器拼写，不包含这项检查。
 
 **与类无关的属性**：对任意 `Control` 均成立。
 
@@ -675,14 +597,14 @@ font-family: A, B, C
 | `cursor` | `Control.mouse_default_cursor_shape` |
 | `direction` | `Control.layout_direction` |
 
-**取决于 theme 词汇表的属性**：下表列出当前 dump 中成立的类，未列出的类不成立。
+**依赖主题项的属性**：下表列出支持的类，未列出的类不成立。
 
 | 属性 | 需要的 theme item | 成立的类 |
 | --- | --- | --- |
 | `color` | `font_color`（RichTextLabel 为 `default_color`） | Button、CheckBox、CheckButton、CodeEdit、ColorPickerButton、FoldableContainer、ItemList、Label、LineEdit、LinkButton、MenuBar、MenuButton、OptionButton、ProgressBar、Tree、TextEdit |
 | `font-size` | `font_size`（RichTextLabel 为 `normal_font_size`） | 上一行的 16 个类，再加 TabContainer、TabBar |
 | `caret-color` | `caret_color` | LineEdit、TextEdit、CodeEdit |
-| `background-color`、`background`、`border-*`、`padding`、`box-shadow` | 该类需绘制 stylebox（`panel`、`normal`、`background`、`focus` 之一） | Button、CheckBox、CheckButton、CodeEdit、ColorPickerButton、FoldableContainer、GraphEdit、GraphFrame、GraphNode、ItemList、Label、LineEdit、LinkButton、MenuBar、MenuButton、OptionButton、Panel、PanelContainer、ProgressBar、RichTextLabel、ScrollContainer、TabContainer、Tree、TextEdit |
+| `background-color`、`background`、`border-*`、`padding`、`box-shadow` | 该类要有一个背景盒（`panel`、`normal`、`background` 之一） | Button、CheckBox、CheckButton、CodeEdit、ColorPickerButton、FoldableContainer、GraphEdit、GraphFrame、GraphNode、ItemList、Label、LineEdit、MenuBar、MenuButton、OptionButton、Panel、PanelContainer、ProgressBar、RichTextLabel、ScrollContainer、TabContainer、Tree、TextEdit（`LinkButton` 与 `TabBar` 没有背景盒，见上节） |
 | `margin`、`margin-top` 等 | `margin_left` / `margin_top` / `margin_right` / `margin_bottom` | MarginContainer（仅此一类） |
 | `gap`、`row-gap`、`column-gap` | `separation`，或 `h_separation` 与 `v_separation` | 前者：BoxContainer、HBoxContainer、VBoxContainer、HSeparator、VSeparator、SplitContainer、HSplitContainer、VSplitContainer、ColorPicker、GraphNode；后者：GridContainer、FlowContainer、HFlowContainer、VFlowContainer、ItemList、Tree |
 
@@ -695,15 +617,11 @@ font-family: A, B, C
 | `text-overflow` | `text_overrun_behavior` | Label、Button、LinkButton、ItemList |
 | `white-space` | `autowrap_mode` | Label、Button、RichTextLabel、TextEdit |
 
-词汇表未收录的类（`Control`、`Container`、`CenterContainer`、`AspectRatioContainer`、
-`TextureRect`、`ColorRect` 等）不具备任何 theme item，外观类属性对其一律输出告警。
-告警按「属性 + 类名」去重，同一组合仅输出一次。
+下列类不支持外观属性（`Control`、`Container`、`CenterContainer`、`AspectRatioContainer`、`TextureRect`、`ColorRect` 等）：其主题中不存在任何可用项，外观类属性对其一律输出告警。告警按「属性 + 类名」去重，同一组合仅输出一次。
 
 ### 伪类状态
 
-`:hover`、`:active`、`:focus`、`:pressed` 由 Godot 信号驱动；`:checked`、`:disabled`、`:enabled`、
-`:read-only` 除了信号还由**节点属性**驱动（见下表）。声明的目标 theme item 由**选择器自身声明的
-状态伪类**决定，与节点当前处于哪些状态无关，无需额外属性：
+`:hover`、`:active`、`:focus`、`:pressed` 由 Godot 信号驱动；`:checked`、`:disabled`、`:enabled`、`:read-only` 除信号外还取决于**节点属性**（见下表）。写入哪个状态的主题项，由选择器声明的状态伪类决定，与节点当前实际状态无关：
 
 | 伪类 | 来源 | stylebox | 颜色中缀 |
 | --- | --- | --- | --- |
@@ -718,45 +636,23 @@ font-family: A, B, C
 
 以下行为需要特别注意：
 
-- **`:hover` 会向祖先冒泡，与 CSS 一致**。引擎只在「最深接收控件 + 它往上直到第一个
-  `mouse_filter = STOP` 的祖先」这条链上发 `mouse_entered`：一个 STOP 子控件（`Button` /
-  `CheckBox` / 用来撑位的空 `Control`）会把事件整个吃掉，父级一个信号都收不到。于是浏览器里
-  天经地义的 `.list-row:hover { border-color: … }`（指针停在行内的 `CheckBox` 上，整行也得亮）
-  在引擎里会退化成「只有指针精确落在行自身那一圈 padding 上才亮」。本库补齐了冒泡：任一节点
-  报告进入悬停，它的所有 Control 祖先一并进入 `:hover`，退出时同样一路撤掉。同一个祖先可以被
-  多个来源同时举着（它自身 + 某个子孙），只有最后一个来源消失才撤悬停，因此父子先后进出也不会
-  互相顶掉。节点被 `queue_free` / 移出节点树时按退出处理（引擎此时不再补发 `mouse_exited`）。
-  `:focus` 不冒泡是对的（CSS 里那叫 `:focus-within`）；`:active` / `:pressed` 也只落在控件自身，
-  浏览器会连祖先一起点亮的那条行为本库未做。
+- **`:hover` 会向祖先传播，`:focus` / `:active` / `:pressed` 不会**。指针停在行内控件（`Button`、`CheckBox` 等）上时，外层 `.row:hover` 同样进入悬停，与浏览器一致。差异在于：CSS 的 `:focus-within` 没有对应实现，`:focus` 仅作用于获得键盘焦点的控件自身；`:active` / `:pressed` 同样仅作用于控件自身，浏览器中祖先一并进入激活状态的行为不支持。
 
-- **勾选态复用 `pressed` 落点**。Godot 的开关控件（`CheckBox` / `CheckButton` /
-  `toggle_mode=true` 的 `Button`）在 `button_pressed=true` 时绘制的是 `pressed` 盒与
-  `font_pressed_color`，而不是 `normal` / `font_color`。因此浅色主题下仅声明
-  `CheckBox { color: … }` 不足以覆盖勾选态，需同时声明 `CheckBox:checked { color: … }`
-  （或为勾选态单独准备一份 `font_pressed_color`）。
-  `hover` 与勾选同时成立时使用合成 item（`hover_pressed` / `font_hover_pressed_color`）。
-  反之，`toggle_mode=false` 的普通 `Button` 写入 `button_pressed=true` 不会生效（引擎的
-  `is_pressed()` 即 `toggle_mode && button_pressed`，setter 自带门控），因此 `:checked`
-  仅对开关控件有效；使用 `[toggle_mode]` + `[button_pressed]` 绑定时必须**先写 `toggle_mode`**，
-  之后写入的 `button_pressed` 才会被保留。
-- **颜色落点的重定向仅取决于主体段的伪类**。主体段指选择器最右侧的复合选择器，即被样式命中的
-  节点本身。`.card:hover .btn` 要求的是卡片悬停，与按钮自身状态无关，因此仍写基 item
-  （`:not(:hover)` 同理不计入状态要求）。基规则的 `color` 永远写 `font_color`，不会被顶进
-  `font_disabled_color`——那条 override 属于 `:disabled` 规则，基规则没资格写。
-  落点取的是「主体段要求的状态 ∩ 节点此刻挂着的状态」：`:is(:hover, :focus)` 要求两支之一，
-  只有键盘聚焦成立时值必须写 `font_focus_color`，写进 `font_hover_color` 引擎读不到。
-- **stylebox 走层叠合成，与颜色是两套口径**。Godot 为每个状态各存一个完整、互不继承的盒，
-  而 CSS 的 `:hover` 只覆盖它自己声明的那几条、其余沿用基规则。因此本库按字段来源合成：
+- **勾选态使用 `pressed` 系列主题项，而非 `normal`**。开关控件（`CheckBox` / `CheckButton` / `toggle_mode=true` 的 `Button`）勾选时绘制的是 `pressed` 盒与 `font_pressed_color`。因此仅声明 `CheckBox { color: … }` 时，勾选后颜色不会变化，需追加一条声明：
 
-  > **状态盒 = 引擎该状态的默认盒 ⊕ 基规则声明过的字段 ⊕ 该状态声明的字段**
+```css
+CheckBox         { color: #333; }
+CheckBox:checked { color: #333; }  /* 勾选时引擎读取 font_pressed_color */
+```
 
-  一句话：**没声明的字段一个字节都不碰；声明过的字段必须贯穿所有状态。**于是
-  `Button.primary { padding: 8px 12px; border-radius: 9px }` 在悬停、按下、获得焦点时
-  都成立（不写 `:hover` 也不会塌回引擎默认的直角小盒），而作者没写过的底色、描边粗细
-  仍由主题决定，引擎自己的悬停加深不会被抹掉。
+  悬停与勾选同时成立时，引擎读取 `hover_pressed` / `font_hover_pressed_color`，本包自动写入该项。反之，`toggle_mode=false` 的普通 `Button` 设置 `button_pressed=true` 不生效（引擎仅接受 `toggle_mode && button_pressed`），因此 `:checked` 仅对开关控件有效。使用 `[toggle_mode]` + `[button_pressed]` 绑定时需**先写 `toggle_mode`**，随后写入的 `button_pressed` 才会保留。
+- **盒子与颜色遵循两套规则**。颜色按状态各存一个值；盒子则每个状态各存一整份，Godot 不会让 `:hover` 盒继承基规则。CSS 的语义是 `:hover` 仅覆盖自身声明的属性，其余沿用基规则，因此本包按字段来源合成盒子：
 
-  推论：基规则写了 `background-color`，禁用态也就还是那个底色（与浏览器一致——作者写了
-  background，主题的禁用底色就被覆盖）。需要专属状态外观必须显式声明：
+  > 某状态的盒子 = 引擎该状态的默认盒子 ⊕ 基规则写过的字段 ⊕ 该状态写过的字段
+
+  即：**未声明的字段不做任何修改；已声明的字段在所有状态下均生效。** 于是 `Button.primary { padding: 8px 12px; border-radius: 9px }` 在悬停、按下、获得焦点时都成立（未声明 `:hover` 也不会退回引擎默认的直角小盒），而未声明的底色、描边粗细仍由主题决定，引擎自身的悬停加深不会被抹掉。
+
+  推论：基规则写了 `background-color`，禁用态也就还是那个底色（与浏览器一致——作者写了 background，主题的禁用底色就被覆盖）。需要专属状态外观必须显式声明：
 
 ```css
 Button.primary { background-color: #2b7fff; padding: 8px 12px; border-radius: 9px; }
@@ -765,14 +661,9 @@ Button.primary:hover  { background-color: #4a90ff; }    /* 不写就沿用上面
 Button.primary:focus  { border-color: #6cb2f5; }        /* 焦点环同理，见下方 outline */
 ```
 
-  两个盒名集合之外的状态不参与合成：`Tree` 的 `hovered`、`TabBar` 的 `tab_hovered`、
-  `FoldableContainer` 的 `title_hover_panel` 是**行级 / 标签级 / 标题条级**状态，CSS 的
-  `:hover` 说的不是它们，因此 `Tree:hover` 改的是整棵树的盒与文字色，不是某一行的；
-  行级外观请直接设置主题。
+  两个盒名集合之外的状态不参与合成：`Tree` 的 `hovered`、`TabBar` 的 `tab_hovered`、`FoldableContainer` 的 `title_hover_panel` 是**行级 / 标签级 / 标题条级**状态，CSS 的 `:hover` 说的不是它们，因此 `Tree:hover` 改的是整棵树的盒与文字色，不是某一行的；行级外观请直接设置主题。
 
-- **基规则与状态规则各写各的主题项，互不覆盖**。`Button.primary { color: 蓝 }` 写 `font_color`，
-  `Button.primary:hover { color: 红 }` 写 `font_hover_color`，两个值同时存在，引擎按当前
-  状态各自读取。层叠的“后者覆盖前者”只在**同一个主题项内**比较特异度与源码顺序：
+- **基规则与状态规则分别写入各自的主题项，互不覆盖**。`Button.primary { color: 蓝 }` 写入 `font_color`，`Button.primary:hover { color: 红 }` 写入 `font_hover_color`，两个值同时存在，引擎按当前状态各自读取。层叠的“后者覆盖前者”只在**同一个主题项内**比较特异度与源码顺序：
 
 ```css
 Button.primary       { color: #2b7fff; }  /* → font_color */
@@ -780,9 +671,7 @@ Button.primary:hover { color: #ff4040; }  /* → font_hover_color，不被下一
 Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点的基规则 */
 ```
 
-  前提是该类真有对应的状态项。没有时两条声明只能抢同一个主题项（`Label` 只有 `font_color`；
-  `font-size` 与 `gap` 这类常量全类都没有状态变体），此时回到正常的层叠比较，状态规则**没有**
-  优先权：
+  前提是该类真有对应的状态项。没有时两条声明只能抢同一个主题项（`Label` 只有 `font_color`；`font-size` 与 `gap` 这类常量全类都没有状态变体），此时回到正常的层叠比较，状态规则**没有**优先权：
 
 ```css
 .title:hover { color: #ff4040; }   /* 0,2,0 在前 */
@@ -793,10 +682,8 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 .menu.open   { font-size: 20px; }  /* 同为 0,2,0 且在后 → 展开 + 悬停仍是 20 */
 ```
 
-  状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的
-  颜色；颜色因此回落到主题默认值（stylebox 不同：回落到基规则声明的值，见上条）。
-- **属性驱动的伪类仅对声明了该属性的控件有效**。下表列出各伪类的前置属性与适用类；
-  不满足前置条件的伪类无法推导，运行时按「伪类 × 类名」组合告警一次：
+  状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的颜色；颜色因此回落到主题默认值（stylebox 不同：回落到基规则声明的值，见上条）。
+- **属性驱动的伪类仅对声明了该属性的控件有效**。下表列出各伪类的前置属性与适用类；不满足前置条件的伪类无法推导，运行时按「伪类 × 类名」组合告警一次：
 
 | 伪类 | 前置引擎属性 | 具备该属性的控件 | 不具备（伪类无效） |
 | --- | --- | --- | --- |
@@ -804,10 +691,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 | `:disabled` `:enabled` | `disabled` | `BaseButton` 系：`Button` / `CheckBox` / `CheckButton` / `OptionButton` / `MenuButton` / `LinkButton` | `LineEdit` / `TextEdit` / `Slider` / `SpinBox` / `ItemList` / `ScrollBar` / `ColorPicker` |
 | `:read-only` | `editable`（`false` 时成立） | `LineEdit` / `TextEdit` / `SpinBox` / `Slider` | `Button` 系 / `ItemList` / `ScrollBar` / `ColorPicker` |
 
-  上表末列的控件如需禁用外观，只能通过 class 通道声明。其中 `ItemList` / `ColorPicker` /
-  `ScrollBar` 两个前置属性均不具备，表单指令只能以 `mouse_filter = MOUSE_FILTER_IGNORE`
-  表达不可交互；而**鼠标穿透不等价于禁用**（`Label` 等控件默认即为 `IGNORE`），因此本库
-  不会将 `IGNORE` 推导为禁用态。这三类的禁用外观请使用 class 通道：
+  上表末列的控件如需禁用外观，只能通过 class 通道声明。其中 `ItemList` / `ColorPicker` /`ScrollBar` 两个前置属性均不具备，表单指令只能以 `mouse_filter = MOUSE_FILTER_IGNORE` 表达不可交互；而**鼠标穿透不等价于禁用**（`Label` 等控件默认即为 `IGNORE`），因此本包不会将 `IGNORE` 推导为禁用态。这三类的禁用外观请使用 class 通道：
 
 ```html
 <ItemList class="files" [class.off]="locked()"></ItemList>
@@ -816,10 +700,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 .files.off { color: #666; }
 ```
 
-- **仅具备 `editable` 的控件，其禁用状态推导为 `:read-only` 而非 `:disabled`**。`LineEdit` /
-  `TextEdit` / `Slider` / `SpinBox` 类上不存在 `disabled` 属性（Godot 文档中其属性集仅含
-  `bool editable`），表单指令的 `setDisabledState()` 只能写 `editable = !isDisabled`，而
-  `editable=false` 推导出的仍是 `:read-only`。于是同一段模板：
+- **仅具备 `editable` 的控件，其禁用状态推导为 `:read-only` 而非 `:disabled`**。`LineEdit` /`TextEdit` / `Slider` / `SpinBox` 类上不存在 `disabled` 属性（Godot 文档中其属性集仅含 `bool editable`），表单指令的 `setDisabledState()` 只能写 `editable = !isDisabled`，而 `editable=false` 推导出的仍是 `:read-only`。于是同一段模板：
 
 ```html
 <LineEdit class="field" [ngModel="note()" [disabled]="locked()"></LineEdit>
@@ -829,9 +710,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 .field:read-only  { color: #666; }  /* ✓ 表单禁用与只读在这里共用一个落点 */
 ```
 
-  这是引擎的属性粒度所致，并非适配层遗漏通道：`editable` 一个属性同时承载 CSS 中
-  `disabled` 与 `readonly` 两个语义，本库无法从属性值区分二者。声明这类控件的禁用样式时
-  应直接使用 `:read-only`（或采用上述 class 通道）。需要区分时，只有 class 通道能够区分：
+  原因在于 `editable` 一个属性同时承载 CSS 中 `disabled` 与 `readonly` 两个语义，无法从属性值区分。声明这类控件的禁用样式时应直接使用 `:read-only`（或采用上述 class 通道）。需要区分时，只有 class 通道能够区分：
 
 ```html
 <LineEdit class="field" [class.off]="locked()" [class.view]="isView()"></LineEdit>
@@ -841,18 +720,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 .field.off  { color: #666; }   /* 表单禁用 */
 ```
 
-- **同一条选择器写了多个状态伪类时，按引擎的 `get_draw_mode()` 合成一个 item**，顺序是
-  `disabled` → `active`/`pressed`/`checked` → `selected` → `hover` → `focus` → `read-only`。
-  例如 `.btn:hover:active` 落到 `hover_pressed` / `font_hover_pressed_color`。`disabled` 居首
-  对应引擎先判定 `is_enabled()`、后判定勾选与悬停的顺序：一个已勾选的禁用 `CheckBox` 读取
-  的是 `font_disabled_color`，此时写入 `font_pressed_color` 不会被读取。注意这只作用于
-  **单条选择器内部**：`.btn:hover` 与 `.btn:disabled` 是两条规则，各自写 `hover` 与 `disabled`
-  两个盒，互不覆盖。
-- **状态属性没有变更信号**。`disabled` / `editable` 在 Godot 中不发出任何变更通知
-  （`button_pressed` 赋值会附带发出 `toggled`，但 `set_pressed_no_signal()` 不会），因此由
-  以下写入方负责标脏，级联在帧末重算时从属性上读回伪类：模板绑定（`[button_pressed]` /
-  `[disabled]` / `[editable]`）、表单指令（`ngModel` / `formControl` 的 `writeValue` /
-  `setDisabledState`）。直接对节点赋值（`node.button_pressed = true`）绕过上述通道，需手动标脏：
+- **状态属性没有变更信号**。`disabled` / `editable` 变化时引擎不发通知，因此只有经模板绑定（`[button_pressed]` /`[disabled]` / `[editable]`）或表单指令（`ngModel` / `formControl`）修改时，样式才会更新。直接对节点赋值（`node.button_pressed = true`）绕过上述通道，需手动标脏：
 
 ```ts
 inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回来
@@ -875,66 +743,44 @@ inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回�
 <Label [style.color]="'#ff8800'" [style.fontSize]="28"></Label>
 ```
 
-`class` 为有效输入：`[class.disabled]="busy()"`、`[class]` 与静态 `class="a b"` 在帧末重新计算
-级联。特异度按 CSS 算法计算，`!important` 独立成层（普通 → 内联 → important）。
-`ViewEncapsulation` 的分层与浏览器端一致：`Emulated`（默认）为局部层，`None` 与 `ShadowDom`
-归入全局层；Godot 没有 shadow root，`ShadowDom` 会告警并按 `None` 处理。
+`class` 为有效输入：`[class.disabled]="busy()"`、`[class]` 与静态 `class="a b"` 在帧末重新计算级联。特异度按 CSS 算法计算，`!important` 独立成层（普通 → 内联 → important）。`ViewEncapsulation` 的分层与浏览器端一致：`Emulated`（默认）为局部层，`None` 与 `ShadowDom` 归入全局层；Godot 没有 shadow root，`ShadowDom` 会告警并按 `None` 处理。
 
-支持的选择器：`*`、类型选择器（对应节点类名）、`.class`、`[attr]`、`[attr=v]`、后代 `A B`、
-子选择器 `A > B`、相邻 `A + B`、兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与
-`:host.on` 由 Angular 编译为宿主属性选择器。
+支持的选择器：`*`、类型选择器（对应节点类名）、`.class`、`[attr]`、`[attr=v]`、后代 `A B`、子选择器 `A > B`、相邻 `A + B`、兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与 `:host.on` 由 Angular 编译为宿主属性选择器。
 
-不支持 `#id`：Godot 节点没有 `id` 属性，`name` 可重名不能当 id，单点选中请用 class（样式表里
-出现 `#id` 会告警一次，选择器解析本身保留）。兄弟组合器
-只在元素之间成立：`@if` / `@for` 的锚点不占兄弟位，也不被兄弟选择器命中（与浏览器里
-`nextElementSibling` 跳过注释节点一致）；插入与移除节点后，同级兄弟的 `+` / `~` 会自动重算。
+不支持 `#id`：Godot 节点没有 `id` 属性，`name` 允许重名，不能作为标识使用；需要单独选中某个节点时使用 class（样式表中出现 `#id` 会告警一次，选择器解析本身保留）。
 
-`@media` 支持 `width`、`height`、`orientation`、`prefers-color-scheme`（`aspect-ratio` 这类
-特性不在环境键里，写了也不会命中）。自动注入只提供 `width` / `height` /
-`prefers-color-scheme`，`orientation` 与 `device-width` / `device-height` 需要自行注入：
+`+`（紧邻兄弟）与 `~`（后续兄弟）仅在元素之间计算。`@if`、`@for` 会在节点树中留下占位节点，它们**不占用兄弟位置**，也不会被兄弟选择器命中（与浏览器中 `nextElementSibling` 跳过注释节点的行为一致）；插入或删除节点后，同级的 `+` / `~` 会自动重算。
+
+`@media` 支持 `width`、`height`、`orientation`、`prefers-color-scheme`（`aspect-ratio` 这类特性不在环境键里，写了也不会命中）。自动注入只提供 `width` / `height` /`prefers-color-scheme`，`orientation` 与 `device-width` / `device-height` 需要自行注入：
 
 ```ts
 inject(STYLE_RUNTIME).setEnv({ width: 1280, height: 720, "prefers-color-scheme": "dark" });
 ```
 
-自动注入的宽高量的是**挂载点（`GODOT_ROOT`）自己占多大**，不是操作系统窗口多大：局部挂载
-就是局部断点。「快速开始」那个例子的挂载点是 1024×768，那么 `@media (max-width: 1100px)` 就会
-命中，不管窗口实际有多宽。两种情况退回量窗口：挂载点不是 `Control`，或它还没被布局过（尺寸 0）。
+自动注入的宽高量的是**挂载点（`GODOT_ROOT`）自己占多大**，不是操作系统窗口多大：局部挂载就是局部断点。「快速开始」那个例子的挂载点是 1024×768，那么 `@media (max-width: 1100px)` 就会命中，不管窗口实际有多宽。两种情况退回量窗口：挂载点不是 `Control`，或它还没被布局过（尺寸 0）。
 
-量到的一律是**布局坐标系**（与 `Control.size` 同一坐标系），不是窗口物理像素：开了内容缩放时
-两者差一个缩放因子——基准 1280×720 的项目在 1920×1080 的窗口里布局宽度仍是 1280，断点按
-1280 写就对了，不要拿 `Window.size` 换算。挂载点铺满窗口（`PRESET_FULL_RECT`）时，它的 `size`
-与窗口视口逐位相等，两种量法等价。
+量到的一律是**布局坐标系**（与 `Control.size` 同一坐标系），不是窗口物理像素：开了内容缩放时两者差一个缩放因子——基准 1280×720 的项目在 1920×1080 的窗口里布局宽度仍是 1280，断点按 1280 写就对了，不要拿 `Window.size` 换算。挂载点铺满窗口（`PRESET_FULL_RECT`）时，它的 `size` 与窗口视口逐位相等，两种量法等价。
 
 CSS 自定义属性（`--x`、`var(--x)`）已支持。
 
-以下伪类语法合法，但在 Godot 中既无信号也无属性可推，不会自动生效，样式表使用时输出一次告警：
-`:valid`、`:invalid`、`:indeterminate`、`:selected`、`:required`、`:optional`。请改用 class
-通道，或显式设置：
+以下伪类语法合法，但在 Godot 中既无信号也无属性可推，不会自动生效，样式表使用时输出一次告警：`:valid`、`:invalid`、`:indeterminate`、`:selected`、`:required`、`:optional`。请改用 class 通道，或显式设置：
 
 ```ts
 inject(STYLE_RUNTIME).setPseudoClass(node, "selected", true);
 ```
 
-属性驱动的伪类（`:checked` / `:disabled` / `:enabled` / `:read-only`）**只对真有那个属性的控件
-有效**：`:checked` 要 `button_pressed`（开关控件），`:disabled` / `:enabled` 要 `disabled`
-（`BaseButton` 以次），`:read-only` 要 `editable`（`LineEdit` / `TextEdit` / `Slider` / `SpinBox`）。
-样式表用到了某伪类、而当前这类控件没有对应属性时，会按「伪类 × 类名」告警一次：
+属性驱动的伪类（`:checked` / `:disabled` / `:enabled` / `:read-only`）**只对真有那个属性的控件有效**：`:checked` 要 `button_pressed`（开关控件），`:disabled` / `:enabled` 要 `disabled`（`BaseButton` 系），`:read-only` 要 `editable`（`LineEdit` / `TextEdit` / `Slider` / `SpinBox`）。样式表用到了某伪类、而当前这类控件没有对应属性时，会按「伪类 × 类名」告警一次：
 
 ```
 ItemList 没有 disabled 属性，:disabled 在它身上推不出来（不会自动生效）。
 如需该外观，请走 class 通道（[class."disabled"]="…" 配合 CSS .x.disabled）。
 ```
 
-`:selected` 有真实落点（`ItemList` / `Tree` 的 `selected` 盒与 `font_selected_color`），只是引擎
-没有“整个控件被选中”这种信号：行级选中属于 ItemList 内部，CSS 选择器只能到控件粒度。
+`:selected` 有对应主题项（`ItemList` / `Tree` 的 `selected` 盒与 `font_selected_color`），但引擎没有“整个控件被选中”的信号：行级选中属于控件内部，CSS 选择器只能到控件粒度，因此需手动驱动。
 
-以下特性不支持，处理时输出一次告警并忽略：`calc()`、`url()`、`@keyframes` 与动画、
-`position: fixed` / `absolute`、`overflow` 滚动裁切、`grid` 的真实网格（仅转换为
-`GridContainer` 的列数）、字体加载、伪元素 `::before` 与 `::after`。
+以下特性不支持，处理时输出一次告警并忽略：`calc()`、`url()`、`@keyframes` 与动画、`position: fixed` / `absolute`、`overflow` 滚动裁切、`grid` 的真实网格（仅转换为 `GridContainer` 的列数）、字体加载、伪元素 `::before` 与 `::after`。
 
-CSS 嵌套（nesting）不支持。解析器将声明块内部的 `{` 视为语法错误，下列写法会输出一条
-告警，且其中的声明不会生效：
+CSS 嵌套（nesting）不支持。解析器将声明块内部的 `{` 视为语法错误，下列写法会输出一条告警，且其中的声明不会生效：
 
 ```css
 /* 不支持：内层块会被当作声明解析 */
@@ -953,24 +799,15 @@ HBoxContainer Label {
 }
 ```
 
-如需使用嵌套语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`。构建期会先调用 vite 的
-`preprocessCSS`（与组件 `styleUrls` 使用同一入口），由预处理器展开嵌套后再交给解析器。
-全局样式与 `styleUrls` 均适用；扩展名为 `.css` 的文件不做预处理。
+如需使用嵌套语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`。构建期会先调用 vite 的 `preprocessCSS`（与组件 `styleUrls` 使用同一入口），由预处理器展开嵌套后再交给解析器。全局样式与 `styleUrls` 均适用；扩展名为 `.css` 的文件不做预处理。
 
-长度单位仅支持 `px` 与不带单位的数值。`%`、`em`、`rem`、`vw`、`vh`、`cm`、`pt` 等单位
-均无落点，将输出告警并丢弃该条声明（详见「样式」一节关于单位的说明）。
+长度单位仅支持 `px` 与不带单位的数值。`%`、`em`、`rem`、`vw`、`vh`、`cm`、`pt` 等单位均无落点，将输出告警并丢弃该条声明（见「样式」开头的单位说明）。
 
-`add_theme_*_override` 与 `theme_type_variation` 按条目互斥：已写入 override 的条目在切换变体后
-仍返回 override 值。同一条目不应同时使用静态主题变体与运行时级联，默认全部使用运行时级联。
+`add_theme_*_override` 与 `theme_type_variation` 按条目互斥：已写入 override 的条目在切换变体后仍返回 override 值。同一条目不应同时使用静态主题变体与运行时级联，默认全部使用运行时级联。
 
-class 选择器与 `theme_type_variation` 无关。变体是节点上的单值属性，而一个节点可以同时具有
-多个 class，两者无法一一对应；变体名还必须预先注册在主题资源里，构建期无从推断。如需使用变体，
-请自行设置节点属性，本包不会由 class 推导变体名。
+class 选择器与 `theme_type_variation` 无关，本包不会由 class 推导变体名。需要使用变体时，请自行设置节点属性。
 
-无显示环境（CI、无头模式）中根窗口是个 dummy 值：实测 `Window.size` 与 `get_visible_rect()` 均为
-`64×64`（4.6.1 与 4.8-dev6 一致），`DisplayServer.screen_get_size()` 为 `(0, 0)`，`is_dark_mode()`
-恒为 `false`。也就是说无头下媒体查询会静默落在**窄屏分支**（64 ≤ 任意 `max-width` 断点），要
-确定性结果就显式 `setEnv`。真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
+无显示环境（CI、无头模式）下取不到真实屏幕信息，媒体查询会静默落在**窄屏分支**（根窗口尺寸是个极小值，小于任意 `max-width` 断点），`prefers-color-scheme` 恒为浅色。需要确定性结果时请显式调用 `setEnv`；真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
 
 ### 告警与生产构建
 
@@ -981,35 +818,17 @@ class 选择器与 `theme_type_variation` 无关。变体是节点上的单值�
 | `[忽略]` | 完全不支持，该条声明被丢弃，Godot 侧无对应实现 | 改写，或者接受该效果不存在 |
 | `[兼容]` | 已写入并生效，但 Godot 的语义与 CSS 不同，结果仅为近似 | 判断近似能否接受，不能接受则改用其它写法 |
 
-例：`border-top-color` 只能落在四边共用的 `border_color` 上，写入后生效，但四边将同色，
-因此是 `[兼容]`；`outline` 在 Godot 中没有不占位的描边层，无法写入，因此是 `[忽略]`。
+例：`border-top-color` 只能落在四边共用的 `border_color` 上，写入后生效，但四边将同色，因此是 `[兼容]`；`outline` 在 Godot 中没有不占位的描边层，无法写入，因此是 `[忽略]`。
 
-运行期告警统一受开发模式标记控制，使用的即 Angular 自身的 `ngDevMode`。此处的口径是
-**编译期消除，而非运行时不打印**：构建器在两个方向均将 `ngDevMode` 固定（`optimization.scripts`
-开启时为 `false`，否则为 `true`），每一条告警（连同其文案）均整条包裹于 `if (ngDevMode)` 中，
-整个分支将被折叠消除，产物中既不拼接字符串，也不保留提示文字。仅将守卫置于被调用函数内部是
-无效的：调用点的模板字符串仍会进入产物。开发构建的取值为 `true`，告警全部保留——告警的意义
-在于开发阶段被发现并修正。
+运行期告警统一受 Angular 自身的 `ngDevMode` 控制，且是**编译期消除，而非运行时不打印**：开发构建保留全部告警；生产构建中告警连同提示文字一并从产物移除。因此不要在生产构建中依赖告警定位样式问题，应在开发构建阶段修正。
 
-标识符仅声明一次（仓库根 `typings/ng-dev-mode.d.ts`，类型为 `boolean`）：其值在编译期固定，
-运行期仅有 `true` / `false` 两种，无需 `typeof` 探测。应用产物由构建器的 `define` 覆盖；
-builder 自身在 Node 中需 `import "godot-angular/css"` 做样式 lint，该依赖通常作为 external
-的发布物（ng-packagr 不做 define，其中会残留自由标识符），因此 `tools/vite-build.ts` 将其
-内联至 builder 产物，并对这份副本 `define: { ngDevMode: "true" }`——Node 侧的问题在 Node
-的构建配置中解决，源码中不保留运行期全局赋值。
-
-该口径由回归测试保障（将构建产物再次交由打包器处理，在产物中检索告警用词）：仅 css 包体积
-就相差 6.4 KB / 16.7%，生产构建不收集这些文案。
-
-构建期检查（选择器拼写、属性名、词汇表）不受此标记影响，无论是否开启优化都会输出：其属于
-一次性成本，且仅在开发阶段发生。
+构建期检查（选择器拼写、属性名、不支持的类）不受该标记影响，无论是否开启优化都会输出。
 
 同一类问题仅报告一次（按“属性 + 原因”去重），不会逐帧重复输出。
 
 ## 路由
 
-`@angular/router` 原样可用，不需要改它一行。路由对平台的全部依赖收敛在三个 token 上，
-`provideGodotRouter` 提供 Godot 侧的实现：
+`@angular/router` 原样可用，不需要改它一行。路由对平台的全部依赖收敛在三个 token 上，`provideGodotRouter` 提供 Godot 侧的实现：
 
 | token | 浏览器实现 | Godot 实现 |
 | --- | --- | --- |
@@ -1017,9 +836,7 @@ builder 自身在 Node 中需 `import "godot-angular/css"` 做样式 lint，该�
 | `ViewportScroller` | 浏览器视口 | 空实现（滚动属于 `ScrollContainer`，与视口无关） |
 | `TitleStrategy` | 写 `document.title` | 写窗口标题 |
 
-`DOCUMENT` 不在此列：它是 core 里无 factory 的裸 token，而当前装配链里没人 `inject(DOCUMENT)`
-（`route.title` 已改走 `GodotTitleStrategy`，`PathLocationStrategy` 的兜底读被
-`getBaseHrefFromDOM()` 返回的空串断在 `??` 上），所以不提供。
+`DOCUMENT` 不在此列：它是 core 里无 factory 的裸 token，而当前装配链里没人 `inject(DOCUMENT)`（`route.title` 已改走 `GodotTitleStrategy`，`PathLocationStrategy` 的兜底读被 `getBaseHrefFromDOM()` 返回的空串断在 `??` 上），所以不提供。
 
 安装 `@angular/router`（本包的可选 peer 依赖），然后像浏览器里一样配置：
 
@@ -1059,37 +876,20 @@ export class App {
 }
 ```
 
-`router-outlet` 不是 Godot 类，渲染为一个**空的** `VBoxContainer`：它只是锚点，激活的页面插在
-它**后面**（与它平级），不是它的子节点。浏览器里也是这样 —— 路由内容本来就是
-`<router-outlet>` 的兄弟（所以才有 `router-outlet + *` 这种选择器），这里只是把同样的
-结构搬到了节点树上。
+`router-outlet` 不是 Godot 类，渲染为一个**空的** `VBoxContainer`：它只是占位容器，激活的页面插在它**后面**（与它平级），不是它的子节点。浏览器里也是这样 —— 路由内容本来就是 `<router-outlet>` 的兄弟（所以才有 `router-outlet + *` 这种选择器），这里只是把同样的结构搬到了节点树上。
 
-`Router`、`Location`、`ActivatedRoute` 从 `@angular/router` 直接导入，用法与浏览器一致。
-`Location.back()` / `forward()` 有效。
+`Router`、`Location`、`ActivatedRoute` 从 `@angular/router` 直接导入，用法与浏览器一致。`Location.back()` / `forward()` 有效。
 
 ### routerLink 不支持
 
-`RouterLink` / `RouterLinkActive` 在 Godot 里用不了，跳转请写 `(click)="go(...)"` 加
-`router.navigate()`。原因：`RouterLink` 的 host listener 是
-`click: onClick($event.button, $event.ctrlKey, …)`，而 `Button.pressed()` 零参数，
-`$event` 为 `undefined`，读成员当场 TypeError。
+`RouterLink` / `RouterLinkActive` 在 Godot 中不可用，跳转请写 `(click)="go(...)"` 配合 `router.navigate()`。原因：`RouterLink` 的 host listener 是 `click: onClick($event.button, $event.ctrlKey, …)`，而 `Button.pressed()` 零参数，`$event` 为 `undefined`，读取成员时抛出 TypeError。
 
-两条退路都实测过，都不通：
-
-- **继承覆写 `onClick` 救不了**。Angular 的 `inheritHostBindings` 是**合并**而非覆盖
-  （先跑 `superHostBindings(rf, ctx)` 再跑子类那份），报错在 Angular 生成的
-  `RouterLink_click_HostBindingHandler` 里，根本进不到 `onClick`。
-- **自己写一个同名指令会丢 `routerLinkActive`**。`RouterLinkActive` 靠
-  `@ContentChildren(RouterLink)` 找链接，而 Angular 匹配指令用的是 `def.type === token`
-  精确相等，不走 `instanceof`，子类与替身指令都查不到。
-
-这不是“差一步就能支持”：要支持就得给所有零参数信号伪造 `$event`，拿全局语义换一个小功能。
+继承覆写 `onClick` 或自行定义同名指令都无法绕过，两者均已验证不生效：前者的报错发生在 Angular 生成的宿主绑定处理器中，执行得早于 `onClick`；后者会使 `RouterLinkActive` 找不到链接。
 
 ### 路由的边界
 
 - **URL 不持久化**。历史栈活在内存里，进程结束即消失，重启从起始 URL 重新开始。
-- **起始 URL 由 `GODOT_INITIAL_URL` 声明**，默认 `/`。Godot 没有地址栏，“从哪个页面开始”
-  必须从外部进来（启动参数、配置、存档）：
+- **起始 URL 由 `GODOT_INITIAL_URL` 声明**，默认 `/`。Godot 没有地址栏，“从哪个页面开始”必须从外部进来（启动参数、配置、存档）：
 
   ```ts
   bootstrapGodotApp(App, root, [
@@ -1098,40 +898,25 @@ export class App {
   ]);
   ```
 
-  它不只是“少写一次 `navigate`”：初始导航就是导航到这个地址，所以**路由表里没有空路径时
-  它是唯一入口** —— 不给则初始导航匹配不上，outlet 保持空（而不是先渲染再跳）。
-- **URL 解析就是 WHATWG 标准本身**：跑的是 `whatwg-url-minimum`（whatwg-url 的零依赖版，
-  拿原版对拍过 24222 条用例逐条一致），不是手写的子集。所以 `/a/../b` 折叠成 `/b`、
-  `about` 相对当前目录解析、`?q=1` 会丢掉锚点、需要编码的字符编一次不会二次编码 ——
-  与浏览器里 `history.pushState(url)` 同源。代价约 215KB 源码。
-- **`URL` / `URLSearchParams` 默认可用**。GodotJS 原生没有（V8 只给 ECMAScript），库会把它们
-  装到全局，用户代码解析启动参数 / 存档里的链接可以直接 `new URL(...)`。
+  除省略一次 `navigate` 调用之外，初始导航即导航到该地址：路由表中没有空路径时它是唯一入口，未提供时初始导航无法匹配，outlet 保持为空（不会先渲染再跳转）。
+- **URL 解析与浏览器一致**：`/a/../b` 折叠成 `/b`、`about` 相对当前目录解析、`?q=1` 会丢弃锚点、需要编码的字符仅编码一次不会二次编码，与浏览器中 `history.pushState(url)` 同源。代价是约 215KB 源码体积。
+- **`URL` / `URLSearchParams` 默认可用**。GodotJS 原生没有（V8 只给 ECMAScript），库会把它们装到全局，用户代码解析启动参数 / 存档里的链接可以直接 `new URL(...)`。
 - **懒加载不可用**。`loadComponent` / `loadChildren` 依赖运行时动态 `import()`，GodotJS 不支持。
-- `withHashLocation()` 可用（URL 落在 `#` 上）；`withExperimentalPlatformNavigation()` 不可用，
-  它要浏览器的 Navigation API。
-- **参数变化要订阅 `paramMap` / `queryParamMap`**。只改参数时同一个组件实例被复用，
-  读 `snapshot` 的普通 getter 不会重跑变更检测——这是 Angular 的既有行为，与 Godot 无关。
-- `route.title` 写窗口标题。无显示环境（CI / `--headless` / 专用服务器）由 `GODOT_HEADLESS`
-  **主动声明**，库不去猜 `DisplayServer.get_name()`：猜错只多一行日志，靠猜永远不会在 CI
-  上被发现。默认 `false`（按有窗口处理），无显示时自己传：
+- `withHashLocation()` 可用（URL 落在 `#` 上）；`withExperimentalPlatformNavigation()` 不可用，它要浏览器的 Navigation API。
+- **参数变化要订阅 `paramMap` / `queryParamMap`**。只改参数时同一个组件实例被复用，读 `snapshot` 的普通 getter 不会重跑变更检测——这是 Angular 的既有行为，与 Godot 无关。
+- `route.title` 写窗口标题。无显示环境（CI / `--headless` / 专用服务器）由 `GODOT_HEADLESS`**主动声明**，库不去猜 `DisplayServer.get_name()`：猜错只多一行日志，靠猜永远不会在 CI 上被发现。默认 `false`（按有窗口处理），无显示时自己传：
 
   ```ts
   bootstrapGodotApp(App, root, [provideGodotRouter(routes), { provide: GODOT_HEADLESS, useValue: true }]);
   ```
 
-  声明为无头后不碰窗口，但标题仍记录在 `GodotTitleStrategy.currentTitle`，组件可以把它
-  绑到标题栏 `Label` 上，因此无头下页面标题照样有地方显示。
+  声明为无头后不操作窗口，但标题仍记录在 `GodotTitleStrategy.currentTitle`，组件可将其绑定到标题栏 `Label` 上，因此无头环境下页面标题仍有显示位置。
 
-  写的是根窗口的 `Window.title`（而不是 `DisplayServer.window_set_title()`）：后者只改操作系统
-  那侧的文字、**不回写** `Window.title`，而 Godot 又没有 `DisplayServer.window_get_title()`，
-  于是当前标题从写入那一刻就再也读不回来。走 `Window.title` 后 `get_window().title` 与
-  `title_changed` 都是可信的（取不到窗口时才退回 `DisplayServer`）。
+  写的是根窗口的 `Window.title`（而不是 `DisplayServer.window_set_title()`）：后者只改操作系统那侧的文字、**不回写** `Window.title`，而 Godot 又没有 `DisplayServer.window_get_title()`，于是当前标题从写入那一刻就再也读不回来。走 `Window.title` 后 `get_window().title` 与 `title_changed` 都是可信的（取不到窗口时才退回 `DisplayServer`）。
 
 ### 读取当前标题
 
-路由器先派发 `NavigationEnd`，随后才更新标题，两者位于同一段同步代码中。在 `NavigationEnd`
-处理器里读 `GodotTitleStrategy.currentTitle`，得到的是上一次导航的标题（首次导航时为空字符串）。
-延后一个微任务即可：
+路由器先派发 `NavigationEnd`，随后才更新标题，两者位于同一段同步代码中。在 `NavigationEnd` 处理器里读 `GodotTitleStrategy.currentTitle`，得到的是上一次导航的标题（首次导航时为空字符串）。延后一个微任务即可：
 
 ```ts
 this.router.events
@@ -1161,8 +946,7 @@ this.router.events
 }
 ```
 
-产物名称为 `output` 与文件相对 `input` 的路径之和（去除 `.ts` 扩展名）。`input` 缺省取 `glob`
-中第一个含通配符的段之前的部分，因此产物名称仅由配置决定，与实际匹配结果无关。
+产物名称为 `output` 与文件相对 `input` 的路径之和（去除 `.ts` 扩展名）。`input` 缺省取 `glob` 中第一个含通配符的段之前的部分，因此产物名称仅由配置决定，与实际匹配结果无关。
 
 | 写法 | 产物 |
 | --- | --- |
@@ -1202,8 +986,7 @@ godot --headless --path . res://pages.tscn
 }
 ```
 
-`engine_vitest.tscn` 指向 `res://dist-engine-test/vitest-entry.js`，该入口由构建器生成，
-使用方无需编写任何测试入口文件。`specInclude` 是测试文件匹配模式的唯一来源。
+`engine_vitest.tscn` 指向 `res://dist-engine-test/vitest-entry.js`，该入口由构建器生成，使用方无需编写任何测试入口文件。`specInclude` 是测试文件匹配模式的唯一来源。
 
 ```ts
 import { initGodotTestEnvironment } from "godot-angular/testing";
@@ -1225,12 +1008,9 @@ it("signal 改动会落到真实节点", async () => {
 });
 ```
 
-`godot-angular/testing` 提供测试环境（`initGodotTestEnvironment`、`GodotTestingModule`）、
-节点查询（`findAllNodes`、`nodeTexts`、`newNode`）与等待引擎帧（`awaitFrames`）。等待变更检测
-统一使用官方的 `fixture.whenStable()`。
+`godot-angular/testing` 提供测试环境（`initGodotTestEnvironment`、`GodotTestingModule`）、节点查询（`findAllNodes`、`nodeTexts`、`newNode`）与等待引擎帧（`awaitFrames`）。等待变更检测统一使用官方的 `fixture.whenStable()`。
 
-布局计算与 `queue_free` 需要真实帧：`add_child` 之后立即读取 `size` 为 0，测试中使用
-`awaitFrames(2)`。
+布局计算与 `queue_free` 需要真实帧：`add_child` 之后立即读取 `size` 为 0，测试中使用 `awaitFrames(2)`。
 
 命令行过滤参数透传至 vitest：
 
@@ -1244,8 +1024,7 @@ ng test --reporters=json
 
 ## 构建选项
 
-`godot-angular` 提供两个 builder。选项名称与语义沿用官方 `@angular/build:application`，
-未提供的能力通过 `viteConfig` 配置。
+`godot-angular` 提供两个 builder。选项名称与语义沿用官方 `@angular/build:application`，未提供的能力通过 `viteConfig` 配置。
 
 ### `godot-angular:application`
 
@@ -1281,8 +1060,7 @@ ng test --reporters=json
 
 ### `godot-angular:vitest`
 
-包含上表中除 `entries`（由构建器合成）与 `styles`（测试链路不使用样式构建，配置后被忽略）
-之外的共用选项，另加：
+包含上表中除 `entries`（由构建器合成）与 `styles`（测试链路不使用样式构建，配置后被忽略）之外的共用选项，另加：
 
 | 选项 | 说明 |
 | --- | --- |
@@ -1294,11 +1072,9 @@ ng test --reporters=json
 | `coverage` | `true` 或配置对象：`enabled`、`include`、`exclude`、`instrument`、`sourceRoot`、`reportsDirectory`、`reporter`、`thresholds`、`reportOnFailure` |
 | `watch` | vitest 监听模式，修改测试文件后重新执行 |
 
-不提供 `setupFiles`：引擎中执行的是已编译的 bundle，无法在运行时载入未编入该 bundle 的文件。
-等价做法是在测试文件的 `beforeEach` 中完成全局环境准备。
+不提供 `setupFiles`：引擎中执行的是已编译的 bundle，无法在运行时载入未编入该 bundle 的文件。等价做法是在测试文件的 `beforeEach` 中完成全局环境准备。
 
-命令行选项使用 kebab-case（`--skip-build`）。对象类型选项（`engine`、完整形式的 `coverage`）
-只能通过 `angular.json` 配置。
+命令行选项使用 kebab-case（`--skip-build`）。对象类型选项（`engine`、完整形式的 `coverage`）只能通过 `angular.json` 配置。
 
 ## 导入路径
 
@@ -1311,9 +1087,7 @@ ng test --reporters=json
 | `godot-angular/forms` | 表单指令与 `GodotControlBase`、`GodotValueAccessorBase` |
 | `godot-angular/css` | CSS 子集的纯逻辑层（解析、选择器、级联、词表）——**库内部实现层**，不保证兼容 |
 
-样式落点相关的 `applyStyle` / `clearStyle` / `styleLedger` 与整个 `godot-angular/css` 入口同属
-内部实现，不在公开清单内，其签名与行为看库内需求变动，不遵循语义化版本。需要命令式改变外观请
-使用组件样式 / class 选择器，或内联绑定 `[style.x]`。
+样式落点相关的 `applyStyle` / `clearStyle` / `styleLedger` 与整个 `godot-angular/css` 入口同属内部实现，不在公开清单内，其签名与行为看库内需求变动，不遵循语义化版本。需要命令式改变外观请使用组件样式 / class 选择器，或内联绑定 `[style.x]`。
 | `godot-angular/router` | `provideGodotRouter`、`GodotTitleStrategy`，并转发 `GODOT_HEADLESS` / `GODOT_INITIAL_URL` / `GodotPlatformLocation`。需自行安装 `@angular/router` |
 | `godot-angular/testing` | 测试工具 |
 | `godot-angular/vitest` | 宿主侧 vitest 插件 |
@@ -1324,23 +1098,15 @@ ng test --reporters=json
 ## 限制
 
 - 仅支持 zoneless 变更检测。`tick()` 是变更检测的驱动点。
-- 不支持运行时懒加载（路由 `loadComponent` 等）。运行环境的动态 `import()` 不受支持。
-  构建期静态分包可用，运行时按需载入模块不可用。
-- 不支持 `RouterLink` / `RouterLinkActive`：它们的 host listener 要读 `$event.button`，
-  而 `Button.pressed()` 零参数。路由本身可用，跳转写 `router.navigate()`，见[路由](#路由)。
-- 不依赖 `document` 与 DOM API。`document` 仅为占位实现，不具备真实 DOM 语义。
-  `navigator`、`location`、`fetch`、`structuredClone`、`MutationObserver` 等浏览器全局未提供。
-  `@angular/platform-browser` 的 `Browser` / `BrowserModule` 因此不可用；路由不依赖它们，
-  见[路由](#路由)。
-- 构建过程不执行类型检查。TypeScript 类型错误、模板中的未知属性、`strictTemplates` 均不会导致
-  `ng build` 失败。类型检查需通过 `tsc --noEmit` 或编辑器完成。
+- 不支持运行时懒加载（路由 `loadComponent` 等）。运行环境的动态 `import()` 不受支持。构建期静态分包可用，运行时按需载入模块不可用。
+- 不支持 `RouterLink` / `RouterLinkActive`：它们的 host listener 要读 `$event.button`，而 `Button.pressed()` 零参数。路由本身可用，跳转写 `router.navigate()`，见[路由](#路由)。
+- 不依赖 `document` 与 DOM API。`document` 仅为占位实现，不具备真实 DOM 语义。`navigator`、`location`、`fetch`、`structuredClone`、`MutationObserver` 等浏览器全局未提供。`@angular/platform-browser` 的 `Browser` / `BrowserModule` 因此不可用；路由不依赖它们，见[路由](#路由)。
+- 构建过程不执行类型检查。TypeScript 类型错误、模板中的未知属性、`strictTemplates` 均不会导致 `ng build` 失败。类型检查需通过 `tsc --noEmit` 或编辑器完成。
 - `tsconfig` 的 `lib` 中不应包含 `dom`。
 - 一个应用对应一个根 `Control`，`tick()` 必须每帧调用。
 - 文本节点渲染为 `Label`。富文本使用 `RichTextLabel`。
-- 引擎枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`、
-  `Control.LayoutPreset.PRESET_FULL_RECT`。
-- CSS 仅覆盖上述明确子集，完整清单见「样式」一节。不支持 CSS 嵌套（nesting）；如需嵌套
-  语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`，由构建期的 `preprocessCSS` 展开。
+- 引擎枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`、`Control.LayoutPreset.PRESET_FULL_RECT`。
+- CSS 仅覆盖上述明确子集，完整清单见「样式」一节。不支持 CSS 嵌套（nesting）；如需嵌套语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`，由构建期的 `preprocessCSS` 展开。
 
 ## 常见问题
 
@@ -1349,9 +1115,9 @@ ng test --reporters=json
 | `No loader found for resource: res://dist/main.js (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
-| `Xxx.yyy 不是真实属性，赋值已忽略` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
+| `Xxx.yyy 不是真实属性，赋值已忽略 ` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
 | `Component 'Xxx' is not resolved: - templateUrl: ./xxx.html` | 该组件的模板存在解析错误，构建阶段不报错，运行时才暴露。常见写法：HTML 空元素写了结束标签（`<hr></hr>`）、Godot 标签自闭合（`<Label />`）。核对方法：`grep -c "ɵcmp" dist/main.js`，数量少于组件数即有模板未编译 |
-| `@charset 不支持，已忽略` | 样式表含非 ASCII 字符（典型场景：`.scss` 中用 `/* */` 写中文注释，它们会保留到编译产物，sass 因此在开头插入 `@charset`）。改用 `//` 行注释，编译时会被剔除 |
+| `@charset 不支持，已忽略 ` | 样式表含非 ASCII 字符（典型场景：`.scss` 中用 `/* */` 写中文注释，它们会保留到编译产物，sass 因此在开头插入 `@charset`）。改用 `//` 行注释，编译时会被剔除 |
 | ScrollContainer 内的内容把整个界面撑宽 | 横向滚动模式为 `SCROLL_MODE_OFF` 时，子节点的最小宽度会向上传播。保持 `AUTO`，并在 `resized` 中把 `scroller.size.x` 写回内容节点的 `custom_minimum_size.x` |
 | `(size_changed)="..."` 不报错也从不触发 | `size_changed` 是 `Window` 的信号，`Control` 上对应的信号是 `resized`。无法解析的事件名被静默忽略，见[事件](#事件)。核对方法：`ClassDB.class_has_signal(node.get_class(), "信号名")` |
 | 界面不随窗口变大而放大，或窗口变小文字随之缩小 | 未启用内容缩放。设置 `display/window/stretch/mode=canvas_items` 与 `display/window/stretch/aspect=expand`，基准尺寸写在 `display/window/size/viewport_width` / `viewport_height`。启用后 CSS 中的 `px` 指基准像素；`@media` 读取的是挂载点的布局尺寸，不是 `Window.size`（物理像素） |
