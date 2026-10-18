@@ -13,7 +13,6 @@
 //   vocabulary.ts ← 无对应物
 export type {
   CssNode,
-  CssWarning,
   Declaration,
   ColorLike,
   FontSource,
@@ -26,6 +25,9 @@ export type {
   WarnLevel,
 } from "./types";
 export { SelectorTier } from "./types";
+
+/** 诊断码与诊断对象（测试断言码，不断言中文文案） */
+export { CssCode, CssWarning, CssError, CssWarnEntry, cssCodeLabel } from "./diagnostics";
 
 export {
   parseCss,

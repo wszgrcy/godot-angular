@@ -12,7 +12,7 @@ import { NEVER_ID } from "../shared/hook-filter";
 const ARTIFACT_DIR = "fesm2022";
 
 export interface CoverageInstrumentOptions {
-  /** 绝对路径白名单：只有落在这些目录里的模块会被插桩 */
+  /** 绝对路径白名单：只有位于这些目录里的模块会被插桩 */
   roots: string[];
   /** 精确文件白名单（绝对路径），与 roots 取并集 */
   files?: string[];
@@ -192,7 +192,7 @@ export function coverageInstrumentPlugins(options: CoverageInstrumentOptions): P
   };
 
   // 发布物那一份只在本库自身开发时挂载（`CUJ_COVERAGE_PACKAGE=1`）：它插桩的是 node_modules 里的那份
-  // .mjs，只有库开发时手上才有对应的 .ts 源码，否则报告只能落在 .mjs 上。外部用户需要的是
+  // .mjs，只有库开发时手上才有对应的 .ts 源码，否则报告只能指向 .mjs。外部用户需要的是
   // source 那一份——插桩他们 `coverage.instrument` 中指定的自有代码。
   return packageInstrument ? [artifact, source] : [source];
 }

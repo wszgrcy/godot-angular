@@ -46,7 +46,7 @@ describe("border", () => {
     ]);
   });
 
-  it("border-style 无落点：告警但不影响宽度/颜色", () => {
+  it("border-style 没有对应实现：告警但不影响宽度/颜色", () => {
     expect(warningsOf("border", "1px dashed red")).toContain("dashed");
     expect(props("border", "1px dashed red")).toHaveLength(5);
   });
@@ -75,7 +75,7 @@ describe("border", () => {
       "border-bottom-width",
       "border-left-width",
     ]);
-    // 透传：拆成 border-*-color 只会产生四条无落点的 longhand
+    // 透传：拆成 border-*-color 只会产生四条没有对应实现的 longhand
     expect(expandShorthand("border-color", "red blue")).toBeNull();
   });
 
@@ -121,7 +121,7 @@ describe("background / flex / 明确不做的东西", () => {
     expect(warningsOf("background", "url(a.png)")).toContain("渐变");
   });
 
-  it("flex: n → grow（+ shrink），flex-basis 无落点", () => {
+  it("flex: n → grow（+ shrink），flex-basis 没有对应实现", () => {
     expect(expandShorthand("flex", "1")?.longhands).toEqual([["flex-grow", "1"]]);
     expect(expandShorthand("flex", "1 2")?.longhands).toEqual([
       ["flex-grow", "1"],
@@ -138,7 +138,7 @@ describe("background / flex / 明确不做的东西", () => {
     ]);
   });
 
-  it("background 的位置 / 平铺片段：认得但无落点", () => {
+  it("background 的位置 / 平铺片段：认得但没有对应实现", () => {
     expect(props("background", "url(a.png) no-repeat center")).toEqual([]);
     const w = warningsOf("background", "red no-repeat center");
     expect(w).toContain("no-repeat");

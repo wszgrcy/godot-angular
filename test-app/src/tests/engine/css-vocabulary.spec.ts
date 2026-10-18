@@ -20,21 +20,21 @@ describe("主题词汇表", () => {
     expect(meta.fallbackFontSize).toBeGreaterThan(0);
   });
 
-  it("四个落点类都在表里", () => {
+  it("四个写入位置类都在表里", () => {
     expect(hasThemeItem("Button", "stylebox", "normal")).toBe(true);
     expect(hasThemeItem("PanelContainer", "stylebox", "panel")).toBe(true);
     expect(hasThemeItem("LineEdit", "stylebox", "normal")).toBe(true);
     expect(hasThemeItem("Label", "stylebox", "normal")).toBe(true);
   });
 
-  it("Button 的状态 stylebox 齐全（伪类落点靠它们）", () => {
+  it("Button 的状态 stylebox 齐全（伪类写入位置靠它们）", () => {
     for (const item of ["normal", "hover", "pressed", "disabled", "focus"]) {
       expect(hasThemeItem("Button", "stylebox", item), item).toBe(true);
     }
   });
 
-  it("font_color / font_size 这类 item 沿父链回落", () => {
-    // CheckBox 自身的词汇表中有 font_color；LinkButton 也有。真正考验回落的是
+  it("font_color / font_size 这类 item 沿父链向上查找", () => {
+    // CheckBox 自身的词汇表中有 font_color；LinkButton 也有。真正考验父链查找的是
     // 定义在父类上的 constant：BoxContainer.separation → VBoxContainer 可查到
     expect(classChain("VBoxContainer").length).toBeGreaterThan(1);
     expect(hasThemeItem("VBoxContainer", "constant", "separation")).toBe(true);
@@ -54,7 +54,7 @@ describe("主题词汇表", () => {
     expect(pickBackgroundStylebox("VBoxContainer")).toBeNull();
   });
 
-  it("伪类 → stylebox 名（active / checked 都落 pressed）", () => {
+  it("伪类 → stylebox 名（active / checked 都写入 pressed）", () => {
     expect(styleboxForState("hover")).toBe("hover");
     expect(styleboxForState("active")).toBe("pressed");
     expect(styleboxForState("focus")).toBe("focus");
@@ -62,7 +62,7 @@ describe("主题词汇表", () => {
     expect(styleboxForState("checked")).toBe("pressed");
     expect(styleboxForState("selected")).toBe("selected");
     expect(styleboxForState("read-only")).toBe("read_only");
-    // 名单外的状态没有落点
+    // 名单外的状态没有对应实现
     expect(styleboxForState("valid")).toBeNull();
     expect(styleboxForState("indeterminate")).toBeNull();
   });
@@ -90,12 +90,12 @@ describe("主题词汇表", () => {
     expect(itemForStates("CheckBox", "color", "font_color", new Set(["checked"]))).toBe("font_pressed_color");
     expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["checked"]))).toBe("pressed");
     // 勾选 + hover → 合成盒 hover_pressed：默认主题只给 CheckBox 登记了值，Button 那一栏
-    // 是空的，但文档列了它，两个类都该落这里
+    // 是空的，但文档列了它，两个类都该写这里
     expect(itemForStates("CheckBox", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("hover_pressed");
     expect(itemForStates("Button", "stylebox", "normal", new Set(["hover", "checked"]))).toBe("hover_pressed");
     // 合成色优先：hover + 按下时引擎读的是合成 item，不是先命中哪个算哪个。
     // LinkButton 的 font_hover_pressed_color 默认主题未登记，但文档列了它（与
-    // font_disabled_color 同一类），所以照样是正确落点。
+    // font_disabled_color 同一类），所以照样是正确写入位置。
     expect(itemForStates("LinkButton", "color", "font_color", new Set(["hover", "checked"]))).toBe(
       "font_hover_pressed_color",
     );
@@ -126,7 +126,7 @@ describe("主题词汇表", () => {
 /**
  * 词汇表是生成数据（vocabulary.data.ts 从引擎 dump 出来），运行时只读。
  * setVocabulary 是测试注入口：灌一份小表，就能在不依赖引擎 dump 的前提下
- * 验"父链回落 / 状态合成 item"这些规则本身。
+ * 验"父链回写入 / 状态合成 item"这些规则本身。
  */
 describe("注入词汇表", () => {
   const FAKE = {
@@ -164,12 +164,12 @@ describe("注入词汇表", () => {
       expect(vocabularyMeta().classCount).not.toBe(knownClasses().length);
       expect(knownClasses()).toEqual(["Fake", "FakeBare", "FakeBase"]);
       expect(classChain("Fake")).toEqual(["Fake", "FakeBase", "Control"]);
-      // 回落：Fake 自己没有 panel / separation
+      // 父链查找：Fake 自己没有 panel / separation
       expect(hasThemeItem("Fake", "stylebox", "panel")).toBe(true);
       expect(hasThemeItem("Fake", "constant", "separation")).toBe(true);
       expect(hasThemeItem("FakeBase", "constant", "separation")).toBe(true);
       expect(themeItems("Fake", "font_size")).toEqual(["normal_size"]);
-      // 底色落点按候选顺序（panel > normal > ...）挑，父链上的也算
+      // 底色写入位置按候选顺序（panel > normal > ...）挑，父链上的也算
       expect(pickBackgroundStylebox("Fake")).toBe("panel");
       expect(pickBackgroundStylebox("FakeBare")).toBe("normal");
       expect(pickBackgroundStylebox("Control")).toBeNull();

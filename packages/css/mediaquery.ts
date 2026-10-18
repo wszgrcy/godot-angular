@@ -1,4 +1,5 @@
 import type { MediaEnvironment } from "./types";
+import { CssCode, CssError } from "./diagnostics";
 
 // 来源：NativeScript/packages/core/css-mediaquery/index.ts :: RE_MEDIA_QUERY / RE_MQ_EXPRESSION / RE_MQ_FEATURE
 // 等级：完全来自（一字未改）
@@ -61,7 +62,7 @@ export function parseQuery(mediaQuery: string): MediaQueryExpression[] {
   return mediaQuery.split(",").map((query) => {
     const trimmed = query.trim();
     const captures = trimmed.match(RE_MEDIA_QUERY);
-    if (!captures) throw new SyntaxError(`无效的 CSS 媒体查询：'${trimmed}'`);
+    if (!captures) throw new CssError(CssCode.MediaQuerySyntax, `无效的 CSS 媒体查询：'${trimmed}'`);
 
     const modifier = captures[1];
     const type = captures[2];
@@ -76,13 +77,13 @@ export function parseQuery(mediaQuery: string): MediaQueryExpression[] {
     if (!featureString) return expression;
 
     const features = featureString.match(/\([^\)]+\)/g);
-    if (!features) throw new SyntaxError(`媒体查询缺少特性：'${featureString}'（查询：'${trimmed}'）`);
+    if (!features) throw new CssError(CssCode.MediaQuerySyntax, `媒体查询缺少特性：'${featureString}'（查询：'${trimmed}'）`);
 
     for (const feature of features) {
       const captures = feature.match(RE_MQ_EXPRESSION);
-      if (!captures) throw new SyntaxError(`无效的媒体查询特性：'${feature}'（查询：'${trimmed}'）`);
+      if (!captures) throw new CssError(CssCode.MediaQuerySyntax, `无效的媒体查询特性：'${feature}'（查询：'${trimmed}'）`);
       const featureData = captures[1].toLowerCase().match(RE_MQ_FEATURE);
-      if (!featureData) throw new SyntaxError(`无效的媒体查询特性名：'${feature}'`);
+      if (!featureData) throw new CssError(CssCode.MediaQuerySyntax, `无效的媒体查询特性名：'${feature}'`);
       expression.features.push({
         modifier: featureData[1] ? featureData[1].replace(/-$/, "") : undefined,
         property: featureData[2],

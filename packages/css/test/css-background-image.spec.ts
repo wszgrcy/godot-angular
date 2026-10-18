@@ -1,15 +1,15 @@
 /**
  * `background-image` 的写法校验。
  *
- * 运行于 node 环境：此处仅判定「该段值能否转化为一个纹理落点、路径为何」，属于纯解析，
- * 直接调用 `applyCssProperty` 即可（属性值的解析发生在落点阶段，不在 `buildRuleSets` 中）。
+ * 运行于 node 环境：此处仅判定「该段值能否转化为一个纹理写入位置、路径为何」，属于纯解析，
+ * 直接调用 `applyCssProperty` 即可（属性值的解析发生在写入位置阶段，不在 `buildRuleSets` 中）。
  * stylebox 是否更换了类型、纹理是否已挂载、与底色的互斥何者胜出，
  * 在 test-app/src/tests/engine/css-background-image.spec.ts 中约束。
  */
 import { describe, expect, it } from "vitest";
 import { applyCssProperty, type CssNode, type StyleBackend } from "godot-angular/css";
 
-/** 仅记录「落到哪个 item、stylebox 收到何种纹理」的 mock 后端 */
+/** 仅记录「写入哪个 item、stylebox 收到何种纹理」的 mock 后端 */
 const calls: string[] = [];
 const warnings: string[] = [];
 
@@ -45,7 +45,7 @@ const backend: StyleBackend = {
   applyProperty: () => true,
 };
 
-/** 落一条声明，返回 [后端收到的调用, 告警] */
+/** 写入一条声明，返回 [后端收到的调用, 告警] */
 function apply(value: string): [string[], string[]] {
   calls.length = 0;
   warnings.length = 0;
@@ -70,7 +70,7 @@ describe("合法写法", () => {
   });
 });
 
-describe("被拒绝的写法：不落到 stylebox 上，且说明原因", () => {
+describe("被拒绝的写法：不写入 stylebox 上，且说明原因", () => {
   it("多个 url()：不做候选源回退", () => {
     const [got, warns] = apply(`url("res://a.png"), url("res://b.png")`);
     expect(got).toEqual([]);
@@ -96,12 +96,12 @@ describe("被拒绝的写法：不落到 stylebox 上，且说明原因", () => 
   it("gradient 单独输出告警：其不属于 url() 写法问题，而是根本无对应实现", () => {
     const [got, warns] = apply("linear-gradient(red, blue)");
     expect(got).toEqual([]);
-    expect(warns.join("\n")).toContain("gradient 无落点");
+    expect(warns.join("\n")).toContain("gradient 没有对应实现");
   });
 
   it("none 无意义（本库不会主动设置纹理）", () => {
     const [got, warns] = apply("none");
     expect(got).toEqual([]);
-    expect(warns.join("\n")).toContain("无落点");
+    expect(warns.join("\n")).toContain("没有对应实现");
   });
 });

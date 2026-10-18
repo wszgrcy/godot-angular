@@ -1,8 +1,8 @@
-import type { CssNode, MediaEnvironment, SelectorTier } from "godot-angular/css";
+import type { CssNode, CssWarning, MediaEnvironment, SelectorTier } from "godot-angular/css";
 import { Cascade } from "godot-angular/css";
 import type { Node } from "godot";
 import { backend } from "./style-target";
-import { warnOnce } from "./warn";
+import { reportWarning, setDiagnosticSink } from "./warn";
 import { bindPseudoClasses, warnUnboundPseudoClasses } from "./css-pseudo";
 import { tryConnectGodotSignal } from "./godot-events";
 import { asGodotNode, isCssStructural, type GodotNode } from "./godot-node";
@@ -16,6 +16,11 @@ export interface StyleRuntimeOptions {
    * `takeGlobalCss()`，那个时机（第一个组件登记之前）才是正确的。传入不报错，也不生效。
    */
   globalCss?: boolean;
+  /**
+   * 结构化诊断回调：每产生一条告警就收到一个 `CssWarning`，按 `code` 判断即可，
+   * 不需要匹配中文文案。与控制台输出的区别：该通道不去重，每条都送。
+   */
+  onDiagnostic?: (warning: CssWarning) => void;
 }
 
 /** 单个节点上已绑定的伪类信号。版本未变化则不重绑，因此必须保存版本号。 */
@@ -58,12 +63,12 @@ export class StyleRuntime {
   private readonly lifecycle = new WeakMap<object, boolean>();
 
   constructor(options: StyleRuntimeOptions = {}) {
+    setDiagnosticSink(options.onDiagnostic);
     this.cascade = new Cascade({
       backend,
       env: options.env,
       schedule: scheduleAtFrameEnd,
-      // 级联仅输出「落点相关」的告警，未标等级的按忽略级处理
-      warn: (key, message, level) => warnOnce(`css:${key}`, message, level ?? "ignore"),
+      warn: (warning) => reportWarning(warning),
     });
   }
 

@@ -149,14 +149,14 @@ describe("示例 App 端到端（真引擎 + 真布局）", () => {
     expect(kids[0].size.x).toBe(box.size.x);
   });
 
-  it("属性写入与 theme 覆盖落到真节点", async () => {
+  it("属性写入与 theme 覆盖写入真节点", async () => {
     fixture = await renderApp();
     await awaitFrames(3);
     const r = fixture.nativeElement;
 
     const styled = byText(r, "styled label");
     expect(styled).not.toBeNull();
-    // custom_minimum_size 绑的是 new Vector2(0, 40)：最小高度要真实落地
+    // custom_minimum_size 绑的是 new Vector2(0, 40)：最小高度要真实写入
     expect(Math.round(styled.size.y)).toBeGreaterThanOrEqual(40);
     expect(styled.has_theme_color_override("font_color")).toBe(true);
     expect(styled.has_theme_font_size_override("font_size")).toBe(true);

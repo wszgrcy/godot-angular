@@ -17,7 +17,7 @@ import { awaitFrames, makeRenderer, resetWarnOnce } from "godot-angular/testing"
  * 引擎只在「最深接收控件 + 它往上直到第一个 STOP 祖先」这条链上发 mouse_entered：
  * 子控件是 `mouse_filter = STOP`（Button / CheckBox / 用来撑位的空 Control）时把事件整个
  * 吃掉，父级一个信号都收不到。于是示例工程里
- * `.list-row:hover { border-color: … }` 变成「只有指针精确落在行边框那一圈空白上才亮」，
+ * `.list-row:hover { border-color: … }` 变成「只有指针精确写在行边框那一圈空白上才亮」，
  * 停在行内的 CheckBox 上反而不亮。引擎不发冒泡，只能库侧补，见
  * `library/core/css-pseudo.ts` 的 `hoverPair`。
  */

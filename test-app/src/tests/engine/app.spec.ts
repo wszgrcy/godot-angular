@@ -143,7 +143,7 @@ describe("真实变更检测路径", () => {
     expect(label.text).toBe("count=3");
   });
 
-  it("signal 变化不会同步反映，等一轮稳定才落到节点", async () => {
+  it("signal 变化不会同步反映，等一轮稳定才写入节点", async () => {
     @Component({
       selector: "t-sig",
       schemas: [NO_ERRORS_SCHEMA],
@@ -363,7 +363,7 @@ describe("销毁与信号解绑", () => {
     expect(nodeTexts(fixture.nativeElement)).toEqual(["three", "one", "two"]);
   });
 
-  it("@for 相邻两项对调：往后挪的那次移动也要落在正确位置", async () => {
+  it("@for 相邻两项对调：往后挪的那次移动也要写在正确位置", async () => {
     @Component({
       selector: "t-for-swap",
       schemas: [NO_ERRORS_SCHEMA],
@@ -460,7 +460,7 @@ describe("输入输出", () => {
  *   [attr.x]="null"  → removeAttribute(name)
  *   text="{{ x }}"   → Angular 将 null 串成空串，渲染器收不到 null
  *
- * 落地的值一律是“该类新建时的默认值”：Godot 属性强类型，写 null 会被引擎当场拒掉
+ * 写入的值一律是“该类新建时的默认值”：Godot 属性强类型，写 null 会被引擎当场拒掉
  * （set_text / set_modulate 直接报错），引用型属性（theme）的默认恰好就是 null。
  * undefined 与 null 在 GodotJS 里结果相同（值类型一样翻脸），因此拦的是 value == null。
  */
@@ -562,7 +562,7 @@ describe("null 与撤销：Angular 真正递下来的那几种", () => {
     fresh.free();
   });
 
-  it("size_flags=\"3\" 静态写法（字符串）也落到横竖两个", async () => {
+  it("size_flags=\"3\" 静态写法（字符串）也写入横竖两个", async () => {
     @Component({ selector: "t-static-flags", template: `<Label size_flags="3"></Label>` })
     class StaticFlagsComp {}
 
@@ -675,7 +675,7 @@ describe("$event 的形状：实参个数永远跟着引擎信号走", () => {
     expect(fixture.componentInstance.kind()).toBe("undefined");
   });
 
-  it("(click) 落在零参数信号上时，$event 仍是 undefined（不伪造事件对象）", async () => {
+  it("(click) 写在零参数信号上时，$event 仍是 undefined（不伪造事件对象）", async () => {
     @Component({
       selector: "t-ev-dom",
       schemas: [NO_ERRORS_SCHEMA],
@@ -695,7 +695,7 @@ describe("$event 的形状：实参个数永远跟着引擎信号走", () => {
     expect(fixture.componentInstance.kind()).toBe("undefined");
   });
 
-  it("(change) 落在带参信号上时，$event 仍是引擎给的真值", async () => {
+  it("(change) 写在带参信号上时，$event 仍是引擎给的真值", async () => {
     @Component({
       selector: "t-ev-arg",
       schemas: [NO_ERRORS_SCHEMA],

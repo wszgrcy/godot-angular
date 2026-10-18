@@ -1,3 +1,4 @@
+import { CssCode, CssWarnEntry } from "../diagnostics";
 import type { ColorLike } from "../types";
 import { parseColor } from "./color";
 import { parsePx } from "./length";
@@ -25,7 +26,7 @@ export interface CssShadow {
 /**
  * 来源：NativeScript/packages/core/ui/styling/css-utils.ts :: parseCSSShorthand 的 color = 'black'
  * 等级：部分修改（主体一致）
- * 改动：上游默认黑色不透明（CSS 规范如此），本侧改为半透黑——无落点时宁可弱一点。
+ * 改动：上游默认黑色不透明（CSS 规范如此），本侧改为半透黑——没有对应实现时宁可弱一点。
  */
 const DEFAULT_SHADOW_COLOR: ColorLike = { r: 0, g: 0, b: 0, a: 0.5 };
 
@@ -34,7 +35,7 @@ const DEFAULT_SHADOW_COLOR: ColorLike = { r: 0, g: 0, b: 0, a: 0.5 };
  */
 export interface ShadowParseResult {
   shadow: CssShadow | null;
-  warnings: string[];
+  warnings: CssWarnEntry[];
 }
 
 /**
@@ -53,9 +54,9 @@ const NUMERIC_START = /^[+-]?(?:\d+\.?\d*|\.\d+)/;
  * 默认颜色、至少两个偏移量的约束也相同。
  * 改动：上游只取首段或尾段作颜色（颜色不在两端则丢成长度），本侧逐段试解析颜色；
  * 上游无法解析的长度静默归为 0，本侧告警；上游支持多层（逗号分隔）全部返回，
- * 本侧只取第一层；本侧额外对 inset / spread 给出“无落点”告警。
+ * 本侧只取第一层；本侧额外对 inset / spread 给出“没有对应实现”告警。
  */
-function parseOne(text: string, warnings: string[]): CssShadow | null {
+function parseOne(text: string, warnings: CssWarnEntry[]): CssShadow | null {
   let inset = false;
   let color: ColorLike | null = null;
   const numbers: number[] = [];
@@ -69,7 +70,7 @@ function parseOne(text: string, warnings: string[]): CssShadow | null {
     if (NUMERIC_START.test(token)) {
       const px = parsePx(token);
       if (px === null) {
-        if (ngDevMode) warnings.push(`box-shadow 中包含无法识别的长度 "${token}"`);
+        if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ValueUnsupported, `box-shadow 中包含无法识别的长度 "${token}"`));
         continue;
       }
       numbers.push(px);
@@ -77,15 +78,15 @@ function parseOne(text: string, warnings: string[]): CssShadow | null {
     }
     const parsed = parseColor(token);
     if (parsed) {
-      if (color && ngDevMode) warnings.push(`box-shadow 中出现第二个颜色 "${token}"，以第一个为准`);
+      if (color && ngDevMode) warnings.push(new CssWarnEntry(CssCode.ValueUnsupported, `box-shadow 中出现第二个颜色 "${token}"，以第一个为准`));
       else color = parsed;
       continue;
     }
-    if (ngDevMode) warnings.push(`box-shadow 中包含无法识别的片段 "${token}"`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ValueUnsupported, `box-shadow 中包含无法识别的片段 "${token}"`));
   }
 
   if (numbers.length < 2) {
-    if (ngDevMode) warnings.push(`box-shadow 至少需要 x/y 两个偏移量：${text}`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ShorthandInvalid, `box-shadow 至少需要 x/y 两个偏移量：${text}`));
     return null;
   }
   return {
@@ -102,21 +103,21 @@ function parseOne(text: string, warnings: string[]): CssShadow | null {
  * 来源：NativeScript/packages/core/ui/styling/css-shadow.ts :: parseCSSShadow
  * 等级：部分修改（主体一致）
  * 改动：上游对 none / unset 返回 null 且无告警通道，本侧返回结构化结果；多层阴影的
- * 截断告警与 inset / spread 无落点告警是本侧新增。
+ * 截断告警与 inset / spread 没有对应实现的告警是本侧新增。
  *
  * 解析 `box-shadow` 的值；`none` 或无法解析时返回 shadow = null
  */
 export function parseBoxShadow(text: string): ShadowParseResult {
-  const warnings: string[] = [];
+  const warnings: CssWarnEntry[] = [];
   const trimmed = text.trim();
   if (!trimmed || trimmed.toLowerCase() === "none") return { shadow: null, warnings };
 
   const layers = splitTopLevel(trimmed, ",");
   if (layers.length > 1) {
-    if (ngDevMode) warnings.push("box-shadow 的多层阴影仅取第一层（Godot 的 StyleBoxFlat 仅支持一层 shadow）");
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ShadowPartUnsupported, "box-shadow 的多层阴影仅取第一层（Godot 的 StyleBoxFlat 仅支持一层 shadow）"));
   }
   const shadow = parseOne(layers[0], warnings);
-  if (shadow?.inset && ngDevMode) warnings.push("box-shadow: inset 无落点（Godot 无内阴影），已按外阴影处理");
-  if (shadow && shadow.spread !== 0 && ngDevMode) warnings.push("box-shadow 的 spread 无落点，已忽略");
+  if (shadow?.inset && ngDevMode) warnings.push(new CssWarnEntry(CssCode.ShadowPartUnsupported, "box-shadow: inset 没有对应实现（Godot 无内阴影），已按外阴影处理"));
+  if (shadow && shadow.spread !== 0 && ngDevMode) warnings.push(new CssWarnEntry(CssCode.ShadowPartUnsupported, "box-shadow 的 spread 没有对应实现，已丢弃"));
   return { shadow, warnings };
 }

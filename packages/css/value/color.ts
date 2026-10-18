@@ -179,7 +179,7 @@ function clamp01(v: number): number {
  * 通道的处理（百分号分支）
  * 等级：部分修改（主体一致）
  * 改动：上游用正则判定百分号后统一换算到 0..255 整数，本侧保留浮点；上游非法值最
- * 终落到 NaN，本侧返回 null 交由调用方告警。
+ * 最终变成 NaN，本侧返回 null 交由调用方告警。
  */
 function channelByte(v: string): number | null {
   const trimmed = v.trim();
@@ -368,7 +368,7 @@ function numberArg(value: string | undefined): number | null {
  * 相同：入口同样只接受 hex / 命名色 / rgb() / hsl()，命名色表先小写归一。
  * 改动：上游返回 ARGB 整数且非法时抛错（由 css/parser.ts 的调用方捕获），本侧返回
  * ColorLike 且非法时返回 null；本侧额外支持 hwb()、transparent、currentcolor 与空格语法，
- * 上游额外支持 hsv() 与 color-mix()（本侧无落点，未搬）。
+ * 上游额外支持 hsv() 与 color-mix()（本侧没有对应实现，未搬）。
  *
  * 解析任意 CSS 颜色。**解析失败返回 null**（由调用方决定告警还是兜底），永不抛错。
  */

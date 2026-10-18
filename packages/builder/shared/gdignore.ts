@@ -8,7 +8,7 @@ import { join } from "node:path";
 export const GDIGNORE = ".gdignore";
 
 /**
- * 在目录下落下 `.gdignore`（内容为空，重复调用无副作用）。
+ * 在目录下写入 `.gdignore`（内容为空，重复调用无副作用）。
  *
  * 适用于「只由 `require()` 读取、不该被当作资源」的产物目录：缺了它，一次 `--import` 就会
  * 为每个 `.js` 生成 `.uid` 并写进 `uid_cache.bin`，而产物每次重建都可能换名字，缓存里只剩噪音。

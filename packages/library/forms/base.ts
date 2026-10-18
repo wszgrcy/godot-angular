@@ -65,7 +65,7 @@ export class GodotControlBase<T = unknown> implements ControlValueAccessor {
 
   /**
    * 子类覆写时需先调用 `super.writeValue(value)` 再写节点，否则 `value$` 会漏更新。
-   * null 一定会到来（Forms 初始化时先创建空 FormControl），是否落到节点上由子类决定。
+   * null 一定会到来（Forms 初始化时先创建空 FormControl），是否写到节点上由子类决定。
    */
   writeValue(value: T | null): void {
     this.value$.set(value ?? this.emptyValue());

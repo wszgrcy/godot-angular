@@ -120,7 +120,7 @@ describe("name → 引擎节点名字", () => {
     expect(btn.get_name()).toBe("attrOld");
   });
 
-  it("撤名的落点不存在：引擎忽略空名，ClassDB 默认值是 null", () => {
+  it("撤名的写入位置不存在：引擎忽略空名，ClassDB 默认值是 null", () => {
     const { root } = makeRenderer();
     const node = new Label();
     root.add_child(node);

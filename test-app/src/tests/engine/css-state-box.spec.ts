@@ -12,8 +12,9 @@ import {
   Tree,
   type Control,
 } from "godot";
+import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 /**
  * 状态盒的层叠语义（v0.3.1 悬停重排回归的回归测试）。
@@ -64,7 +65,7 @@ function engineBox<T extends Control>(makeNode: () => T, item: string): StyleBox
   return box;
 }
 
-/** 节点上某个 item 当前真正生效的盒（引擎会沿 override → 主题回落，读到的就是绘制用的那个） */
+/** 节点上某个 item 当前真正生效的盒（引擎会沿 override → 主题依次查找，读到的就是绘制用的那个） */
 function box(node: Control, item: string): StyleBoxFlat {
   return node.get_theme_stylebox(item) as StyleBoxFlat;
 }
@@ -158,7 +159,7 @@ describe("层叠：基规则声明过的字段贯穿所有状态", () => {
   it("声明全部撤掉后必须回到 Godot 自己的默认盒，不得残留我们建的盒", () => {
     // 契约：作者写了什么才变更什么；去掉了就回 Godot 的默认值，
     // 而不是回“我们自己设的某个中间值”。物理上只能整盒替换，所以撤销必须是
-    // remove_theme_stylebox_override（让引擎沿主题继承链回落），而不是挂一个透底盒。
+    // remove_theme_stylebox_override（让引擎沿主题继承链取默认值），而不是挂一个透底盒。
     const engineBg = hex(engineBox(() => new Button(), "normal").bg_color);
     const engineRadius = engineBox(() => new Button(), "normal").corner_radius_top_left;
     const handle = runtime.addCss(`.btn { background-color: rgb(1, 2, 3); border-radius: 9px; }`);
@@ -268,7 +269,7 @@ describe("各状态各自核对属性", () => {
     btn.emit_signal("focus_entered");
     await awaitFrames(1);
 
-    // 浏览器里也一样：作者说边框恒为透明，焦点环就得作者自己用 :focus 画（outline 无落点）
+    // 浏览器里也一样：作者说边框恒为透明，焦点环就得作者自己用 :focus 画（outline 没有对应实现）
     expect(box(btn, "focus").border_color.a).toBeCloseTo(0, 5);
     expect(box(btn, "focus").border_width_top).toBe(1);
   });
@@ -285,7 +286,7 @@ describe("各状态各自核对属性", () => {
     expect(box(edit, "focus").corner_radius_top_left).toBe(8);
   });
 
-  it(":pressed / :active：落 pressed 盒且字段跟随", async () => {
+  it(":pressed / :active：写入 pressed 盒且字段跟随", async () => {
     runtime.addCss(`.btn { padding: 8px 12px; border-radius: 9px; }`);
     const btn = make(new Button(), "btn");
 
@@ -296,7 +297,7 @@ describe("各状态各自核对属性", () => {
     expect(box(btn, "pressed").corner_radius_top_left).toBe(9);
   });
 
-  it(":disabled：落 disabled 盒且字段跟随", async () => {
+  it(":disabled：写入 disabled 盒且字段跟随", async () => {
     runtime.addCss(`.btn { padding: 8px 12px; border-radius: 9px; }`);
     const btn = make(new Button(), "btn");
 
@@ -308,7 +309,7 @@ describe("各状态各自核对属性", () => {
     expect(box(btn, "disabled").corner_radius_top_left).toBe(9);
   });
 
-  it(":read-only（LineEdit editable=false）：落 read_only 盒且字段跟随", async () => {
+  it(":read-only（LineEdit editable=false）：写入 read_only 盒且字段跟随", async () => {
     runtime.addCss(`.field { padding: 5px; border-radius: 4px; }`);
     const edit = make(new LineEdit(), "field");
 
@@ -349,7 +350,7 @@ describe("各状态各自核对属性", () => {
     expect(box(cb, "hover_pressed").content_margin_top).toBe(6);
   });
 
-  it("Button 的 hover_pressed 盒：默认主题没配值，但画法读它，合成态要落这里", async () => {
+  it("Button 的 hover_pressed 盒：默认主题没配值，但画法读它，合成态要写这里", async () => {
     runtime.addCss(`.btn { padding: 6px; }\n.btn:hover:active { background-color: rgb(1, 2, 3); }`);
     const btn = make(new Button(), "btn");
 
@@ -381,7 +382,7 @@ describe("Godot 没有的能力不硬造", () => {
     expect(hex(box(card, "panel").bg_color)).toBe(hex(css(255, 255, 255)));
   });
 
-  it("Tree 的行悬停盒（hovered）是行级状态：:hover 只能落 panel，不去顶 hovered", async () => {
+  it("Tree 的行悬停盒（hovered）是行级状态：:hover 只能写入 panel，不去顶 hovered", async () => {
     runtime.addCss(`.tree { background-color: rgb(255, 255, 255); }\n.tree:hover { background-color: rgb(1, 2, 3); }`);
     const tree = make(new Tree(), "tree");
 
@@ -404,7 +405,7 @@ describe("Godot 没有的能力不硬造", () => {
       local.flush();
       expect(bar.has_theme_stylebox_override("tab_focus")).toBe(false);
     });
-    expect(captured.warn.warnings.join("\n")).toContain("无落点");
+    expect(captured.warn.codes).toContain(CssCode.BackgroundNoTarget);
   });
 
   it("LinkButton 只有 focus 盒：基规则的底色不写它，并告警", () => {
@@ -414,7 +415,7 @@ describe("Godot 没有的能力不硬造", () => {
       // 基规则不能把底色退到焦点盒上：那等于平时看不见、Tab 键选中才冒出来
       expect(link.has_theme_stylebox_override("focus")).toBe(false);
     });
-    expect(captured.warn.warnings.join("\n")).toContain("无落点");
+    expect(captured.warn.codes).toContain(CssCode.BackgroundNoTarget);
   });
 
   it("LinkButton 的焦点底色由 :focus 写入 focus 盒", async () => {
@@ -432,7 +433,7 @@ describe("Godot 没有的能力不硬造", () => {
 describe("写入顺序无关", () => {
   it(":hover 规则写在基规则之前（特异度打平）也必须拿到基规则的几何", async () => {
     // compareSelectors = 特异度 → tier → 源码顺序。两条都是 0,2,0，于是源码顺序决定：
-    // hover 声明先落。钉的是引擎侧的「基声明落地时连带重建全部状态盒」：
+    // hover 声明先写入。钉的是引擎侧的「基声明写入时连带重建全部状态盒」：
     // 没有这条重建，hover 盒就会在基字段表还是空的时候建出来，而它之后再没人标脏。
     // 场景：节点先处于 hover 态，两条声明在同一帧才第一次命中（数据晚到才渲染出的按钮、
     // 在静止鼠标底下弹出的菜单）。

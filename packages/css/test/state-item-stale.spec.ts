@@ -1,9 +1,9 @@
 /**
- * 状态落点的**内部记账**与**成本**取证。
+ * 状态写入位置的**内部记账**与**成本**取证。
  *
- * 运行于 node 环境（mock backend，不依赖引擎）。凡「某条声明最终落到哪个 Godot 主题属性」
+ * 运行于 node 环境（mock backend，不依赖引擎）。凡「某条声明最终写入哪个 Godot 主题属性」
  * 这类只能由真实引擎判定的问题，均在 test-app/src/tests/engine/ 下断言：
- *   - css-state-items.spec.ts：落点归属、叠加、撤销、:enabled、告警
+ *   - css-state-items.spec.ts：写入位置归属、叠加、撤销、:enabled、告警
  *   - css-pseudo.spec.ts / css-state-box.spec.ts：各状态的信号通道与状态盒组成
  * 本文件仅保留两类引擎侧无法观察的内容：
  *   1. 账本槽位（哪个 CSS 属性名占用哪个 item）——引擎侧无对应的可观察量；
@@ -129,7 +129,7 @@ beforeEach(() => {
  * 仅写入一个 item，状态跃迁时只写新 item、从不撤销旧 item，旧状态 item 成为永久残留；
  * 而且它要求我们准确推测引擎在 hover+focus 同时成立时读取哪个 item，而这并无文档保证。
  *
- * 现行模型（落点由选择器自身要求的状态决定、每个 item 仅有一个归属）在引擎侧取证；
+ * 现行模型（写入位置由选择器自身要求的状态决定、每个 item 仅有一个归属）在引擎侧取证；
  * 此处仅保留「旧语义为何会自愈」这一项对照 —— 它模拟的是已不存在的实现，
  * 在真实引擎上无法复现，因此仅能保留在 node 侧作为分析记录。
  * ================================================================== */
@@ -141,7 +141,7 @@ describe("对照：旧语义（基规则也按节点当前状态重定向）为�
     const btn = new FakeNode("Button").setStates("hover", "focus");
 
     currentCss = "color";
-    // :focus 胜出，但落点按节点当前状态挑 → hover 赢，红写进了 font_hover_color
+    // :focus 胜出，但写入位置按节点当前状态挑 → hover 赢，红写进了 font_hover_color
     applyCssProperty(
       btn, "color", "rgb(255, 0, 0)",
       { backend, warn: () => {}, states: new Set(["hover", "focus"]) }, [],
@@ -167,13 +167,13 @@ describe("对照：旧语义（基规则也按节点当前状态重定向）为�
 });
 
 /* ================================================================== *
- * 二、两条入口对同一条基规则必须落在同一个盒
+ * 二、两条入口对同一条基规则必须写在同一个盒
  *
  * 引擎侧仅能看到组成后的 stylebox（状态盒本身就会继承基声明），无法观察「该条声明记在哪个槽」；
  * 槽位归属是内部契约，只能在假 ledger 上钉。
  * ================================================================== */
 
-describe("两条入口对同一条基规则必须落在同一个槽", () => {
+describe("两条入口对同一条基规则必须写在同一个槽", () => {
   it("已禁用的按钮 + 未书写 :disabled 的蓝色规则 → 两条入口均记在 normal 槽", () => {
     // —— A. applyStyle(button, "background-color", "blue")：裸声明，无选择器 → 空状态集
     const viaApplyStyle = new FakeNode("Button").setStates("disabled");

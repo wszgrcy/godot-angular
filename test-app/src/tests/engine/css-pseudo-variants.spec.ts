@@ -1,15 +1,15 @@
 /**
- * 伪类在**选择器里的位置与组合形态** → 节点属性落点。
+ * 伪类在**选择器里的位置与组合形态** → 节点属性写入位置。
  *
  * 运行于真实引擎，断言只看节点上的主题覆盖（`has_theme_*_override` / `get_theme_*`）：
  * 「CSS 里写了」与「引擎真能读到」是两件事，后者才是判据。伪类的**驱动方式**（信号 / 属性 /
  * 手动）由 `css-pseudo.spec.ts` 负责，`:hover` 向祖先冒泡由 `css-hover-bubble.spec.ts` 负责，
- * 本文件一律假定驱动已就位，专注在「同一种状态换一种写法，落点是否还正确」。
+ * 本文件一律假定驱动已就位，专注在「同一种状态换一种写法，写入位置是否还正确」。
  *
- * 落点规则（见 css 包 `itemForStates`）：一条声明写进哪个 item，由**它所在那一段要求的状态
+ * 写入位置规则（见 css 包 `itemForStates`）：一条声明写进哪个 item，由**它所在那一段要求的状态
  * ∩ 节点此刻挂着的状态**决定。`.card:hover .title` 要求的是卡片悬停（`.title` 这段没要求
  * 状态）→ 值写在 `.title` 的基 item 上；`.btn:is(:hover, :focus)` 要求两支之一，只有 focus
- * 成立时值必须落在 font_focus_color，否则引擎聚焦时读不到。
+ * 成立时值必须写在 font_focus_color，否则引擎聚焦时读不到。
  *
  * 各类可用的状态 item 取自引擎 dump（`vocabulary.data.ts`）：
  * - `Button`：font_color / font_hover_color / font_focus_color / font_pressed_color /
@@ -176,7 +176,7 @@ describe("伪类与主体并列", () => {
  * 伪类在祖先段：`:hover x` / `x:hover y`
  * ------------------------------------------------------------------ */
 
-describe("伪类落在祖先段（悬停的是祖先，被样式化的是后代）", () => {
+describe("伪类写在祖先段（悬停的是祖先，被样式化的是后代）", () => {
   it(".card:hover .title：祖先悬停 → 后代变色，撤销后一并撤干净", async () => {
     runtime.addCss(`.card:hover .title { color: rgb(255, 0, 0); }`);
     const card = panel(root, ["card"]);
@@ -198,7 +198,7 @@ describe("伪类落在祖先段（悬停的是祖先，被样式化的是后代�
     settle();
 
     await enter(card);
-    // 悬停的是卡片，被样式化的是按钮：值必须落在 font_color。写进 font_hover_color 的话，
+    // 悬停的是卡片，被样式化的是按钮：值必须写在 font_color。写进 font_hover_color 的话，
     // 引擎只在「按钮自身被悬停」时才读到它，症状是悬停卡片时文字颜色不动
     expect(color(title, "font_color")).toBe("#ff0000");
     expect(hasColor(title, "font_hover_color")).toBe(false);
@@ -228,7 +228,7 @@ describe("伪类落在祖先段（悬停的是祖先，被样式化的是后代�
     expect(color(title, "font_color")).toBe("#080808");
   });
 
-  it("祖先伪类 + 非颜色落点：.card:hover { gap } 写进容器自己的 constant", async () => {
+  it("祖先伪类 + 非颜色写入位置：.card:hover { gap } 写进容器自己的 constant", async () => {
     runtime.addCss(`.row:hover { gap: 12px; }`);
     const row = mount(new HBoxContainer(), root, ["row"]);
     settle();
@@ -241,7 +241,7 @@ describe("伪类落在祖先段（悬停的是祖先，被样式化的是后代�
     expect(row.has_theme_constant_override("separation")).toBe(false);
   });
 
-  it("祖先伪类 + 几何：.card:hover { padding } 落在祖先的盒上，后代不受影响", async () => {
+  it("祖先伪类 + 几何：.card:hover { padding } 写在祖先的盒上，后代不受影响", async () => {
     runtime.addCss(`.card:hover { padding: 10px; }`);
     const card = panel(root, ["card"]);
     const title = mount(new Label(), card, ["title"]);
@@ -258,7 +258,7 @@ describe("伪类落在祖先段（悬停的是祖先，被样式化的是后代�
  * 伪类在主体段：`x :hover` / `x y:hover`
  * ------------------------------------------------------------------ */
 
-describe("伪类落在主体段（被样式化的节点自己带状态）", () => {
+describe("伪类写在主体段（被样式化的节点自己带状态）", () => {
   it(".box :hover：后代自身悬停才命中", async () => {
     runtime.addCss(`.box :hover { color: rgb(11, 12, 13); }`);
     const box = mount(new VBoxContainer(), root, ["box"]);
@@ -341,7 +341,7 @@ describe("伪类与兄弟组合器", () => {
  * ------------------------------------------------------------------ */
 
 describe("多个伪类同时参与", () => {
-  it("同节点双伪类 .b:hover:active：落点是合成 item", async () => {
+  it("同节点双伪类 .b:hover:active：写入位置是合成 item", async () => {
     runtime.addCss(`.b:hover:active { color: rgb(31, 31, 31); }`);
     const b = mount(new Button(), root, ["b"]);
     settle();
@@ -365,7 +365,7 @@ describe("多个伪类同时参与", () => {
     expect(hasColor(btn, "font_pressed_color")).toBe(false);
 
     await press(btn);
-    // 主体段只要求了 active → 落点是 pressed 那一支，不是 hover_pressed
+    // 主体段只要求了 active → 写入位置是 pressed 那一支，不是 hover_pressed
     expect(color(btn, "font_pressed_color")).toBe("#202020");
     expect(hasColor(btn, "font_hover_pressed_color")).toBe(false);
   });
@@ -455,7 +455,7 @@ describe("多个伪类同时参与", () => {
     expect(color(w, "font_color")).toBe("#3c3c3c");
   });
 
-  it("选择器列表里各段独立：.a:hover, .b:focus 各写各的落点", async () => {
+  it("选择器列表里各段独立：.a:hover, .b:focus 各写各的写入位置", async () => {
     runtime.addCss(`.a:hover, .b:focus { color: rgb(70, 70, 70); }`);
     const a = mount(new Button(), root, ["a"]);
     const b = mount(new Button(), root, ["b"]);
@@ -483,7 +483,7 @@ describe("特异度与伪类交叉", () => {
     expect(color(x, "font_color")).toBe("#5a5a5a");
 
     await enter(x);
-    // 两条同为 0,2,0，但各自落在自己的 item 上：悬停色写 font_hover_color，基色不动
+    // 两条同为 0,2,0，但各自写在自己的 item 上：悬停色写 font_hover_color，基色不动
     expect(color(x, "font_hover_color")).toBe("#505050");
     expect(color(x, "font_color")).toBe("#5a5a5a");
   });
@@ -495,7 +495,7 @@ describe("特异度与伪类交叉", () => {
     settle();
     expect(color(x, "font_color")).toBe("#5a5a5a");
 
-    // Label 没有 font_hover_color，两条声明都落在 font_color 上。悬停不能把源码在后的那条压过去；
+    // Label 没有 font_hover_color，两条声明都写在 font_color 上。悬停不能把源码在后的那条压过去；
     // 退出后基值同样必须回来，不能残留悬停色
     await enter(x);
     expect(color(x, "font_color")).toBe("#5a5a5a");
@@ -541,7 +541,7 @@ describe("特异度与伪类交叉", () => {
     settle();
 
     await enter(x);
-    // 两条同为 0,2,0 且都要求 hover → 同一个落点，源码在后的那条赢
+    // 两条同为 0,2,0 且都要求 hover → 同一个写入位置，源码在后的那条赢
     expect(color(x, "font_hover_color")).toBe("#5a5a5a");
   });
 
@@ -560,7 +560,7 @@ describe("特异度与伪类交叉", () => {
  * 状态伪类与盒（stylebox）
  * ------------------------------------------------------------------ */
 
-describe("伪类与 stylebox 落点", () => {
+describe("伪类与 stylebox 写入位置", () => {
   it("Button:hover 换底色：写 hover 盒，normal 盒保持", async () => {
     runtime.addCss(`.btn { background-color: rgb(1, 1, 1); }`);
     runtime.addCss(`.btn:hover { background-color: rgb(2, 2, 2); }`);

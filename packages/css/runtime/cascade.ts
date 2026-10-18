@@ -8,6 +8,7 @@ import {
 } from "../selector";
 import type { SelectorCore } from "../selector";
 import type { CssNode, Declaration, MediaEnvironment, StyleBackend, WarnLevel } from "../types";
+import { CssCode, CssWarnEntry, CssWarning, type CssWarnDetail, type CssWarnReport } from "../diagnostics";
 
 /** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
 import { Invalidator } from "./invalidation";
@@ -76,8 +77,8 @@ export interface CascadeOptions {
   env?: MediaEnvironment;
   /** 帧末调度的注入点：引擎侧提供 rAF，不提供则只能手动 flush */
   schedule?: (flush: () => void) => void;
-  /** 告警出口，不提供则静默。`level` 省略表示不带等级标记 */
-  warn?: (key: string, message: string, level?: WarnLevel) => void;
+  /** 告警出口，不提供则静默。收到的是组装好的诊断对象 */
+  warn?: (warning: CssWarning) => void;
 }
 
 /**
@@ -140,7 +141,7 @@ function selectorStates(selector: SelectorCore): RequiredStates {
   if (selector instanceof SimpleSelectorSequence) {
     collectSequenceStates(selector, names);
   } else if (selector instanceof ComplexSelector) {
-    // 复合选择器被匹配到的那个节点由**最右段**描述，状态伪类只有落在它身上才算要求了状态
+    // 复合选择器被匹配到的那个节点由**最右段**描述，状态伪类只有写在它身上才算要求了状态
     const parts = selector.parts;
     collectSequenceStates(parts[parts.length - 1].sequence, names);
   }
@@ -152,13 +153,13 @@ function selectorStates(selector: SelectorCore): RequiredStates {
 /**
  * 来源：无（本侧特有问题的修正）
  *
- * 落点用的状态集 = 选择器要求的状态 ∩ 节点此刻挂着的状态。
+ * 决定写入位置的状态集 = 选择器要求的状态 ∩ 节点此刻挂着的状态。
  *
  * `:is(:hover, :focus)` 要求的是并集，但让规则成立的可能只有 `:focus`；值要写进引擎此刻
  * 会读的那个 item（font_focus_color），而不是并集里优先级最高的那个。并列伪类
  * （`.b:hover:active`）要求全部成立才匹配，交集等于要求集，行为不变。
  *
- * 账本键跟着换：状态集变了而值没变时，落点变了仍属“有变化”，diff 不能跳过。
+ * 账本键跟着换：状态集变了而值没变时，写入位置变了仍属“有变化”，diff 不能跳过。
  * 属性驱动的伪类（:disabled / :checked / :read-only）在 merge 前已同步到节点上
  * （drain 与 applyNow 都先跑 syncPropertyPseudoClasses），因此交集不会漏掉它们。
  */
@@ -182,7 +183,7 @@ function landingStates(required: RequiredStates, node: CssNode): RequiredStates 
  * 保留的契约：级联只在 longhand 上定义、匹配结果按特异度/层级/源码顺序排序、
  * 动态伪类变化只重算受影响节点。
  *
- * 级联：将「已登记的样式表」落到「已登记的节点」上。
+ * 级联：将「已登记的样式表」写入「已登记的节点」上。
  *
  * 三段分工（对应 NativeScript 的 StyleScope / 失效通知 / CssState）：
  *   - `SheetRegistry`（sheets.ts）：样式表与由样式表推出的元信息
@@ -203,7 +204,9 @@ export class Cascade {
   readonly stats: CascadeStats = { flushes: 0, applied: 0, cleared: 0, nodes: 0, skipped: 0 };
 
   constructor(private readonly options: CascadeOptions) {
-    this.sheets = new SheetRegistry(options.env ?? {}, (key, message, level) => this.warn(key, message, level));
+    this.sheets = new SheetRegistry(options.env ?? {}, (code, message, detail, level) =>
+      this.warn(code, message, detail, level),
+    );
     this.invalidator = new Invalidator(
       this.states,
       options.backend,
@@ -424,7 +427,7 @@ export class Cascade {
    * 改动：上游的批量入口靠 _ignoreDynamicStyleUpdatesChanged 暂停事件后逐条处理，本侧
    * 改为从脏队列取整批；上游处完直接写 Style 对象，本侧写入交给 applyNode（可被 diff 短路）。
    *
-   * 将全部脏节点落一遍。帧末由调度器调用，测试中手动调用
+   * 将全部脏节点写一遍。帧末由调度器调用，测试中手动调用
    */
   flush(): number {
     this.invalidator.beginFlush();
@@ -552,9 +555,10 @@ export class Cascade {
       if (this.warnedStates.has(key)) continue;
       this.warnedStates.add(key);
       if (ngDevMode) this.warn(
-        key,
+        CssCode.PseudoNotDerivable,
         `${support.className} 没有 ${prop} 属性，:${state} 在它身上推不出来（不会自动生效）。`
           + `如需该外观，请走 class 通道（[class."${state}"]="…" 配合 CSS .x.${state}）。`,
+        { class: support.className, pseudo: state, prop },
       );
     }
   }
@@ -597,7 +601,7 @@ export class Cascade {
     selectors.sort(compareSelectors);
     this.invalidator.updateDependencies(node, state, changeMap);
 
-    // 分组键是「属性名 + 选择器要求的状态」而不是单看属性名：基规则与每条状态规则各自落到
+    // 分组键是「属性名 + 选择器要求的状态」而不是单看属性名：基规则与每条状态规则各自写入
     // 不同的 theme item，它们之间不存在覆盖关系。只有要求了同一组状态的定义才互相竞争。
     const merged = new Map<string, MergedDeclaration>();
     /** 声明与其来源选择器所要求的状态成对保存：一条规则的多个选择器共享同一个 Declaration，
@@ -646,7 +650,7 @@ export class Cascade {
    * 等级：仅思路一致
    * 差异：上游把合并后的声明逐个赋给 Style 属性（属性自身不做相等比较，写多少算多少）；
    * 本侧与上一轮账本 diff，只写真正变化的属性，并对“不再命中”的属性显式清除（Godot 的
-   * theme override 不会自动回落）。变量继承与 var() 展开也是本侧新增（上游在解析期代入）。
+   * theme override 不会自动退回默认值）。变量继承与 var() 展开也是本侧新增（上游在解析期代入）。
    *
    * 实际写入节点的一段。返回是否发生了写入
    */
@@ -654,7 +658,7 @@ export class Cascade {
     const merged = this.merge(node, state);
     const applied = state.applied;
 
-    // 自定义属性拆出来作为变量环境，不作为普通属性（它们没有落点，落点是引用它们的那些值）
+    // 自定义属性拆出来作为变量环境，不作为普通属性（它们本身不写任何东西，写的是引用它们的那些值）
     const ownVars = new Map<string, string>();
     const usable: MergedDeclaration[] = [];
     for (const decl of merged) {
@@ -677,9 +681,10 @@ export class Cascade {
       const expanded = resolveVars(decl.value, (name) => this.lookupVar(node, name));
       if (expanded === null) {
         if (ngDevMode) this.warn(
-          `var:${decl.property}:${decl.value}`,
-          `"${decl.value}" 中的变量无法解析且未提供 fallback（${decl.property}），该条声明已忽略。` +
+          CssCode.VarUnresolved,
+          `"${decl.value}" 中的变量无法解析且未提供 fallback（${decl.property}），该条声明已丢弃。` +
             `如需默认值，请写作 var(--x, 默认值)。`,
+          { prop: decl.property, value: decl.value },
         );
         continue;
       }
@@ -708,10 +713,10 @@ export class Cascade {
       if (!want.has(key)) regrouped.add(propertyOfSlot(key));
     }
     /*
-     * 基槽与状态槽落在同一个 theme item 时（`Label` 只有 font_color；font-size / constant 全类
+     * 基槽与状态槽写进同一个 theme item 时（`Label` 只有 font_color；font-size / constant 全类
      * 无状态变体），只写“变了的那一格”会让状态槽后写覆盖基槽，特异度与源码顺序全部不参与。
      * 因此同一属性名下有两格以上参与、且其中一格变了，就把整个属性名按级联顺序重写一遍：
-     * 同一个 item 的最终归属由级联顺序决定（后写者赢），落在不同 item 上的槽重写一次也不改变结果。
+     * 同一个 item 的最终归属由级联顺序决定（后写者赢），写在不同 item 上的槽重写一次也不改变结果。
      * 只有一格时仍直接覆盖：值本身就是它，先撤再写会多一次无意义的 clearProperty。
      */
     const slotCount = new Map<string, number>();
@@ -736,7 +741,7 @@ export class Cascade {
       return false;
     }
 
-    const warnings: string[] = [];
+    const warnings: CssWarnEntry[] = [];
     this.options.backend.bulk(node, () => {
       // 先撤销再写入：撤销时节点仍保持旧值，写入时不会被旧值覆盖
       for (const property of regrouped) {
@@ -758,21 +763,23 @@ export class Cascade {
           (family) => this.sheets.findFontFace(family)?.path ?? null,
         );
         if (!known) {
-          if (ngDevMode) this.warn(`unknown:${decl.property}`, `样式 "${decl.property}" 无 Godot 对应，已忽略`);
+          if (ngDevMode) this.warn(CssCode.UnknownProperty, `样式 "${decl.property}" 在 Godot 侧没有对应实现，已丢弃`, {
+            prop: decl.property,
+          });
           continue;
         }
         applied.set(slotKey(decl.property, decl.statesKey), decl.value);
         this.stats.applied++;
       }
     });
-    // 解析阶段的告警只可能是「值被丢弃」，固定按忽略级输出
-    if (ngDevMode) for (const message of warnings) this.warn(`value:${message}`, message, "ignore");
+    // 解析阶段的告警自带各自的码（颜色、长度、简写……），按码上报
+    if (ngDevMode) for (const entry of warnings) this.warn(entry.code, entry.message);
     return true;
   }
 
   /**
    * 沿父链查找变量（CSS 的继承语义：子节点可见祖先的 `--x`，同名时自身的优先）。
-   * 读取的是祖先**上一次落地时**的变量表——祖先变量变化会触发 invalidateTree，子节点下一轮就重算。
+   * 读取的是祖先**上一次写入时**的变量表——祖先变量变化会触发 invalidateTree，子节点下一轮就重算。
    */
   private lookupVar(node: CssNode, name: string): string | undefined {
     let current: CssNode | null = node;
@@ -785,7 +792,7 @@ export class Cascade {
     return undefined;
   }
 
-  private warn(key: string, message: string, level?: WarnLevel): void {
-    this.options.warn?.(key, message, level);
+  private warn(code: CssCode, message: string, detail?: CssWarnDetail, level?: WarnLevel): void {
+    this.options.warn?.(new CssWarning(code, message, level, detail));
   }
 }

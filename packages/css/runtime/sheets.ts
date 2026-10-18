@@ -6,7 +6,8 @@ import {
   type ChangeMap,
   type SelectorCore,
 } from "../selector";
-import { SelectorTier, type CssNode, type Declaration, type MediaEnvironment, type WarnLevel } from "../types";
+import { SelectorTier, type CssNode, type Declaration, type MediaEnvironment } from "../types";
+import { CssCode, type CssWarnReport } from "../diagnostics";
 import { fontFamilyKey, type FontFace } from "./fonts";
 
 /** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
@@ -89,7 +90,7 @@ export class SheetRegistry implements CombinatorFlags {
 
   constructor(
     env: MediaEnvironment,
-    private readonly warn: (key: string, message: string, level?: WarnLevel) => void,
+    private readonly warn: CssWarnReport,
   ) {
     this.env = env;
   }
@@ -109,8 +110,8 @@ export class SheetRegistry implements CombinatorFlags {
     for (const ruleSet of built.ruleSets) {
       for (const selector of ruleSet.selectors) declarations.set(selector, ruleSet.declarations);
     }
-    // 解析期的告警只可能是「这段文本被丢弃」，固定按忽略级输出
-    if (ngDevMode) for (const message of built.warnings) this.warn(`sheet:${message}`, message, "ignore");
+    // 解析期的告警自带各自的码（语法、选择器、@font-face……），按码上报
+    if (ngDevMode) for (const entry of built.warnings) this.warn(entry.code, entry.message);
     this.sheets.push({ index, declarations, ruleSets: built.ruleSets, fontFaces: built.fontFaces });
     this.noteCombinators(built.ruleSets);
     this.notePseudoClasses();

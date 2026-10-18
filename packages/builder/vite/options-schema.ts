@@ -150,7 +150,7 @@ export const coverageOptionsSchema = v.object({
     v.pipe(
       v.string(),
       v.description(
-        "remap 落点，相对 workspaceRoot。发布物中的 source map 记录的是“相对打包时的 dist”，装入 "
+        "remap 写入根路径，相对 workspaceRoot。发布物中的 source map 记录的是“相对打包时的 dist”，装入 "
           + "node_modules 后无法对应，provider 会在 sourceRoot 下按相同尾部路径查找真实文件。默认 `..`：monorepo 中 "
           + "test-app 的上一级即仓库根，packages/** 位于该处。无源码的外部用户保持默认即可，"
           + "报告会自动改为按发布物生成（而非输出一份空报告）。该选项只影响 remap，不影响 include 的基准。",

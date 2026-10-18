@@ -64,7 +64,7 @@ describe("C14：WeakMap 状态与包装对象身份", () => {
   });
 });
 
-describe("级联落到真节点", () => {
+describe("级联写入真节点", () => {
   it("构建期塞进来的全局样式（styles 选项）能被运行时取走并生效，且只取一次", () => {
     const bag = globalThis as Record<string, unknown>;
     bag.__CUJ_GLOBAL_CSS__ = [`.g1 { color: rgb(255,0,0); }`, "", `  `, `.g2 { font-size: 30px; }`];
@@ -222,7 +222,7 @@ describe("布局在 headless 下真算", () => {
     expect(Math.round(a.size.x + b.size.x)).toBe(300);
   });
 
-  it("gap 落到 separation 后子节点间距真的变大", async () => {
+  it("gap 写入 separation 后子节点间距真的变大", async () => {
     runtime.addCss(`.wide { gap: 20px; }`);
     const box = new VBoxContainer();
     root.add_child(box);

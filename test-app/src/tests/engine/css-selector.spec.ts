@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CssNode } from "godot-angular/css";
 import {
+  CssCode,
   InvalidSelector,
   SelectorsMatch,
   SelectorTier,
@@ -135,7 +136,7 @@ describe("选择器匹配", () => {
 
   it("不支持的伪类 / 伪元素 / :nth-child → InvalidSelector，且说明原因", () => {
     const warnings: string[] = [];
-    const warn = (m: string) => warnings.push(m);
+    const warn = (_code: CssCode, message: string) => warnings.push(message);
     expect(createSelector("Label:has(.x)", warn)).toBeInstanceOf(InvalidSelector);
     expect(createSelector("Label:nth-child(2)", warn)).toBeInstanceOf(InvalidSelector);
     expect(createSelector("Label::before", warn)).toBeInstanceOf(InvalidSelector);

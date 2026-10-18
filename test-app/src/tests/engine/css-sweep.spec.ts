@@ -17,7 +17,7 @@ beforeEach(() => {
  * 一条规则配一个节点：返回 [节点, 告警]。
  *
  * 告警分为两个窗口：样式表级的（选择器不合法、shorthand 值数不对）在 addCss 时发出，
- * 属性级的（值无法解析、节点没有这个落点）在 flush 时发出。只覆盖一个窗口会漏掉一半。
+ * 属性级的（值无法解析、节点没有这个写入位置）在 flush 时发出。只覆盖一个窗口会漏掉一半。
  */
 function apply(css: string, make: () => any): [any, string[]] {
   // 每个用例一套独立级联：共用 runtime 会将历次 `.s { … }` 叠加在同一批节点上，
@@ -50,7 +50,7 @@ function withClass(node: unknown, cls: string): void {
   (node as { cssClasses: Set<string> }).cssClasses.add(cls);
 }
 
-/** 有落点的属性：值 → 应使用哪种节点 */
+/** 有对应实现的属性：值 → 应使用哪种节点 */
 const LANDED: Array<[property: string, value: string, make: () => any]> = [
   ["color", "rgb(10, 20, 30)", () => new Label()],
   ["font-size", "14px", () => new Label()],
@@ -98,7 +98,7 @@ const LANDED: Array<[property: string, value: string, make: () => any]> = [
 ];
 
 /**
- * 有落点但不等价：写入生效，同时输出说明（Godot 的 StyleBoxFlat 四边同色）。
+ * 有对应实现但不等价：写入生效，同时输出说明（Godot 的 StyleBoxFlat 四边同色）。
  * 若静默按单边生效，比不写入更难排查。
  */
 const LANDED_WITH_WARNING: Array<[property: string, value: string, make: () => any]> = [
@@ -109,7 +109,7 @@ const LANDED_WITH_WARNING: Array<[property: string, value: string, make: () => a
   ["pointer-events", "none", () => new Label()],
 ];
 
-/** 明确知道没有落点的属性：必须发出提示，不能静默吞掉 */
+/** 明确知道没有对应实现的属性：必须发出提示，不能静默吞掉 */
 const IGNORED: Array<[property: string, value: string]> = [
   ["display", "flex"],
   ["flex-direction", "row"],
@@ -160,10 +160,10 @@ const IGNORED: Array<[property: string, value: string]> = [
 ];
 
 /**
- * 需要额外上下文才能落点的属性：仅一条 `.s { … }` 无法判定。
+ * 需要额外上下文才能写入位置的属性：仅一条 `.s { … }` 无法判定。
  *
  * `font-family` 需先存于 `@font-face` 登记才能解析到资源，登记本身不是声明，
- * 无法纳入上述三张表。其真正的落点取证位于 css-font.spec.ts，列于此仅为满足
+ * 无法纳入上述三张表。其真正的写入位置取证位于 css-font.spec.ts，列于此仅为满足
  * 「新增属性必须登记」这一项护栏，不得将其作为「未测试」的推据。
  */
 const NEEDS_CONTEXT: Array<[property: string, value: string]> = [
@@ -172,21 +172,21 @@ const NEEDS_CONTEXT: Array<[property: string, value: string]> = [
 ];
 
 describe("属性全表", () => {
-  it("有落点的每个都过一遍：不许出声", () => {
+  it("有对应实现的每个都过一遍：不许出声", () => {
     for (const [property, value, make] of LANDED) {
       const [, warnings] = apply(`${property}: ${value}`, make);
       expect(warnings, `${property}: ${value}`).toEqual([]);
     }
   });
 
-  it("有落点但不等价的属性：写入生效，且输出说明", () => {
+  it("有对应实现但不等价的属性：写入生效，且输出说明", () => {
     for (const [property, value, make] of LANDED_WITH_WARNING) {
       const [, warnings] = apply(`${property}: ${value}`, make);
       expect(warnings.length, `${property}: ${value} 该告警`).toBeGreaterThan(0);
     }
   });
 
-  it("无落点的每个都出声说明为什么", () => {
+  it("没有对应实现的每个都出声说明为什么", () => {
     for (const [property, value] of IGNORED) {
       const [, warnings] = apply(`${property}: ${value}`, () => new Label());
       expect(warnings.length, `${property}: ${value} 该告警`).toBeGreaterThan(0);
@@ -272,7 +272,7 @@ describe("颜色", () => {
 });
 
 describe("长度与四边", () => {
-  it("深测一种：margin 四值分别落到 margin_*", () => {
+  it("深测一种：margin 四值分别写入 margin_*", () => {
     const [node] = apply("margin: 1px 2px 3px 4px", () => new MarginContainer());
     expect(node.get_theme_constant("margin_top")).toBe(1);
     expect(node.get_theme_constant("margin_right")).toBe(2);
@@ -322,8 +322,8 @@ describe("长度与四边", () => {
     }
   });
 
-  it("百分比一律不落地，不得被当成像素", () => {
-    // 此前的行为：`50%` 被当作 50 像素静默生效。Godot 的落点均为像素，且无可参照的
+  it("百分比一律不写入，不得被当成像素", () => {
+    // 此前的行为：`50%` 被当作 50 像素静默生效。Godot 的写入位置均为像素，且无可参照的
     // 父盒，百分比只能输出告警并忽略，不得推测
     const [padding] = apply("padding: 50%", () => new PanelContainer());
     expect(padding.has_theme_stylebox_override("panel")).toBe(false);
@@ -360,7 +360,7 @@ describe("长度与四边", () => {
     }
   });
 
-  it("像素与无单位数字仍正常落地", () => {
+  it("像素与无单位数字仍正常写入", () => {
     const [node] = apply("padding: 8px; font-size: 12; opacity: .5", () => new Label());
     const box = node.get_theme_stylebox("normal") as any;
     expect(box.content_margin_left).toBe(8);
@@ -370,7 +370,7 @@ describe("长度与四边", () => {
 });
 
 describe("盒阴影与背景", () => {
-  it("深测一种：box-shadow 落成 StyleBoxFlat 的 shadow_*", () => {
+  it("深测一种：box-shadow 写入 StyleBoxFlat 的 shadow_*", () => {
     const [node] = apply("box-shadow: 2px 3px 4px rgb(0, 0, 0)", () => new PanelContainer());
     const box = node.get_theme_stylebox("panel") as any;
     expect(box.shadow_offset.x).toBe(2);
@@ -385,7 +385,7 @@ describe("盒阴影与背景", () => {
     }
   });
 
-  it("Godot 没有的东西要明说：内阴影按外阴影处理、spread 无落点、多层仅取第一层", () => {
+  it("Godot 没有的东西要明说：内阴影按外阴影处理、spread 没有对应实现、多层仅取第一层", () => {
     const [, inset] = apply("box-shadow: inset 1px 1px 2px red", () => new PanelContainer());
     expect(inset.join(" ")).toContain("inset");
     const [, spread] = apply("box-shadow: 1px 1px 2px 3px red", () => new PanelContainer());
@@ -394,7 +394,7 @@ describe("盒阴影与背景", () => {
     expect(multi.join(" ")).toContain("仅取第一层");
   });
 
-  it("background 的几种写法与 background-color 走同一条落点", () => {
+  it("background 的几种写法与 background-color 走同一条写入位置", () => {
     for (const value of ["rgb(1, 2, 3)", "#fff", "transparent", "none"]) {
       const [, warnings] = apply(`background: ${value}`, () => new PanelContainer());
       expect(warnings, value).toEqual([]);
@@ -466,7 +466,7 @@ describe("选择器", () => {
     }
   });
 
-  it("伪类表里每个都能命中：Label 无状态变体，统一落 font_color", async () => {
+  it("伪类表里每个都能命中：Label 无状态变体，统一写入 font_color", async () => {
     const pseudo = [...SUPPORTED_PSEUDO_CLASSES];
     expect(pseudo.length).toBeGreaterThan(6);
     for (const name of pseudo) {
@@ -569,7 +569,7 @@ describe("样式表本身", () => {
     }
   });
 
-  it("落点不成立的组合要出声：margin 落在 Label 上、text-align 落在 PanelContainer 上", () => {
+  it("写入位置不成立的组合要出声：margin 写在 Label 上、text-align 写在 PanelContainer 上", () => {
     const [, margin] = apply("margin: 4px", () => new Label());
     expect(margin.join(" ")).toContain("MarginContainer");
     const [, align] = apply("text-align: center", () => new PanelContainer());

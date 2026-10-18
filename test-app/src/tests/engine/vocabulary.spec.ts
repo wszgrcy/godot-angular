@@ -76,7 +76,7 @@ describe("主题词汇表 == 引擎现算的默认主题", () => {
     expect(knownClasses().filter((name) => !ClassDB.class_exists(name))).toEqual([]);
   });
 
-  it("几个承重落点在引擎里真实存在（词汇表说存在 ≠ 引擎认，这里反向确认）", () => {
+  it("几个承重写入位置在引擎里真实存在（词汇表说存在 ≠ 引擎认，这里反向确认）", () => {
     expect(strArr(theme.get_stylebox_list("Button"))).toContain("normal");
     expect(strArr(theme.get_stylebox_list("PanelContainer"))).toContain("panel");
     expect(strArr(theme.get_color_list("Label"))).toContain("font_color");

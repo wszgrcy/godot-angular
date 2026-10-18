@@ -60,7 +60,7 @@ describe("属性指令：往 Godot 节点上贴行为", () => {
     expect(btn.modulate.g).toBeCloseTo(0);
   });
 
-  it("指令的 host 元数据（静态 class + (click)）落在宿主节点上", async () => {
+  it("指令的 host 元数据（静态 class + (click)）写在宿主节点上", async () => {
     @Directive({
       selector: "[uiCounter]",
       exportAs: "uiCounter",

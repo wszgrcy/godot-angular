@@ -40,7 +40,7 @@ function fakeBackend(): { backend: StyleBackend; writes: () => number } {
     setBorderColor() {}, setShadow() {}, setContentMargin() {},
   };
   const count = () => { writes++; };
-  // applyProperty 必须接回真实的 applyCssProperty：返回 false 会将“解析 + 特异度 + 落地”
+  // applyProperty 必须接回真实的 applyCssProperty：返回 false 会将“解析 + 特异度 + 写入”
   // 整条路径短路掉，量出来的是空转，那个护栏就失去意义了
   const backend: StyleBackend = {
     classOf: () => "Label",
@@ -95,7 +95,7 @@ describe("性能护栏", () => {
     expect(ms(() => buildRuleSets(css))).toBeLessThan(1000);
   });
 
-  it("首帧落地后，空 flush 被 diff 全部短路", () => {
+  it("首帧写入后，空 flush 被 diff 全部短路", () => {
     const { backend, writes } = fakeBackend();
     const cascade = new Cascade({ backend, schedule: () => {} });
     cascade.addCss(sheet(200));
@@ -110,7 +110,7 @@ describe("性能护栏", () => {
     expect(writesAfterFirst, "首帧总得写点什么").toBeGreaterThan(0);
     // 没脏节点时 flush 直接返 0（连“逐节点比一遍”都省了），所以 flushes 不增
     const elapsed = ms(() => cascade.flush());
-    expect(cascade.stats.flushes, "空 flush 不该重新走一遍落地").toBe(before);
+    expect(cascade.stats.flushes, "空 flush 不该重新走一遍写入").toBe(before);
     expect(writes(), "空 flush 一次写入都不该发出").toBe(writesAfterFirst);
     expect(elapsed).toBeLessThan(5);
   });

@@ -1,5 +1,5 @@
 /**
- * `background-image: url()` → StyleBoxTexture 的落点取证。
+ * `background-image: url()` → StyleBoxTexture 的写入位置取证。
  *
  * 运行于真实引擎：断言的内容是节点上的 stylebox 变更为何种类型、纹理是否已挂载。
  * `url()` 的写法校验（多个 url、非 res:// 路径、gradient、none）属于纯解析，
@@ -10,8 +10,9 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { PanelContainer, StyleBoxFlat, StyleBoxTexture, type Control } from "godot";
+import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 const FIXTURE = "res://fixtures/css-texture-fixture.tres";
 
@@ -35,7 +36,7 @@ function make<T extends Control>(node: T, cls: string): T {
 /** PanelContainer 的底色盒 item */
 const PANEL = "panel";
 
-describe("background-image 落点", () => {
+describe("background-image 写入位置", () => {
   it("url() 命中资源时该 stylebox 换为 StyleBoxTexture 并挂载纹理", () => {
     runtime.addCss(`.p { background-image: url("${FIXTURE}"); }`);
     const panel = make(new PanelContainer(), "p");
@@ -59,7 +60,7 @@ describe("background-image 落点", () => {
       runtime.flush();
       expect(panel.has_theme_stylebox_override(PANEL)).toBe(false);
     });
-    expect(captured.warn.warnings.join("\n")).toContain("纹理资源加载不到");
+    expect(captured.warn.codes).toContain(CssCode.TextureLoadFailed);
   });
 });
 
@@ -113,7 +114,7 @@ describe("与 background-color 互斥：层叠靠后者胜出", () => {
 
     panel.emit_signal("mouse_entered");
     await awaitFrames(1);
-    // PanelContainer 仅有 panel 一个 stylebox：hover 规则落在同一个 stylebox 上，填充按层叠关系换为纹理
+    // PanelContainer 仅有 panel 一个 stylebox：hover 规则写在同一个 stylebox 上，填充按层叠关系换为纹理
     expect(panel.get_theme_stylebox(PANEL)).toBeInstanceOf(StyleBoxTexture);
   });
 });

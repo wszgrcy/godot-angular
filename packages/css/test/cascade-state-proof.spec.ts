@@ -5,7 +5,7 @@
  * `Cascade` 仅依赖 `StyleBackend` 接口，因此可借助 mock backend 精确统计
  * 「一次重算实际执行了多少次操作」——此为引擎内 spec 无法做到的（该侧仅能观察最终 item）。
  *
- * 本文件仅保留**结构与性能**探针。凡「某条声明落到哪个 Godot 主题属性」这类
+ * 本文件仅保留**结构与性能**探针。凡「某条声明写入哪个 Godot 主题属性」这类
  * 只能由真实引擎判定的问题，一律在 test-app/src/tests/engine/css-state-items.spec.ts
  * 与 css-pseudo.spec.ts 中断言，两侧不重复。
  *
@@ -111,7 +111,7 @@ beforeEach(() => {
   resetCounters();
 });
 
-/** 登记节点但不落地，便于在首次 flush 之前预先设置状态 */
+/** 登记节点但不写入，便于在首次 flush 之前预先设置状态 */
 function register(cssType: string, classes: string[], button = true): FakeNode {
   const node = new FakeNode(cssType);
   if (button) node.asButton();
@@ -138,7 +138,7 @@ function dirtyCount(nodes: CssNode[]): number {
  * syncPropertyPseudoClasses 在 applyNode 内部改伪类 → TrackingClassSet 回调
  * invalidate(node)；而 flush() 已经 takeDirty() 取空队列并置 state.dirty=false，
  * 于是该节点被重新入脏，下一帧再走一遍 sync + merge + diff，最后被 diff 短路。
- * 落点本身（写入哪个 item）由引擎侧用例负责，此处仅约束「不应重复执行第二次」。
+ * 写入位置本身（写入哪个 item）由引擎侧用例负责，此处仅约束「不应重复执行第二次」。
  * ================================================================== */
 
 describe("状态跃迁的重算次数", () => {
@@ -156,7 +156,7 @@ describe("状态跃迁的重算次数", () => {
 
     expect(touched1).toBe(1);
     expect(cb.colors.has("font_pressed_color")).toBe(true);
-    // 探针：「这类控件支持哪些属性驱动伪类」在首次落地时已按节点缓存，
+    // 探针：「这类控件支持哪些属性驱动伪类」在首次写入时已按节点缓存，
     // 状态跃迁的该轮不再重复探测（修复前：此处为 1，每轮均需执行一次 hasNodeProperty）
     expect(counters.hasNodeProperty).toBe(0);
 

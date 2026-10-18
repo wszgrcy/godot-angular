@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { exactRegex, makeIdFiltersToMatchWithQuery } from "@rolldown/pluginutils";
 import type { Plugin, ResolvedConfig } from "vite";
-import { buildRuleSets } from "godot-angular/css";
+import { buildRuleSets, cssCodeLabel } from "godot-angular/css";
 import { toPosix, withoutQuery } from "../shared/path";
 
 /** 全局样式表进入产物的载体模块（由 polyfill 入口以副作用 import 引入） */
@@ -199,7 +199,7 @@ function findProperty(code: string, key: string, from = 0): PropertyHit | null {
 const PREPROCESSABLE = /\.(scss|sass|less)$/i;
 
 /**
- * 守卫只可能落在组件模块上，而它需要对图中**每个**模块被询问一次，因此闸门写在 `filter` 中
+ * 守卫只可能出现在组件模块上，而它需要对图中**每个**模块被询问一次，因此闸门写在 `filter` 中
  * （写在 handler 中也需要先支付一趟 Rust → JS 的往返）：
  *   - `id`：组件源码后缀，排除 node_modules；后缀判定为 `?query` 预留了位置
  *   - `code`：`styleUrl` / `styleUrls` / `styles` 任一出现才值得进入 JS
@@ -280,10 +280,10 @@ export function cssSourceGuardPlugin(options: CssPluginOptions = {}): Plugin {
             // 去重键使用 sourceId 而不是 where：两段内联 styles 碰巧使用同一份样式（sourceId
             // 都是 inline）报一次即可；但两个不同 styleUrls 文件内容相同时必须各报一次，
             // 否则第二个文件的同名告警会被静默吞掉（告警中只有行号，无法区分文件）。
-            const key = `${module}::${sourceId}::${warning}`;
+            const key = `${module}::${sourceId}::${warning.code}::${warning.message}`;
             if (reported.has(key)) continue;
             reported.add(key);
-            log(`${module}（${where}）：${warning}`);
+            log(`${module}（${where}）：[${cssCodeLabel(warning.code)}] ${warning.message}`);
           }
         };
 
@@ -376,7 +376,7 @@ export function cssGlobalStylesPlugin(options: CssPluginOptions = {}): Plugin {
         }
         // 全局样式也过一遍 lint：调用的是与组件同一个 buildRuleSets，“构建期更早发现”两边均分
         for (const warning of buildRuleSets(css).warnings) {
-          log(`全局样式 ${relativeModule(file, config)}：${warning}`);
+          log(`全局样式 ${relativeModule(file, config)}：[${cssCodeLabel(warning.code)}] ${warning.message}`);
         }
         sheets.push(css);
       }

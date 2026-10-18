@@ -21,7 +21,7 @@ css/
 ├─ value/            值解析：color / sides / tokens / keyword / length / shadow
 └─ runtime/          ★ 只有运行期用，构建期一行都不碰
    ├─ cascade.ts     级联：合并 → diff → 精确撤除 → 定向失效 → 帧末批量
-   ├─ properties.ts  CSS 属性 → 落到哪个 theme item
+   ├─ properties.ts  CSS 属性 → 写入哪个 theme item
    └─ vars.ts        var() 展开（级联内部已调，导出给诊断工具复用）
 ```
 
@@ -41,7 +41,7 @@ css/
 这一侧。
 
 `runtime/` 不是"新加的一层"，是把本来就存在的边界画出来：构建期永远不可能在这里
-拿到级联、帧末状态或 theme item 落点。
+拿到级联、帧末状态或 theme item 的写入位置。
 
 ## 谁在用
 
@@ -59,5 +59,5 @@ css/
 - 新模块放哪：**构建期会不会 import 它**？会 → 留在顶层；不会 → 进 `runtime/`
 - 别从 `runtime/` 往顶层反向依赖之外加东西（`runtime/` 可以依赖顶层，反过来不行）
 - 值解析一律进 `value/`，别按"谁用"拆散它 —— `keyword`/`length`/`shadow` 目前只有
-  `properties.ts` 用，那是巧合（长度解析发生在落点而不是解析期），不是分层依据
+  `properties.ts` 用，那是巧合（长度解析发生在写入位置而不是解析期），不是分层依据
 - 改完跑 `pnpm test:node`，这一包全部是秒级纯 Node 用例

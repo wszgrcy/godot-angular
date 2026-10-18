@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { matchQuery, mediaQueryDependencies, parseQuery } from "godot-angular/css";
+import { matchQuery, mediaQueryDependencies, parseQuery, CssCode, CssError } from "godot-angular/css";
 
 describe("parseQuery", () => {
   it("无特性的查询", () => {
@@ -8,9 +8,15 @@ describe("parseQuery", () => {
     expect(parseQuery("all")[0].type).toBe("all");
   });
 
-  it("非法查询抛 SyntaxError（matchQuery 会把它兜成 false）", () => {
+  it("非法查询抛 CssError（matchQuery 会把它兜成 false）", () => {
     for (const bad of ["some crap", "48em", "screen and crap", "screen and (48em)", "screen and (foo:)", "()", "(foo) (bar)", "(foo:) and (bar)"]) {
-      expect(() => parseQuery(bad), bad).toThrow(SyntaxError);
+      expect(() => parseQuery(bad), bad).toThrow(CssError);
+    }
+    try {
+      parseQuery("some crap");
+      expect.unreachable("应当抛错");
+    } catch (e) {
+      expect((e as CssError).code).toBe(CssCode.MediaQuerySyntax);
     }
   });
 

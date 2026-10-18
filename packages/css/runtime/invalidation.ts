@@ -185,7 +185,7 @@ export class Invalidator {
    * 改动：上游为每个依赖节点注册一个事件订阅（节点数×依赖数个监听器），本侧只维护一张
    * 反向 Map，失效时查表调用，不养任何监听器。
    *
-   * 记录已落地的依赖：下一次这些节点变化时，本节点需要跟随重算
+   * 记录已写入的依赖：下一次这些节点变化时，本节点需要跟随重算
    */
   updateDependencies(node: CssNode, state: NodeStyleState, changeMap: ChangeMap): void {
     for (const dep of state.dependencies) {

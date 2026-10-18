@@ -59,14 +59,14 @@ async function bundle(define: Record<string, string>): Promise<string> {
 describe("生产构建摇除告警文案", () => {
   it("开发构建：告警文案保留在产物中（开发阶段可见，才可能在开发阶段被修正）", async () => {
     const code = await bundle({ ngDevMode: "true" });
-    expect(code).toContain("无落点");
+    expect(code).toContain("没有对应实现");
   });
 
   it("脚本优化开启：告警文案整段消失（并非运行时不打印，而是根本不纳入产物）", async () => {
     const code = await bundle({ ngDevMode: "false" });
-    expect(code).not.toContain("无落点");
+    expect(code).not.toContain("没有对应实现");
     expect(code).not.toContain("已忽略");
-    // 功能本身不能被摇除：落点所用的 item 名仍需存在
+    // 功能本身不能被摇除：写入位置所用的 item 名仍需存在
     expect(code).toContain("font_color");
     expect(code).toContain("size_flags_stretch_ratio");
   });

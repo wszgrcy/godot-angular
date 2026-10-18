@@ -19,7 +19,7 @@ export function asGodotNode(node: Node | CssNode): GodotNode {
   return node as unknown as GodotNode;
 }
 
-/** 同上，落点在 theme / stylebox 时使用（写入方法全部来自 Control 分支）。 */
+/** 同上，写入目标是 theme / stylebox 时使用（写入方法全部来自 Control 分支）。 */
 export function asGodotControl(node: Node | CssNode): GodotControl {
   return node as unknown as GodotControl;
 }

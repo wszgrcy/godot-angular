@@ -1,3 +1,5 @@
+import { CssCode, CssWarnEntry } from "./diagnostics";
+
 /**
  * 来源：NativeScript/packages/core/css/reworkcss.ts :: Position
  * 等级：仅思路一致
@@ -76,7 +78,7 @@ export interface CssKeyframes {
  * 等级：仅思路一致
  * 差异：上游将描述符逐个解析为 family / weight / style / unicodeRange / src 列表，并支持
  * `local()` 与多个候选源；本侧仅保留「描述符名 → 原文」，src 的解析交由 runtime
- * （仅该侧能判定路径是否可落地），且仅允许一个 `url()`。
+ * （仅该侧能判定路径是否可用），且仅允许一个 `url()`。
  */
 export interface CssFontFace {
   type: "font-face";
@@ -164,7 +166,7 @@ export interface CssStyleSheet {
   type: "stylesheet";
   rules: CssBlockNode[];
   /** 解析期的告警（未闭合、不支持的 at-rule、畸形声明…） */
-  warnings: string[];
+  warnings: CssWarnEntry[];
 }
 
 /**
@@ -290,10 +292,10 @@ const IMPORTANT = /\s*!\s*important\s*$/i;
  * 改动：上游把 `!important` 剥掉并告警“暂不支持”，本侧解析成 important 标志交给级联；
  * 上游靠正则取属性名与值，本侧用顶层冒号切分。
  */
-function parseDeclaration(text: string, position: CssPosition, warnings: string[]): CssDeclaration | null {
+function parseDeclaration(text: string, position: CssPosition, warnings: CssWarnEntry[]): CssDeclaration | null {
   const colon = indexOfTopLevel(text, ":");
   if (colon <= 0) {
-    if (ngDevMode) warnings.push(`第 ${position.line} 行：无法解析为声明，已忽略 —— ${text.slice(0, 40)}`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.StyleSheetSyntax, `第 ${position.line} 行：无法解析为声明，已忽略 —— ${text.slice(0, 40)}`));
     return null;
   }
   let property = text.slice(0, colon).trim();
@@ -376,7 +378,7 @@ function matchBrace(css: string, start: number): number {
 class CssScanner {
   constructor(
     private readonly css: string,
-    readonly warnings: string[],
+    readonly warnings: CssWarnEntry[],
   ) {}
 
   /**
@@ -440,12 +442,12 @@ class CssScanner {
       const brace = this.findNext(i, end, "{");
       if (brace === -1) {
         const rest = this.css.slice(i, end).trim();
-        if (rest && ngDevMode) this.warnings.push(`第 ${this.lineColumn(i).line} 行：缺少 "{"，已忽略 —— ${rest.slice(0, 40)}`);
+        if (rest && ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.StyleSheetSyntax, `第 ${this.lineColumn(i).line} 行：缺少 "{"，已忽略 —— ${rest.slice(0, 40)}`));
         break;
       }
       const close = matchBrace(this.css, brace);
       if (close === -1) {
-        if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(brace).line} 行：括号未闭合，其后的内容已被丢弃`);
+        if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.StyleSheetSyntax, `第 ${this.lineColumn(brace).line} 行：括号未闭合，其后的内容已被丢弃`));
         break;
       }
       const selectorText = this.css.slice(i, brace).trim();
@@ -476,7 +478,7 @@ class CssScanner {
     const out: CssDeclaration[] = [];
     for (const chunk of splitDeclarations(body)) {
       if (chunk.startsWith("@")) {
-        if (ngDevMode) this.warnings.push(`声明块内的 @${chunk.slice(1, 12)} 不支持，已忽略`);
+        if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.AtRuleUnsupported, `声明块内的 @${chunk.slice(1, 12)} 不支持，已忽略`));
         continue;
       }
       const decl = parseDeclaration(chunk, this.lineColumn(start), this.warnings);
@@ -499,7 +501,7 @@ class CssScanner {
     const semi = this.findNext(start, end, ";");
     const preludeEnd = brace === -1 ? semi : semi !== -1 && semi < brace ? semi : brace;
     if (preludeEnd === -1) {
-      if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(start).line} 行：at-rule 缺少结尾，已忽略`);
+      if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.StyleSheetSyntax, `第 ${this.lineColumn(start).line} 行：at-rule 缺少结尾，已忽略`));
       return { type: "unsupported", name: "?", prelude: "", position: this.lineColumn(start), next: end };
     }
     const prelude = this.css.slice(start + 1, preludeEnd).trim();
@@ -515,7 +517,7 @@ class CssScanner {
 
     if (name === "keyframes") {
       const animName = prelude.slice(name.length).trim();
-      if (ngDevMode) this.warnings.push(`@${name} ${animName} 已忽略 —— Godot 的动画由 Tween / AnimationPlayer 承担，与 CSS 动画模型不兼容`);
+      if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.AtRuleUnsupported, `@${name} ${animName} 已忽略 —— Godot 的动画由 Tween / AnimationPlayer 承担，与 CSS 动画模型不兼容`));
       const next = hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1;
       return { type: "keyframes", name: animName, position, next };
     }
@@ -531,7 +533,7 @@ class CssScanner {
     }
 
     // @supports / @import / @charset / @layer / @page …
-    if (ngDevMode) this.warnings.push(`@${name} 不支持，已忽略`);
+    if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.AtRuleUnsupported, `@${name} 不支持，已忽略`));
     const next = hasBlock ? this.blockEnd(preludeEnd, end) : preludeEnd + 1;
     return { type: "unsupported", name, prelude, position, next };
   }
@@ -573,7 +575,7 @@ class CssScanner {
     if (brace === -1 || brace >= outerEnd) return [];
     const close = matchBrace(this.css, brace);
     if (close === -1) {
-      if (ngDevMode) this.warnings.push(`第 ${this.lineColumn(brace).line} 行：at-rule 的块未闭合`);
+      if (ngDevMode) this.warnings.push(new CssWarnEntry(CssCode.StyleSheetSyntax, `第 ${this.lineColumn(brace).line} 行：at-rule 的块未闭合`));
       return this.parseBlock(brace + 1, outerEnd);
     }
     return this.parseBlock(brace + 1, close);
@@ -614,7 +616,7 @@ class CssScanner {
  * 解析一份样式表。**永不抛异常**。
  */
 export function parseCss(css: string): CssStyleSheet {
-  const warnings: string[] = [];
+  const warnings: CssWarnEntry[] = [];
   const stripped = stripComments(css);
   const scanner = new CssScanner(stripped, warnings);
   const rules = scanner.parseBlock(0, stripped.length);
@@ -661,7 +663,7 @@ export function flattenRules(sheet: CssStyleSheet): CssRule[] {
         out.push(node);
       } else if (node.type === "media") {
         if (currentMedia) {
-          if (ngDevMode) sheet.warnings.push(`不支持 @media 嵌套 @media（${node.media}），内层已忽略`);
+          if (ngDevMode) sheet.warnings.push(new CssWarnEntry(CssCode.AtRuleUnsupported, `不支持 @media 嵌套 @media（${node.media}），内层已忽略`));
           continue;
         }
         walk(node.rules, node.media);

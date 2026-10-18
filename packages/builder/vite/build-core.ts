@@ -110,7 +110,7 @@ export function godotRequirePlugin(resRoot: string): Plugin {
 
 /**
  * `loader` 选项：将某个扩展名作为纯文本 / base64 内联。官方六种中的 `file` / `dataurl` /
- * `binary` 在 Godot 语境下没有落点，schema 直接不接受，而不是静默降级为 text。
+ * `binary` 在 Godot 语境下没有对应处理，schema 直接不接受，而不是静默降级为 text。
  */
 function loaderPlugin(loader: Record<string, string> | undefined): Plugin[] {
   const entries = Object.entries(loader ?? {});

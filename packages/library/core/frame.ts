@@ -1,6 +1,8 @@
 /** 构建器补丁模块（`builder/vite/polyfills.ts`）挂到 globalThis 上的句柄键。 */
 const CUJ_FRAME_KEY = "__CUJ_FRAME__";
 
+import { CssCode, CssError } from "godot-angular/css";
+
 export interface GodotFrameClock {
   /** 每帧调用一次，驱动 rAF 队列。 */
   run(deltaMs: number): void;
@@ -17,8 +19,9 @@ export interface GodotFrameClock {
 export function frameClock(): GodotFrameClock {
   const clock = (globalThis as Record<string, unknown>)[CUJ_FRAME_KEY] as GodotFrameClock | undefined;
   if (!clock) {
-    throw new Error(
-      "[godot-angular] 帧钟未安装：构建器的补丁模块未先于本入口求值。" +
+    throw new CssError(
+      CssCode.FrameClockMissing,
+      "帧钟未安装：构建器的补丁模块未先于本入口求值。" +
         "builder 会自动前置它；手写入口（或手工拼装 bundle）时，第一条 import 必须是它。",
     );
   }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
   ColorLike,
   CssNode,
+  CssWarnEntry,
   FontSource,
   FourCorners,
   FourSides,
@@ -11,11 +12,12 @@ import type {
 import {
   applyCssProperty,
   cssPropertyNames,
+  CssCode,
   isAppearanceProperty,
   lookupProperty,
 } from "godot-angular/css";
 
-/** 基落点：这些用例验的是「CSS 名 → theme item」的静态映射，不涉及状态伪类 */
+/** 基写入位置：这些用例验的是「CSS 名 → theme item」的静态映射，不涉及状态伪类 */
 const NO_STATES: ReadonlySet<string> = new Set<string>();
 
 /** 记录所有调用的假 backend。它同时是 StyleBackend 契约的“可实例化证明” */
@@ -25,7 +27,9 @@ class FakeBackend implements StyleBackend {
   nodeNumbers: Record<string, number> = {};
   styleboxMutations: Array<{ item: string; what: string }> = [];
   warned: string[] = [];
-  /** 这个假节点上“存在”的属性——按类名给出，L3 的落点判断完全依赖它 */
+  /** 告警码，断言用这个（文案会改，码不会） */
+  codes: CssCode[] = [];
+  /** 这个假节点上“存在”的属性——按类名给出，L3 的写入位置判断完全依赖它 */
   private static readonly PROPS: Record<string, string[]> = {
     Control: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "mouse_default_cursor_shape", "layout_direction"],
     Label: ["visible", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio", "horizontal_alignment", "text_overrun_behavior", "autowrap_mode", "mouse_default_cursor_shape", "layout_direction"],
@@ -33,7 +37,7 @@ class FakeBackend implements StyleBackend {
     BoxContainer: ["alignment", "vertical", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
     VBoxContainer: ["alignment", "vertical", "size_flags_horizontal", "size_flags_vertical", "size_flags_stretch_ratio"],
     MarginContainer: [],
-    // 只有 stretch_ratio、没有两个轴的类：验证 setGrow 中逐轴的落点判断
+    // 只有 stretch_ratio、没有两个轴的类：验证 setGrow 中逐轴的写入位置判断
     HalfFlags: ["size_flags_stretch_ratio"],
   };
 
@@ -68,7 +72,7 @@ class FakeBackend implements StyleBackend {
     this.calls.push(`constant:${item}:${value}`);
   }
   setFontOverride(_node: CssNode, item: string, source: FontSource): boolean {
-    // 仅验证「是否存在落点、落在哪个 item」，不验证加载：资源路径直接记录路径，
+    // 仅验证「是否存在写入位置、写在哪个 item」，不验证加载：资源路径直接记录路径，
     // 系统字体记录名称列表，两者在调用流水中可以区分
     const what = "path" in source ? source.path : `sys:${source.systemFontNames.join("|")}`;
     this.calls.push(`font:${item}:${what}`);
@@ -92,7 +96,7 @@ class FakeBackend implements StyleBackend {
   }
   hasNodeProperty(_node: CssNode, prop: string): boolean {
     // 真实引擎沿继承链查属性（ClassDB），此处也必须沿：只查本类会将
-    // Control 上的 size_flags_* 当成不存在（flex 就是这样静默不落地的）
+    // Control 上的 size_flags_* 当成不存在（flex 就是这样静默不写入的）
     // 表中点名的类就按点名的算（MarginContainer / HalfFlags 依赖它模拟“缺属性”），
     // 未点名的类退回 Control 那一层——真实引擎沿继承链查找，不会一个属性都没有
     const own = FakeBackend.PROPS[this.cls];
@@ -111,11 +115,11 @@ class FakeBackend implements StyleBackend {
     node: CssNode,
     cssName: string,
     raw: string,
-    warnings: string[],
+    warnings: CssWarnEntry[],
     states: ReadonlySet<string>,
   ): boolean {
     // 假 backend 也要使用真实的属性映射，否则“CSS 名 → theme item”这一层就没有被验到
-    return applyCssProperty(node, cssName, raw, { backend: this, warn: (k, m) => this.warned.push(`${k}::${m}`), states }, warnings);
+    return applyCssProperty(node, cssName, raw, { backend: this, warn: (code, m) => { this.codes.push(code); this.warned.push(`${code}::${m}`); }, states }, warnings);
   }
 
   lastColor: ColorLike | null = null;
@@ -154,13 +158,13 @@ function node(cssType: string): CssNode {
 function apply(cssType: string, name: string, value: string) {
   const target = node(cssType);
   const backend = new FakeBackend(target);
-  const warnings: string[] = [];
+  const warnings: CssWarnEntry[] = [];
   const known = applyCssProperty(
     target,
     name,
     value,
-    // 这些用例验的是「CSS 名 → theme item」的基落点，不涉及状态伪类 → 空状态集
-    { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`), states: NO_STATES },
+    // 这些用例验的是「CSS 名 → theme item」的基写入位置，不涉及状态伪类 → 空状态集
+    { backend, warn: (code, message) => { backend.codes.push(code); backend.warned.push(`${code}::${message}`); }, states: NO_STATES },
     warnings,
   );
   return { backend, known, warnings, calls: backend.calls };
@@ -181,7 +185,7 @@ describe("L1 外观属性", () => {
     expect(em.warnings.join("\n")).toContain("font-size");
   });
 
-  it("background-color 落在该类的底色 stylebox（Button→normal，PanelContainer→panel）", () => {
+  it("background-color 写在该类的底色 stylebox（Button→normal，PanelContainer→panel）", () => {
     expect(apply("Button", "background-color", "red").calls).toEqual(["stylebox:normal"]);
     expect(apply("PanelContainer", "background-color", "red").calls).toEqual(["stylebox:panel"]);
   });
@@ -189,11 +193,11 @@ describe("L1 外观属性", () => {
   it("不绘制背景的类（VBoxContainer）写入背景 → 输出告警并说明处理方式，不假装成功", () => {
     const { calls, backend } = apply("VBoxContainer", "background-color", "red");
     expect(calls).toEqual([]);
-    expect(backend.warned.join("\n")).toContain("无落点");
+    expect(backend.codes).toContain(CssCode.BackgroundNoTarget);
     expect(backend.warned.join("\n")).toContain("PanelContainer");
   });
 
-  it("圆角按角名落位（top-left 不会被归到 left）", () => {
+  it("圆角按角名写入（top-left 不会被归到 left）", () => {
     const topLeft = apply("Button", "border-top-left-radius", "8px");
     expect(topLeft.backend.styleboxMutations[0].what).toBe('radius({"topLeft":8})');
     const topRight = apply("Button", "border-top-right-radius", "4px");
@@ -202,7 +206,7 @@ describe("L1 外观属性", () => {
     expect(bottomLeft.backend.styleboxMutations[0].what).toBe('radius({"bottomLeft":2})');
   });
 
-  it("border-*-width 落到对应边的宽度", () => {
+  it("border-*-width 写入对应边的宽度", () => {
     const { backend } = apply("Button", "border-bottom-width", "3px");
     expect(backend.styleboxMutations[0].what).toBe('borderWidth({"bottom":3})');
   });
@@ -229,8 +233,8 @@ describe("L1 外观属性", () => {
 });
 
 describe("L3 布局属性（只做翻译提示）", () => {
-  it("width / height 无落点：说明 Godot 无确定宽度，并给出替代写法", () => {
-    // 无落点走 ctx.warn（按「属性 + 原因」去重），不是 parse 阶段的 warnings 列表
+  it("width / height 没有对应实现：说明 Godot 无确定宽度，并给出替代写法", () => {
+    // 没有对应实现走 ctx.warn（按「属性 + 原因」去重），不是 parse 阶段的 warnings 列表
     const width = apply("Label", "width", "120px");
     expect(width.calls).toEqual([]);
     expect(width.backend.warned.join("\n")).toContain("min-width");
@@ -255,12 +259,12 @@ describe("L3 布局属性（只做翻译提示）", () => {
     ]);
     const bad = apply("Label", "margin", "8px");
     expect(bad.calls).toEqual([]);
-    expect(bad.backend.warned.join("\n")).toContain("不会擅自向节点树插入容器");
+    expect(bad.backend.codes).toContain(CssCode.MarginUnsupported);
   });
 
   it("gap → theme 常量 separation（Godot 4 没这个属性！），GridContainer 写 h/v 两条", () => {
     // 写成 `node.separation = 10` 在 JS 侧不报错也不生效，静默无效最难排查，
-    // 因此这条将“落点是 theme 常量”固定住（引擎侧另有 get_theme_constant 对账）。
+    // 因此这条将“写入位置是 theme 常量”固定住（引擎侧另有 get_theme_constant 对账）。
     expect(apply("VBoxContainer", "gap", "10px").calls).toEqual(["constant:separation:10"]);
     expect(apply("GridContainer", "gap", "6px").calls).toEqual([
       "constant:h_separation:6",
@@ -271,7 +275,7 @@ describe("L3 布局属性（只做翻译提示）", () => {
     expect(bad.backend.warned.join("\n")).toContain("separation");
   });
 
-  it("justify-content 三档能落，space-* 告警", () => {
+  it("justify-content 三档能写入，space-* 告警", () => {
     expect(apply("VBoxContainer", "justify-content", "center").calls).toEqual(["node:alignment:1"]);
     expect(apply("VBoxContainer", "justify-content", "flex-end").calls).toEqual(["node:alignment:2"]);
     const space = apply("VBoxContainer", "justify-content", "space-between");
@@ -332,7 +336,7 @@ describe("明确不做的东西必须出声", () => {
     }
   });
 
-  it("无法识别的属性名返回 false（与「可识别但无落点」区分开）", () => {
+  it("无法识别的属性名返回 false（与「可识别但没有对应实现」区分开）", () => {
     expect(apply("Label", "mystery-prop", "x").known).toBe(false);
     expect(apply("Label", "color", "red").known).toBe(true);
   });
@@ -390,27 +394,27 @@ describe("beforeEach 占位（防止误加全局状态）", () => {
   });
 });
 
-describe("值不合法或没有落点：告警 + 放弃写入", () => {
-  /** 两条告警通道：解析期的 warnings 与落点判断的 ctx.warn（进入 backend.warned） */
-  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+describe("值不合法或没有对应实现：告警 + 放弃写入", () => {
+  /** 两条告警通道：解析期的 warnings 与写入位置判断的 ctx.warn（进入 backend.warned） */
+  const warned = (r: { warnings: CssWarnEntry[]; backend: FakeBackend }) =>
     [...r.warnings, ...r.backend.warned].join("");
 
-  it("background 是 background-color 的别名，同样落底色", () => {
+  it("background 是 background-color 的别名，同样写底色", () => {
     expect(apply("Button", "background", "red").calls).toContain("stylebox:normal");
   });
 
   it("在不绘制背景的类上写入底色：告警说明处理方式，不发出任何写入", () => {
     const r = apply("VBoxContainer", "background", "red");
-    expect(warned(r)).toContain("无落点");
+    expect(r.backend.codes).toContain(CssCode.BackgroundNoTarget);
     expect(r.calls).toEqual([]);
   });
 
   it("词汇表中不存在的 theme item：告警并放弃（不是写个不生效的 override）", () => {
     const color = apply("MarginContainer", "color", "red");
-    expect(warned(color)).toContain("词汇表中不存在");
+    expect(warned(color)).toContain("主题中不存在该项");
     expect(color.calls).toEqual([]);
     const size = apply("MarginContainer", "font-size", "20px");
-    expect(warned(size)).toContain("词汇表中不存在");
+    expect(warned(size)).toContain("主题中不存在该项");
     expect(size.calls).toEqual([]);
   });
 
@@ -425,10 +429,10 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
     expect(warned(apply("VBoxContainer", "gap", "thick"))).toContain("gap");
   });
 
-  it("min-width / min-height 各写一轴，相对单位与百分比明确无落点", () => {
+  it("min-width / min-height 各写一轴，相对单位与百分比明确没有对应实现", () => {
     expect(apply("Label", "min-width", "100px").calls).toContain("min:100x-");
     expect(apply("Label", "min-height", "40px").calls).toContain("min:-x40");
-    expect(warned(apply("Label", "min-width", "3em"))).toContain("相对单位无落点");
+    expect(warned(apply("Label", "min-width", "3em"))).toContain("相对单位没有对应实现");
     expect(warned(apply("Label", "min-width", "50%"))).toContain("百分比");
     expect(warned(apply("Label", "min-height", "abc"))).toContain("不是长度");
   });
@@ -443,7 +447,7 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
     // MarginContainer 的假 backend 没有 alignment / horizontal_alignment
     expect(apply("MarginContainer", "justify-content", "center").calls).toEqual([]);
     expect(apply("MarginContainer", "text-align", "center").calls).toEqual([]);
-    expect(warned(apply("Label", "text-align", "justify"))).toContain("无对应值");
+    expect(apply("Label", "text-align", "justify").backend.codes).toContain(CssCode.TextAlignUnsupported);
     expect(apply("Label", "text-align", "center").calls).toContain("node:horizontal_alignment:1");
   });
 
@@ -459,12 +463,12 @@ describe("值不合法或没有落点：告警 + 放弃写入", () => {
   });
 });
 
-describe("落点缺失的逐个属性（每个属性自己那条告警）", () => {
-  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+describe("写入位置缺失的逐个属性（每个属性自己那条告警）", () => {
+  const warned = (r: { warnings: CssWarnEntry[]; backend: FakeBackend }) =>
     [...r.warnings, ...r.backend.warned].join("");
 
   /**
-   * 这些属性全部落在 stylebox 上。VBoxContainer 不绘制底色，因此每一条都需自行告警并
+   * 这些属性全部写在 stylebox 上。VBoxContainer 不绘制底色，因此每一条都需自行告警并
    * 放弃——漏掉任意一条，症状都是“写了没反应、也没有提示”。
    */
   it("不画底的类：border / radius / padding / box-shadow 各自告警，零写入", () => {
@@ -526,7 +530,7 @@ describe("落点缺失的逐个属性（每个属性自己那条告警）", () =
  * ------------------------------------------------------------------ */
 
 describe("gap 家族（行轴与列轴）", () => {
-  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+  const warned = (r: { warnings: CssWarnEntry[]; backend: FakeBackend }) =>
     [...r.warnings, ...r.backend.warned].join("");
 
   /** 需要预设节点属性（如 BoxContainer.vertical）时走这个入口 */
@@ -534,12 +538,12 @@ describe("gap 家族（行轴与列轴）", () => {
     const target = node(cssType);
     const backend = new FakeBackend(target);
     Object.assign(backend.nodeNumbers, numbers);
-    const warnings: string[] = [];
+    const warnings: CssWarnEntry[] = [];
     applyCssProperty(
       target,
       name,
       value,
-      { backend, warn: (key, message) => backend.warned.push(`${key}::${message}`), states: NO_STATES },
+      { backend, warn: (code, message) => { backend.codes.push(code); backend.warned.push(`${code}::${message}`); }, states: NO_STATES },
       warnings,
     );
     return { backend, warnings, calls: backend.calls };
@@ -556,20 +560,20 @@ describe("gap 家族（行轴与列轴）", () => {
   });
 
   it("单轴容器：BoxContainer 只有一个 separation，另一轴输出告警", () => {
-    // HBoxContainer（vertical = 0）：列间距即 separation，行间距无落点
+    // HBoxContainer（vertical = 0）：列间距即 separation，行间距没有对应实现
     expect(applyWith("BoxContainer", "column-gap", "8px", {}).calls).toEqual(["constant:separation:8"]);
     const rowOnHBox = applyWith("BoxContainer", "row-gap", "8px", {});
     expect(rowOnHBox.calls).toEqual([]);
-    expect(warned(rowOnHBox)).toContain("无落点");
+    expect(rowOnHBox.backend.codes).toContain(CssCode.GapAxisUnsupported);
     // VBoxContainer（vertical = 1）：轴向相反
     expect(applyWith("VBoxContainer", "row-gap", "8px", { vertical: 1 }).calls).toEqual(["constant:separation:8"]);
     const colOnVBox = applyWith("VBoxContainer", "column-gap", "8px", { vertical: 1 });
     expect(colOnVBox.calls).toEqual([]);
-    expect(warned(colOnVBox)).toContain("无落点");
+    expect(colOnVBox.backend.codes).toContain(CssCode.GapAxisUnsupported);
     // `gap: 8px` 两轴同值：单轴容器仅写入一次，且不告警
     expect(applyWith("VBoxContainer", "gap", "8px", { vertical: 1 }).calls).toEqual(["constant:separation:8"]);
     expect(warned(applyWith("VBoxContainer", "gap", "8px", { vertical: 1 }))).toBe("");
-    // 两个取值不相等时，无法落地的另一轴必须输出告警
+    // 两个取值不相等时，无法写入的另一轴必须输出告警
     expect(warned(applyWith("VBoxContainer", "gap", "4px 6px", { vertical: 1 }))).toContain("column-gap");
   });
 
@@ -588,7 +592,7 @@ describe("gap 家族（行轴与列轴）", () => {
 });
 
 describe("边框单边颜色（Godot 四边同色）", () => {
-  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+  const warned = (r: { warnings: CssWarnEntry[]; backend: FakeBackend }) =>
     [...r.warnings, ...r.backend.warned].join("");
 
   it("写入 border_color，同时说明其作用于整圈", () => {
@@ -609,19 +613,19 @@ describe("边框单边颜色（Godot 四边同色）", () => {
 });
 
 describe("caret-color", () => {
-  it("落在 LineEdit 的 caret_color theme 色上", () => {
+  it("写在 LineEdit 的 caret_color theme 色上", () => {
     expect(apply("LineEdit", "caret-color", "red").calls).toEqual(["color:caret_color"]);
   });
 
   it("不具备 caret_color 的类：输出词汇表告警，不写入无效 override", () => {
     const r = apply("Label", "caret-color", "red");
     expect(r.calls).toEqual([]);
-    expect(r.backend.warned.join("\n")).toContain("词汇表中不存在");
+    expect(r.backend.codes).toContain(CssCode.ThemeItemMissing);
   });
 });
 
 describe("文本与交互（L3）", () => {
-  const warned = (r: { warnings: string[]; backend: FakeBackend }) =>
+  const warned = (r: { warnings: CssWarnEntry[]; backend: FakeBackend }) =>
     [...r.warnings, ...r.backend.warned].join("");
 
   it("cursor → mouse_default_cursor_shape 的枚举值", () => {
@@ -632,13 +636,13 @@ describe("文本与交互（L3）", () => {
     expect(apply("Label", "cursor", "Pointer, auto").calls).toEqual(["node:mouse_default_cursor_shape:2"]);
     const unknown = apply("Label", "cursor", "zoom-in");
     expect(unknown.calls).toEqual([]);
-    expect(warned(unknown)).toContain("无对应取值");
+    expect(unknown.backend.codes).toContain(CssCode.CursorUnsupported);
   });
 
   it("text-overflow → text_overrun_behavior（clip 1 / ellipsis 3）", () => {
     expect(apply("Label", "text-overflow", "clip").calls).toEqual(["node:text_overrun_behavior:1"]);
     expect(apply("Label", "text-overflow", "ellipsis").calls).toEqual(["node:text_overrun_behavior:3"]);
-    // 自定义省略号字符串无落点（引擎固定用 …）
+    // 自定义省略号字符串没有对应实现（引擎固定用 …）
     const custom = apply("Label", "text-overflow", 'ellipsis "…"');
     expect(custom.calls).toEqual(["node:text_overrun_behavior:3"]);
     expect(warned(custom)).toContain("自定义省略号");
@@ -651,17 +655,17 @@ describe("文本与交互（L3）", () => {
     expect(apply("Label", "white-space", "nowrap").calls).toEqual(["node:autowrap_mode:0"]);
     expect(apply("Label", "white-space", "normal").calls).toEqual(["node:autowrap_mode:2"]);
     expect(apply("Label", "white-space", "break-all").calls).toEqual(["node:autowrap_mode:3"]);
-    expect(warned(apply("Label", "white-space", "collapse"))).toContain("无对应取值");
+    expect(apply("Label", "white-space", "collapse").backend.codes).toContain(CssCode.WhiteSpaceUnsupported);
   });
 
   it("direction → layout_direction（ltr 2 / rtl 3）", () => {
     expect(apply("Label", "direction", "rtl").calls).toEqual(["node:layout_direction:3"]);
     expect(apply("Label", "direction", "ltr").calls).toEqual(["node:layout_direction:2"]);
-    expect(warned(apply("Label", "direction", "rtl-vertical"))).toContain("无对应取值");
+    expect(apply("Label", "direction", "rtl-vertical").backend.codes).toContain(CssCode.DirectionUnsupported);
     // inherit / initial 属于全局关键字，在进入属性表前即被拦截（Godot 的 theme 无 unset）
     const kw = apply("Label", "direction", "inherit");
     expect(kw.calls).toEqual([]);
-    expect(warned(kw)).toContain("无落点");
+    expect(kw.backend.codes).toContain(CssCode.KeywordUnsupported);
   });
 });
 
@@ -678,7 +682,7 @@ describe("新增属性均在属性表中，且承诺级别标记正确", () => {
     }
   });
 
-  it("此前无法识别的常见写法，现在要么有落点、要么有明确说明", () => {
+  it("此前无法识别的常见写法，现在要么有对应实现、要么有明确说明", () => {
     for (const name of ["max-width", "max-height", "background-image", "align-self", "order", "word-spacing"]) {
       expect(cssPropertyNames(), name).toContain(name);
     }

@@ -11,8 +11,9 @@
  *   - `res://` 是引擎的虚拟根，指向 `project.godot` 所在目录；位于工程目录内的字体文件会随
  *     工程一并导出至 `.pck`，运行时由 `ResourceLoader` 直接加载，无需额外的资源通道。
  *   - Godot 的 FontFile 不存在「同一家族按 weight / style 选择变体」的机制，一个名称仅对应
- *     一份字体，因此 `font-weight` / `font-style` 一类描述符无落点。
+ *     一份字体，因此 `font-weight` / `font-style` 一类描述符没有对应实现。
  */
+import { CssCode, CssWarnEntry } from "../diagnostics";
 import type { CssFontFace } from "../parser";
 import { extractResourceUrl, unquote } from "../value/resource-url";
 
@@ -42,23 +43,23 @@ export interface FontFace {
  * 校验一条 `@font-face`。返回 null 表示该条登记无效，`warnings` 中已写明原因。
  *
  * 一律按「未书写即视为未提供」处理：字体登记失败不会使整张样式表失效，但一定会输出告警——
- * 静默回落至主题默认字体的排查成本过高。
+ * 静默退回主题默认字体的排查成本过高。
  */
 export function parseFontFace(
   node: CssFontFace,
   line: number,
-  warnings: string[],
+  warnings: CssWarnEntry[],
 ): FontFace | null {
   const at = `第 ${line} 行：@font-face`;
   const family = unquote(node.descriptors["font-family"] ?? "");
   if (!family) {
-    if (ngDevMode) warnings.push(`${at} 缺少 font-family，已忽略（该描述符即 font-family 属性查找所用的名称）`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.FontFaceInvalid, `${at} 缺少 font-family，已忽略（该描述符即 font-family 属性查找所用的名称）`));
     return null;
   }
 
   const src = node.descriptors["src"];
   if (!src) {
-    if (ngDevMode) warnings.push(`${at} "${family}" 缺少 src，已忽略`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.FontFaceInvalid, `${at} "${family}" 缺少 src，已忽略`));
     return null;
   }
 
@@ -73,7 +74,7 @@ export function parseFontFace(
   // 这些描述符在 CSS 中用于「同一家族选择变体」，Godot 的 FontFile 无对应概念
   for (const ignored of ["font-weight", "font-style", "font-stretch", "font-display", "unicode-range"]) {
     if (node.descriptors[ignored] !== undefined && ngDevMode) {
-      warnings.push(`${at} "${family}" 的 ${ignored} 无落点，已忽略：Godot 中一个字体名仅对应一份字体文件`);
+      warnings.push(new CssWarnEntry(CssCode.FontFaceDescriptorUnsupported, `${at} "${family}" 的 ${ignored} 没有对应实现，已丢弃：Godot 中一个字体名仅对应一份字体文件`));
     }
   }
 

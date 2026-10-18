@@ -168,7 +168,7 @@ export class GodotPlatformLocation implements PlatformLocation {
 
   historyGo(relativePosition: number = 0): void {
     const target = Math.min(Math.max(this.index + relativePosition, 0), this.entries.length - 1);
-    // 越界时 target 落回当前下标，于是既不移动也不发事件 —— 与浏览器一致
+    // 越界时 target 回到当前下标，于是既不移动也不发事件 —— 与浏览器一致
     if (target === this.index) return;
     this.index = target;
     const event: LocationChangeEvent = { type: "popstate", state: this.entry.state };

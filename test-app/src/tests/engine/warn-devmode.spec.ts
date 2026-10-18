@@ -14,7 +14,7 @@ afterEach(() => setWarnEnabled(undefined));
  * 闸门的两侧，而非再次执行一次优化构建。
  */
 describe("运行期告警开关", () => {
-  it("开发模式下，无落点的属性会输出告警", () => {
+  it("开发模式下，没有对应实现的属性会输出告警", () => {
     // 未优化构建：ngDevMode 被 define 为 true
     expect(warnEnabled()).toBe(true);
     const { warn } = captureWarn(() => applyStyle(new Label(), "display", "flex"));

@@ -1,3 +1,5 @@
+import type { CssWarnEntry } from "./diagnostics";
+
 /**
  * 来源：NativeScript/packages/core/ui/styling/css-selector.ts :: SelectorTier
  * 等级：完全来自（一字未改）
@@ -28,7 +30,7 @@ export interface CssNode {
   parent?: CssNode | null;
   /** `#id` 用：Angular 的 `id` 绑定值，**不是** Godot 的 `node.name`（兄弟可同名） */
   id?: string;
-  /** 元素选择器的落点 = 节点类名，不可覆写（Godot 没有可写的 theme_type） */
+  /** 元素选择器对应的就是节点类名，不可覆写（Godot 没有可写的 theme_type） */
   cssType?: string;
   /**
    * `attach` 之后必定是 `TrackingClassSet`：向其中 add / delete 是“class 发生变化”的唯一通知源。
@@ -130,29 +132,29 @@ export interface StyleBoxHandle {
   setBorderColor(color: ColorLike | null): void;
   setShadow(shadow: { color: ColorLike; size: number; offsetX: number; offsetY: number }): void;
   /**
-   * 纹理（`background-image` 的落点）。path 是 `res://` 路径，由实现侧加载。
+   * 纹理（`background-image` 的写入位置）。path 是 `res://` 路径，由实现侧加载。
    *
    * 一个 StyleBox 只能绘制底色或纹理此中的一种（StyleBoxFlat 无 texture，StyleBoxTexture 无
    * bg_color），因此该条与 `setBackground` 互斥，何者生效由层叠顺序决定。
    */
   setTexture(path: string): void;
-  /** 内容留白（Godot 的 content_margin）—— CSS 的 padding 落在这里 */
+  /** 内容留白（Godot 的 content_margin）—— CSS 的 padding 写在这里 */
   setContentMargin(margin: Partial<FourSides>): void;
 }
 
 /**
  * 来源：NativeScript/packages/core/ui/styling/style-properties.ts（CSS 属性 → 原生 setter 的注册表）
  * 等级：仅思路一致
- * 差异：上游的“落点”是 Style 上的属性访问器（每个 CSS 属性一个 CssProperty 对象），
- * 本侧的落点是 theme override / StyleBoxFlat / 节点属性三类完全不同的东西，因此接口
- * 形状完整重写，只沿用“属性落点集中的一个出口”这一约束。
+ * 差异：上游的“写入位置”是 Style 上的属性访问器（每个 CSS 属性一个 CssProperty 对象），
+ * 本侧的写入目标是 theme override / StyleBoxFlat / 节点属性三类完全不同的东西，因此接口
+ * 形状完整重写，只沿用“属性写入集中的一个出口”这一约束。
  *
- * CSS 属性落到 Godot 节点的唯一出口。由 `packages/library/core/style-target.ts` 实现。
+ * CSS 属性写入 Godot 节点的唯一出口。由 `packages/library/core/style-target.ts` 实现。
  *
  * 每个方法只负责一件事，且**不自行做去重 / 记账**——那些属于级联层职责。
  */
 /**
- * `font-family` 的两种落点。
+ * `font-family` 的两种写入来源。
  *
  * - `{ path }`：`@font-face` 已登记的工程内资源（确定答案，跨平台一致）。
  * - `{ systemFontNames }`：全部未登记，整串候选交给 `SystemFont.font_names`，
@@ -177,15 +179,15 @@ export interface StyleBackend {
   setConstantOverride(node: CssNode, item: string, value: number): void;
 
   /**
-   * 字体覆盖（`font-family` 的落点），两种来源见 {@link FontSource}。加载与缓存由实现侧负责。
+   * 字体覆盖（`font-family` 的写入位置），两种来源见 {@link FontSource}。加载与缓存由实现侧负责。
    *
-   * 返回 false 仅可能发生在 `path` 分支：资源加载失败。调用方必须输出告警——静默回落至主题
+   * 返回 false 仅可能发生在 `path` 分支：资源加载失败。调用方必须输出告警——静默退回主题
    * 默认字体是最难排查的一类问题。`systemFontNames` 分支恒返回 true：系统安装了哪些字体
    * 本库无法查得（TextServer 未提供该 API），是否生效交由引擎处理。
    */
   setFontOverride(node: CssNode, item: string, source: FontSource): boolean;
 
-  /** 最小尺寸（CSS 的 min-width / min-height 落点，**下界**而非等值）；null 表示不修改这一轴 */
+  /** 最小尺寸（CSS 的 min-width / min-height 写入位置，**下界**而非等值）；null 表示不修改这一轴 */
   setMinimumSize(node: CssNode, width: number | null, height: number | null): void;
   /** opacity → modulate.a（连子树一起调制） */
   setOpacity(node: CssNode, alpha: number): void;
@@ -194,9 +196,9 @@ export interface StyleBackend {
   getNodeNumber(node: CssNode, prop: string): number;
   /** 设一个布尔型节点属性（visibility → visible 这类） */
   setNodeBoolean(node: CssNode, prop: string, value: boolean): void;
-  /** 节点上是否存在该属性——L3 的落点判断完全依赖它，写入不存在的属性引擎只会静默接受 */
+  /** 节点上是否存在该属性——L3 的写入判断完全依赖它，写入不存在的属性引擎只会静默接受 */
   hasNodeProperty(node: CssNode, prop: string): boolean;
-  /** 父节点（组合器回溯 + `gap` 落到父容器） */
+  /** 父节点（组合器回溯 + `gap` 写入父容器） */
   parentOf(node: CssNode): CssNode | null;
 
   /**
@@ -213,11 +215,11 @@ export interface StyleBackend {
   clearProperty(node: CssNode, cssName: string): void;
 
   /**
-   * 落一条 CSS 属性，返回 false 表示属性名不认识。必须走这个入口而不是级联自行调用
+   * 写入一条 CSS 属性，返回 false 表示属性名不认识。必须走这个入口而不是级联自行调用
    * applyCssProperty：引擎侧 ledger 按 CSS 属性名分组记账，绕过它会使撤销全部失效。
    *
    * `states`：声明所在的选择器自身要求的状态伪类（见 `MergedDeclaration.states`）。
-   * 空集 = 基规则或内联，写基 item；非空 = 写引擎在该状态下读取的 item。落点完全由它
+   * 空集 = 基规则或内联，写基 item；非空 = 写引擎在该状态下读取的 item。写入位置完全由它
    * 推导，与节点当前处于哪些状态无关。
    *
    * `resolveFont`：将 `font-family` 的家族名解析为 `@font-face` 登记的资源路径。仅样式表
@@ -227,7 +229,7 @@ export interface StyleBackend {
     node: CssNode,
     cssName: string,
     raw: string,
-    warnings: string[],
+    warnings: CssWarnEntry[],
     states: ReadonlySet<string>,
     resolveFont?: (family: string) => string | null,
   ): boolean;
@@ -262,14 +264,3 @@ export interface MediaEnvironment {
  * 两者都只在开发模式输出（见构建器对 `ngDevMode` 的处理）。
  */
 export type WarnLevel = "ignore" | "compat";
-
-/**
- * 来源：无
- *
- * 解析 / 应用过程中产生的一次告警
- */
-export interface CssWarning {
-  key: string;
-  message: string;
-  level?: WarnLevel;
-}

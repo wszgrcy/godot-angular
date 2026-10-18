@@ -15,7 +15,7 @@ export function isExternalDependency(id: string, packages: string[]): boolean {
 
 /**
  * 归一化 assets：字符串分支展开为 `{ glob }`，可选字段补默认值。`input` = 搜索根（相对
- * workspaceRoot），`output` = 落点子目录（相对 outputPath）。返回类型故意不写，由这份
+ * workspaceRoot），`output` = 输出子目录（相对 outputPath）。返回类型故意不写，由这份
  * 实现推导得出，`NormalizedAsset` 由它派生，两者不可能分叉。
  */
 export function normalizeAssets(patterns: AssetPattern[] | undefined) {

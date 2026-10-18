@@ -1,3 +1,5 @@
+import { CssCode, CssWarnEntry } from "../diagnostics";
+
 /**
  * 来源：无（CSS 的 `url()` 只借语法，不实现 CSS Values 的 url 解析）
  * 等级：本侧新增
@@ -28,23 +30,23 @@ export interface ResourceUrlOptions {
  */
 export function extractResourceUrl(
   raw: string,
-  warnings: string[],
+  warnings: CssWarnEntry[],
   options: ResourceUrlOptions,
 ): string | null {
   const { subject, extensions, extensionsText, example } = options;
 
   if (/\blocal\s*\(/i.test(raw)) {
-    if (ngDevMode) warnings.push(`${subject} 的 local() 无落点：Godot 不按名称从系统取资源，请书写 res:// 路径`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.LocalSourceUnsupported, `${subject} 的 local() 没有对应实现：Godot 不按名称从系统取资源，请书写 res:// 路径`));
     return null;
   }
 
   const urls = [...raw.matchAll(/url\s*\(\s*([^)]*?)\s*\)/gi)];
   if (urls.length === 0) {
-    if (ngDevMode) warnings.push(`${subject} 的 url() 缺失或写法不合法，已忽略（正确写法：${example}）`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ResourceUrlInvalid, `${subject} 的 url() 缺失或写法不合法，已忽略（正确写法：${example}）`));
     return null;
   }
   if (urls.length > 1) {
-    if (ngDevMode) warnings.push(`${subject} 书写了 ${urls.length} 个 url()，只支持一个：Godot 的资源加载不做候选源回退`);
+    if (ngDevMode) warnings.push(new CssWarnEntry(CssCode.ResourceUrlInvalid, `${subject} 书写了 ${urls.length} 个 url()，只支持一个：Godot 的资源加载不做候选源回退`));
     return null;
   }
 
@@ -52,8 +54,11 @@ export function extractResourceUrl(
   if (!path.startsWith("res://")) {
     if (ngDevMode)
       warnings.push(
-        `${subject} 的 url("${path}") 不是 res:// 路径，已忽略。CSS 编译后会被内联进 JS，相对路径`
-          + `已无参照物；请将资源放入 Godot 工程目录并书写完整路径（如 ${example}）`,
+        new CssWarnEntry(
+          CssCode.ResourceUrlInvalid,
+          `${subject} 的 url("${path}") 不是 res:// 路径，已忽略。CSS 编译后会被内联进 JS，相对路径`
+            + `已无参照物；请将资源放入 Godot 工程目录并书写完整路径（如 ${example}）`,
+        ),
       );
     return null;
   }
@@ -61,7 +66,10 @@ export function extractResourceUrl(
   if (!extensions.has(ext)) {
     if (ngDevMode)
       warnings.push(
-        `${subject} 的 "${path}" 后缀 .${ext || "?"} 不在可加载范围内（${extensionsText}）`,
+        new CssWarnEntry(
+          CssCode.ResourceUrlInvalid,
+          `${subject} 的 "${path}" 后缀 .${ext || "?"} 不在可加载范围内（${extensionsText}）`,
+        ),
       );
     return null;
   }

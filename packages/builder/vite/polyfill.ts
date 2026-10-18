@@ -9,7 +9,7 @@ export const POLYFILL_ENTRY_SPECIFIER = "virtual:godot-angular/polyfill-entry";
  * 必带补丁模块的说明符。
  *
  * 走包名子路径而不是绝对路径：`./builder/*` 已在 `package.json` 的 exports 里导出，而绝对
- * 路径会被 vite 识别成“落在 godot-angular 包内”，转而拿它去查 exports（`./polyfills` 未导出，
+ * 路径会被 vite 识别成“位于 godot-angular 包内”，转而拿它去查 exports（`./polyfills` 未导出，
  * 直接报错）。
  *
  * 不用 `import`：本模块是 Node 侧的构建器代码，把补丁引进来会在构建进程里就改掉

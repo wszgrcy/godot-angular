@@ -415,7 +415,7 @@ export class AppStepper extends GodotControlBase<number> {
 
 ## 样式
 
-Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集翻译为 Godot 的主题项（`Theme`）、盒子（`StyleBoxFlat`）与节点属性。下文将每条 CSS 属性最终写入的 Godot 对象统一称为**落点**。按支持程度分为三类：
+Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集翻译为 Godot 的主题项（`Theme`）、盒子（`StyleBoxFlat`）与节点属性。下文将每条 CSS 属性最终写入的 Godot 对象统一称为**写入位置**。按支持程度分为三类：
 
 - **等价**：Godot 存在对应实现，效果与 CSS 一致。
 - **近似**：可以书写，但 Godot 的模型与 CSS 不同，结果为近似值（差异见各条说明）。
@@ -425,7 +425,7 @@ Godot 不提供 CSS 级联。本包将 CSS 的一个明确子集翻译为 Godot 
 
 ### 等价：Godot 有对应实现
 
-| 属性 | Godot 落点 |
+| 属性 | Godot 写入位置 |
 | --- | --- |
 | `color` | theme 颜色 `font_color`；处于 `:hover` 等状态时自动改用对应的状态项（如 `font_hover_color`） |
 | `caret-color` | theme 颜色 `caret_color`（LineEdit、TextEdit） |
@@ -455,33 +455,33 @@ a:focus { background-color: #ffe08a; }  /* 生效：获得键盘焦点时显示�
 
 本包不会将基规则的底色改写到 `focus` 盒：那样该底色仅在获得键盘焦点时可见，与声明意图不符。需要状态底色时，应显式书写状态伪类。`TabBar` 同样不支持底色声明（其盒子按标签状态命名，如 `tab_selected`，不属于背景盒）。需要常驻底色时，使用 `PanelContainer` 包裹该节点，并将底色声明在 `PanelContainer` 上。
 
-简写属性在构建期展开为 longhand，级联因此定义在 longhand 上。参与展开的简写有：`border`、`border-width`、`border-style`、`border-radius`、`background`、`margin`、`padding`、`flex`、`font`。其中 `border-style` 仅识别 `solid` 与 `none`，其余线型无落点；`font` 仅提取字号，例如 `font: 14px/1.5 sans-serif` 展开为 `font-size: 14px`，字体族、字重与行高无落点。
+简写属性在构建期展开为 longhand，级联因此定义在 longhand 上。参与展开的简写有：`border`、`border-width`、`border-style`、`border-radius`、`background`、`margin`、`padding`、`flex`、`font`。其中 `border-style` 仅识别 `solid` 与 `none`，其余线型没有对应实现；`font` 仅提取字号，例如 `font: 14px/1.5 sans-serif` 展开为 `font-size: 14px`，字体族、字重与行高没有对应实现。
 
 ### 近似：支持，但为近似实现
 
-这类属性有落点，但 Godot 的模型与 CSS 不同，落点为近似值（属性表中标记为 `level: 3`）。
+这类属性有对应实现，但 Godot 的模型与 CSS 不同，效果为近似（属性表中标记为 `level: 3`）。
 
-| 属性 | 落点与差异 |
+| 属性 | 写入位置与差异 |
 | --- | --- |
 | `min-width` | `custom_minimum_size.x`（尺寸下界）。`%`、`em`、`rem` 输出告警并忽略 |
 | `min-height` | 同上，写入 `custom_minimum_size.y` |
 | `margin`、`margin-top` 等 | MarginContainer 的 theme 常量 `margin_*`。其他类不具备该常量，输出告警并忽略；本包不会为承载 margin 而向节点树插入容器 |
 | `gap`、`row-gap`、`column-gap` | BoxContainer 的 theme 常量 `separation`（单轴，轴向由 `vertical` 决定）；GridContainer、FlowContainer、ItemList 的 `h_separation` 与 `v_separation`。`gap: 4px 8px` 表示行间距 4px、列间距 8px |
 | `justify-content` | `BoxContainer.alignment`，仅支持 `flex-start`、`center`、`flex-end`；`space-between` 等取值输出告警。仅对容器类生效 |
-| `flex`、`flex-grow` | 置位 `size_flags_*` 的 `SIZE_EXPAND` 并写入 `size_flags_stretch_ratio`；`flex-basis` 与 `flex-shrink` 无落点 |
-| `text-shadow` | Label / RichTextLabel 的 `font_shadow_color` + 常量 `shadow_offset_x` / `shadow_offset_y`。与 `box-shadow` 无关（后者落在 stylebox）；模糊半径无落点，输出告警 |
+| `flex`、`flex-grow` | 置位 `size_flags_*` 的 `SIZE_EXPAND` 并写入 `size_flags_stretch_ratio`；`flex-basis` 与 `flex-shrink` 没有对应实现 |
+| `text-shadow` | Label / RichTextLabel 的 `font_shadow_color` + 常量 `shadow_offset_x` / `shadow_offset_y`。与 `box-shadow` 无关（后者写在 stylebox）；模糊半径没有对应实现，输出告警 |
 | `visibility` | `CanvasItem.visible`；`hidden` 对应 `false` |
-| `overflow` | `Control.clip_contents`。`hidden` 与 `visible` 可用；`auto`、`scroll` 无落点（滚动由 ScrollContainer 承担） |
-| `pointer-events` | `none` → `Control.mouse_filter = IGNORE`。Godot 的 IGNORE 仅使本节点不接收鼠标事件，**不屏蔽子节点**，与 CSS 不同；`auto` 等其余取值无落点 |
+| `overflow` | `Control.clip_contents`。`hidden` 与 `visible` 可用；`auto`、`scroll` 没有对应实现（滚动由 ScrollContainer 承担） |
+| `pointer-events` | `none` → `Control.mouse_filter = IGNORE`。Godot 的 IGNORE 仅使本节点不接收鼠标事件，**不屏蔽子节点**，与 CSS 不同；`auto` 等其余取值没有对应实现 |
 | `text-align` | `horizontal_alignment`；不具备该属性的非容器类（Button、LineEdit）改用 `alignment` |
 | `cursor` | `Control.mouse_default_cursor_shape`。支持 `pointer`、`text`、`move`、`not-allowed`、`*-resize` 等关键字，表外取值输出告警 |
-| `text-overflow` | `Label.text_overrun_behavior`。`clip` 与 `ellipsis` 可用；自定义省略号字符串无落点，引擎固定使用 `…` |
+| `text-overflow` | `Label.text_overrun_behavior`。`clip` 与 `ellipsis` 可用；自定义省略号字符串没有对应实现，引擎固定使用 `…` |
 | `white-space` | `Label.autowrap_mode`。`nowrap`、`normal`、`pre`、`pre-wrap`、`break-all` 可用。Godot 不折叠空白，源码中的连续空格按原样绘制 |
 | `direction` | `Control.layout_direction`。`ltr` 与 `rtl` 可用；`inherit` 属于 CSS 全局关键字，在进入属性表之前即被拦截 |
 
 ### 不支持：输出告警并忽略
 
-以下属性不会生效：其落点要么涉及节点树结构（由 Angular 持有，本包不修改），要么在 Godot 中不存在对应概念。书写时输出一条说明原因的告警，不静默忽略。
+以下属性不会生效：它们对应的实现要么涉及节点树结构（由 Angular 持有，本包不修改），要么在 Godot 中不存在对应概念。书写时输出一条说明原因的告警，不静默忽略。
 
 | 分组 | 属性 |
 | --- | --- |
@@ -534,14 +534,14 @@ Godot 的字体是资源，而非名称。本包仅借用 `@font-face` 的语法
 
 - `src` 仅允许**一个** `url()`。CSS 的候选源列表（`url(a) format("woff2"), url(b)`）依赖「逐个尝试直至可用」，Godot 的一份 FontFile 不存在该机制，书写多个将被直接拒收。
 - 路径必须以 `res://` 开头。CSS 编译后会被内联进 JS，组件样式来自 `styleUrls` 时连文件名也不再保留，相对路径在运行时已无参照物。`res://` 是引擎的虚拟根，指向 `project.godot` 所在目录；置于工程目录内的字体文件会随工程一并导出，运行时直接加载。
-- `local()` 在 `@font-face` 中无落点（登记仅用于将一份工程内资源关联到名称；系统字体无需登记，直接在 `font-family` 中书写名称即可，见下）。
+- `local()` 在 `@font-face` 中没有对应实现（登记仅用于将一份工程内资源关联到名称；系统字体无需登记，直接在 `font-family` 中书写名称即可，见下）。
 - 后缀必须是引擎可识别的字体容器（`ttf` `ttc` `otf` `otc` `woff` `woff2` `pfb`），或者包含 Font 派生类型的 `tres` / `res` 资源（`FontVariation` 在工程中即以 `.tres` 形式存在）。
-- `font-weight`、`font-style`、`font-stretch`、`font-display`、`unicode-range` 无落点：Godot 中一个字体名仅对应一份字体文件，不存在「同一家族按字重或字形选择变体」这一层。书写时会输出告警，但登记本身仍然有效。
+- `font-weight`、`font-style`、`font-stretch`、`font-display`、`unicode-range` 没有对应实现：Godot 中一个字体名仅对应一份字体文件，不存在「同一家族按字重或字形选择变体」这一层。书写时会输出告警，但登记本身仍然有效。
 - 家族名不区分大小写，引号可加可不加。
 
 #### `font-family` 的两级解析
 
-`font-family` 的落点是 theme 字体项 `font`，候选列表整串均有意义：
+`font-family` 的写入位置是 theme 字体项 `font`，候选列表整串均有意义：
 
 ```
 font-family: A, B, C
@@ -561,7 +561,7 @@ font-family: A, B, C
 
 ### 背景图：`background-image`
 
-`background-image: url()` 落在同一个 stylebox 上，仅将该 stylebox 替换为 `StyleBoxTexture`：
+`background-image: url()` 写在同一个 stylebox 上，仅将该 stylebox 替换为 `StyleBoxTexture`：
 
 ```css
 .panel {
@@ -569,7 +569,7 @@ font-family: A, B, C
 }
 ```
 
-规则与 `@font-face` 的 `src` 完全一致（共用同一套校验）：仅允许**一个** `url()`、路径必须以 `res://` 开头、后缀必须是引擎可导入的图片（`png` `svg` `jpg` `jpeg` `webp` `bmp` `ktx2`）或包含 Texture2D 的 `tres` / `res` 资源。`gradient` 仍无落点（Godot 的 StyleBoxTexture 仅接受纹理，不接受渐变），将单独输出告警，而非按 `url()` 写法错误处理。
+规则与 `@font-face` 的 `src` 完全一致（共用同一套校验）：仅允许**一个** `url()`、路径必须以 `res://` 开头、后缀必须是引擎可导入的图片（`png` `svg` `jpg` `jpeg` `webp` `bmp` `ktx2`）或包含 Texture2D 的 `tres` / `res` 资源。`gradient` 仍没有对应实现（Godot 的 StyleBoxTexture 仅接受纹理，不接受渐变），将单独输出告警，而非按 `url()` 写法错误处理。
 
 **与 `background-color` 互斥。** Godot 的一个 StyleBox 只能绘制其中一种：StyleBoxFlat 无 `texture`，StyleBoxTexture 无 `bg_color`。CSS 允许两者同时声明，本包不叠加，也不代为推断，**按层叠顺序取最后一条**，口径与 `width:1px;width:2px` 完全一致：
 
@@ -580,15 +580,15 @@ font-family: A, B, C
 
 跨规则同样如此：特异度更高（或特异度相同但登记更晚）的那一条决定该位置绘制何种内容。前一条仅失去填充字段，圆角、边框、`padding` 等几何字段仍照常叠加在同一 stylebox 上。纹理声明被撤销后，底色会重新生效（互斥关系并非永久占用）。
 
-纹理资源加载失败时，该条声明按「无落点」处理并输出告警，不会遗留一个不绘制任何内容的空纹理盒。
+纹理资源加载失败时，该条声明按不支持处理并输出告警，不会遗留一个不绘制任何内容的空纹理盒。
 
 ### 与控件类型相关的属性
 
-上述落点是否真正生效，还取决于节点所属的类。判定依据有两条：一是该类的主题中是否存在对应项，二是节点自身是否具备对应属性。任一条件不满足，运行时输出告警并忽略，不会写入无效的覆盖值。构建期 lint 仅校验语法与选择器拼写，不包含这项检查。
+上述写入位置是否真正生效，还取决于节点所属的类。判定依据有两条：一是该类的主题中是否存在对应项，二是节点自身是否具备对应属性。任一条件不满足，运行时输出告警并忽略，不会写入无效的覆盖值。构建期 lint 仅校验语法与选择器拼写，不包含这项检查。
 
 **与类无关的属性**：对任意 `Control` 均成立。
 
-| 属性 | 落点 |
+| 属性 | 写入位置 |
 | --- | --- |
 | `opacity` | `CanvasItem.modulate.a` |
 | `visibility` | `CanvasItem.visible` |
@@ -668,7 +668,7 @@ Button.primary:focus  { border-color: #6cb2f5; }        /* 焦点环同理，见
 ```css
 Button.primary       { color: #2b7fff; }  /* → font_color */
 Button.primary:hover { color: #ff4040; }  /* → font_hover_color，不被下一条抢走 */
-Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点的基规则 */
+Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同写入位置的基规则 */
 ```
 
   前提是该类真有对应的状态项。没有时两条声明只能抢同一个主题项（`Label` 只有 `font_color`；`font-size` 与 `gap` 这类常量全类都没有状态变体），此时回到正常的层叠比较，状态规则**没有**优先权：
@@ -682,7 +682,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 .menu.open   { font-size: 20px; }  /* 同为 0,2,0 且在后 → 展开 + 悬停仍是 20 */
 ```
 
-  状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的颜色；颜色因此回落到主题默认值（stylebox 不同：回落到基规则声明的值，见上条）。
+  状态规则不再命中（或整张样式表被移除）时，它写过的 item 会被显式撤销，不会漏出上一轮的颜色；颜色因此回写入主题默认值（stylebox 不同：回写入基规则声明的值，见上条）。
 - **属性驱动的伪类仅对声明了该属性的控件有效**。下表列出各伪类的前置属性与适用类；不满足前置条件的伪类无法推导，运行时按「伪类 × 类名」组合告警一次：
 
 | 伪类 | 前置引擎属性 | 具备该属性的控件 | 不具备（伪类无效） |
@@ -707,7 +707,7 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同落点
 ```
 ```css
 .field:disabled   { color: #666; }  /* ✗ 永远不会命中：LineEdit 没有 disabled 属性 */
-.field:read-only  { color: #666; }  /* ✓ 表单禁用与只读在这里共用一个落点 */
+.field:read-only  { color: #666; }  /* ✓ 表单禁用与只读在这里共用一个写入位置 */
 ```
 
   原因在于 `editable` 一个属性同时承载 CSS 中 `disabled` 与 `readonly` 两个语义，无法从属性值区分。声明这类控件的禁用样式时应直接使用 `:read-only`（或采用上述 class 通道）。需要区分时，只有 class 通道能够区分：
@@ -801,13 +801,13 @@ HBoxContainer Label {
 
 如需使用嵌套语法，应将样式表保存为 `.scss`、`.sass` 或 `.less`。构建期会先调用 vite 的 `preprocessCSS`（与组件 `styleUrls` 使用同一入口），由预处理器展开嵌套后再交给解析器。全局样式与 `styleUrls` 均适用；扩展名为 `.css` 的文件不做预处理。
 
-长度单位仅支持 `px` 与不带单位的数值。`%`、`em`、`rem`、`vw`、`vh`、`cm`、`pt` 等单位均无落点，将输出告警并丢弃该条声明（见「样式」开头的单位说明）。
+长度单位仅支持 `px` 与不带单位的数值。`%`、`em`、`rem`、`vw`、`vh`、`cm`、`pt` 等单位均没有对应实现，将输出告警并丢弃该条声明（见「样式」开头的单位说明）。
 
 `add_theme_*_override` 与 `theme_type_variation` 按条目互斥：已写入 override 的条目在切换变体后仍返回 override 值。同一条目不应同时使用静态主题变体与运行时级联，默认全部使用运行时级联。
 
 class 选择器与 `theme_type_variation` 无关，本包不会由 class 推导变体名。需要使用变体时，请自行设置节点属性。
 
-无显示环境（CI、无头模式）下取不到真实屏幕信息，媒体查询会静默落在**窄屏分支**（根窗口尺寸是个极小值，小于任意 `max-width` 断点），`prefers-color-scheme` 恒为浅色。需要确定性结果时请显式调用 `setEnv`；真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
+无显示环境（CI、无头模式）下取不到真实屏幕信息，媒体查询会静默匹配到**窄屏分支**（根窗口尺寸是个极小值，小于任意 `max-width` 断点），`prefers-color-scheme` 恒为浅色。需要确定性结果时请显式调用 `setEnv`；真实窗口尺寸变化与系统深色模式的切换效果需在带显示的环境中确认。
 
 ### 告警与生产构建
 
@@ -818,13 +818,80 @@ class 选择器与 `theme_type_variation` 无关，本包不会由 class 推导�
 | `[忽略]` | 完全不支持，该条声明被丢弃，Godot 侧无对应实现 | 改写，或者接受该效果不存在 |
 | `[兼容]` | 已写入并生效，但 Godot 的语义与 CSS 不同，结果仅为近似 | 判断近似能否接受，不能接受则改用其它写法 |
 
-例：`border-top-color` 只能落在四边共用的 `border_color` 上，写入后生效，但四边将同色，因此是 `[兼容]`；`outline` 在 Godot 中没有不占位的描边层，无法写入，因此是 `[忽略]`。
+例：`border-top-color` 只能写在四边共用的 `border_color` 上，写入后生效，但四边将同色，因此是 `[兼容]`；`outline` 在 Godot 中没有不占位的描边层，无法写入，因此是 `[忽略]`。
+
+每条告警与异常都带一个稳定诊断码，输出形如 `[godot-angular] [忽略] CUJ-1001: 说明`。码不随文案变化，反馈问题时给出码即可定位。
+
+需要程序化处理时，用 `StyleRuntime` 的 `onDiagnostic` 回调接收 `CssWarning` 对象（`code` / `level` / `message` / `detail`）；抛出的异常统一为 `CssError`，带 `code`。两者都从 `godot-angular/css` 导出（`CssCode` / `CssWarning` / `CssError` / `cssCodeLabel`）。
+
+构建期 lint（组件 `styleUrls` / 内联 `styles` / 全局样式）输出同一批码，格式为 `文件（位置）：[CUJ-1001] 说明`，与运行期告警共用一张表。
+
+码的分段：`1xxx` 属性或取值在 Godot 侧没有对应实现，`2xxx` 选择器与语法，`3xxx` 节点与库层。
+
+| 码 | 名称 | 含义 |
+| --- | --- | --- |
+| `CUJ-1001` | `BackgroundNoTarget` | 该类没有可写入背景的位置（底色、边框、内边距都需要一个 stylebox） |
+| `CUJ-1002` | `ThemeItemMissing` | 该类的主题中不存在这个属性对应的项 |
+| `CUJ-1003` | `BorderSidesMerged` | 单边边框颜色被合并为整圈边框颜色 |
+| `CUJ-1004` | `TextShadowBlurDropped` | 文字阴影的模糊半径被丢弃（Godot 只有偏移与颜色） |
+| `CUJ-1005` | `JustifyContentUnsupported` | `justify-content` 的取值超出 Godot 的三档对齐 |
+| `CUJ-1006` | `NodePropertyMissing` | 该属性需要节点具备某个 Godot 属性，但当前节点没有 |
+| `CUJ-1007` | `OverflowUnsupported` | `overflow` 的取值超出 Godot 的裁剪开关 |
+| `CUJ-1008` | `PointerEventsRestoreUnsupported` | `pointer-events` 无法恢复 Godot 的默认鼠标过滤方式 |
+| `CUJ-1009` | `PointerEventsSubtree` | `pointer-events: none` 不会屏蔽子节点 |
+| `CUJ-1010` | `TextAlignUnsupported` | `text-align` 取值无对应 |
+| `CUJ-1011` | `CursorUnsupported` | `cursor` 取值无对应 |
+| `CUJ-1012` | `WhiteSpaceUnsupported` | `white-space` 取值无对应 |
+| `CUJ-1013` | `DirectionUnsupported` | `direction` 取值无对应 |
+| `CUJ-1014` | `PropertyUnsupported` | 该属性在 Godot 侧没有对应实现 |
+| `CUJ-1015` | `KeywordUnsupported` | CSS 关键字（`inherit` / `initial` / `unset`）无对应实现 |
+| `CUJ-1016` | `VarUnsupported` | `var()` 需要运行期求值，当前不支持 |
+| `CUJ-1017` | `CalcUnsupported` | `calc()` 需要布局引擎配合，当前不支持 |
+| `CUJ-1018` | `GapUnsupported` | 该类不是 BoxContainer / GridContainer，没有间距常量 |
+| `CUJ-1019` | `GapAxisUnsupported` | BoxContainer 只有单轴间距，另一轴不产生间距 |
+| `CUJ-1020` | `MarginUnsupported` | 该类不是 MarginContainer，没有 margin 常量 |
+| `CUJ-1021` | `UnknownProperty` | 属性名本身不认识 |
+| `CUJ-1022` | `VarUnresolved` | `var()` 引用的变量没有值且未提供 fallback |
+| `CUJ-1023` | `ValueIgnored` | 声明的值解析失败，该条声明被丢弃 |
+| `CUJ-1024` | `PseudoNotDerivable` | 伪类在该类上推导不出来（该类没有对应属性） |
+| `CUJ-1025` | `PseudoUnbound` | 样式表使用了 Godot 没有对应信号的伪类 |
+| `CUJ-1026` | `StyleSheetIgnored` | 整张样式表解析失败，未应用 |
+| `CUJ-1027` | `FontLoadFailed` | `@font-face` 指向的字体资源加载失败 |
+| `CUJ-2001` | `AttrOperatorUnsupported` | 属性选择器的操作符不支持 |
+| `CUJ-2002` | `FunctionalPseudoUnsupported` | 函数式伪类不支持（`:has` / `:nth-child` 等） |
+| `CUJ-2003` | `PseudoUnsupported` | 伪类不支持 |
+| `CUJ-2004` | `SelectorSyntax` | 选择器语法错误 |
+| `CUJ-2005` | `MediaQuerySyntax` | 媒体查询语法错误 |
+| `CUJ-2006` | `StyleSheetSyntax` | 样式表语法错误（缺少 `{`、括号未闭合、at-rule 缺少结尾） |
+| `CUJ-2007` | `AtRuleUnsupported` | 不支持的 at-rule（包括 `@keyframes` 与声明块内嵌套） |
+| `CUJ-2008` | `ElementNameUnknown` | 元素选择器不是已知的 Godot 类名，不会命中任何节点 |
+| `CUJ-2009` | `IdSelectorUnsupported` | `#id` 在 Godot 没有对应写法 |
+| `CUJ-2010` | `SelectorIgnored` | 整条选择器无法使用，已丢弃 |
+| `CUJ-2011` | `FontFaceInvalid` | `@font-face` 内容无效 |
+| `CUJ-2012` | `FontFaceDescriptorUnsupported` | `@font-face` 的描述符没有对应实现 |
+| `CUJ-2013` | `LocalSourceUnsupported` | `local()` 没有对应实现（Godot 不按名称从系统取资源） |
+| `CUJ-2014` | `ColorInvalid` | 颜色无法解析 |
+| `CUJ-2015` | `LengthInvalid` | 长度无法解析（含百分比与不支持的单位） |
+| `CUJ-2016` | `ShadowPartUnsupported` | 阴影的该部分没有对应实现（`inset` / `spread` / 多层） |
+| `CUJ-2017` | `ShorthandInvalid` | 简写写法无效（值的数量不符、无法解析） |
+| `CUJ-2018` | `ShorthandPartUnsupported` | 简写中某一段没有对应实现（`border-style`、`flex-basis`、背景图片等） |
+| `CUJ-2019` | `ValueUnsupported` | 该取值没有对应实现（解析阶段即可判定） |
+| `CUJ-2020` | `ResourceUrlInvalid` | `url()` 写法无效（非 `res://` 路径、多个 url、后缀不可加载） |
+| `CUJ-3001` | `NodeClassFallback` | 标签名不是可用的 Godot 控件，已降级为容器 |
+| `CUJ-3002` | `NodePropertyNotReal` | 赋值的名字不是该类的真实属性 |
+| `CUJ-3003` | `NodePropertyNoAccessor` | ClassDB 里有该属性，但 JS 绑定没有生成访问器 |
+| `CUJ-3004` | `ShadowDomUnsupported` | 组件使用了 ShadowDom 封装，Godot 无 shadow root |
+| `CUJ-3005` | `StyleBoxNotFlat` | 该盒不是 StyleBoxFlat，只有内边距可写 |
+| `CUJ-3006` | `StyleBoxFieldUnsupported` | stylebox 字段在该盒上没有对应属性 |
+| `CUJ-3007` | `TextureLoadFailed` | `background-image` 指向的纹理加载失败 |
+| `CUJ-3008` | `FrameClockMissing` | 帧钟未安装（构建器补丁未先于本入口求值） |
+| `CUJ-3009` | `BackendScopeMissing` | 写入类方法未经 applyProperty 的作用域门面调用 |
 
 运行期告警统一受 Angular 自身的 `ngDevMode` 控制，且是**编译期消除，而非运行时不打印**：开发构建保留全部告警；生产构建中告警连同提示文字一并从产物移除。因此不要在生产构建中依赖告警定位样式问题，应在开发构建阶段修正。
 
 构建期检查（选择器拼写、属性名、不支持的类）不受该标记影响，无论是否开启优化都会输出。
 
-同一类问题仅报告一次（按“属性 + 原因”去重），不会逐帧重复输出。
+同一条告警仅报告一次（按「码 + 参数 + 文案」去重），不会逐帧重复输出。`onDiagnostic` 通道不去重，每条都送。
 
 ## 路由
 
@@ -902,7 +969,7 @@ export class App {
 - **URL 解析与浏览器一致**：`/a/../b` 折叠成 `/b`、`about` 相对当前目录解析、`?q=1` 会丢弃锚点、需要编码的字符仅编码一次不会二次编码，与浏览器中 `history.pushState(url)` 同源。代价是约 215KB 源码体积。
 - **`URL` / `URLSearchParams` 默认可用**。GodotJS 原生没有（V8 只给 ECMAScript），库会把它们装到全局，用户代码解析启动参数 / 存档里的链接可以直接 `new URL(...)`。
 - **懒加载不可用**。`loadComponent` / `loadChildren` 依赖运行时动态 `import()`，GodotJS 不支持。
-- `withHashLocation()` 可用（URL 落在 `#` 上）；`withExperimentalPlatformNavigation()` 不可用，它要浏览器的 Navigation API。
+- `withHashLocation()` 可用（URL 写在 `#` 上）；`withExperimentalPlatformNavigation()` 不可用，它要浏览器的 Navigation API。
 - **参数变化要订阅 `paramMap` / `queryParamMap`**。只改参数时同一个组件实例被复用，读 `snapshot` 的普通 getter 不会重跑变更检测——这是 Angular 的既有行为，与 Godot 无关。
 - `route.title` 写窗口标题。无显示环境（CI / `--headless` / 专用服务器）由 `GODOT_HEADLESS`**主动声明**，库不去猜 `DisplayServer.get_name()`：猜错只多一行日志，靠猜永远不会在 CI 上被发现。默认 `false`（按有窗口处理），无显示时自己传：
 
@@ -993,7 +1060,7 @@ import { initGodotTestEnvironment } from "godot-angular/testing";
 
 beforeEach(() => initGodotTestEnvironment());   // 每个用例使用独立的 Control 根节点
 
-it("signal 改动会落到真实节点", async () => {
+it("signal 改动会写入真实节点", async () => {
   await TestBed.configureTestingModule({
     imports: [MyComp],
     providers: [
@@ -1087,7 +1154,7 @@ ng test --reporters=json
 | `godot-angular/forms` | 表单指令与 `GodotControlBase`、`GodotValueAccessorBase` |
 | `godot-angular/css` | CSS 子集的纯逻辑层（解析、选择器、级联、词表）——**库内部实现层**，不保证兼容 |
 
-样式落点相关的 `applyStyle` / `clearStyle` / `styleLedger` 与整个 `godot-angular/css` 入口同属内部实现，不在公开清单内，其签名与行为看库内需求变动，不遵循语义化版本。需要命令式改变外观请使用组件样式 / class 选择器，或内联绑定 `[style.x]`。
+样式写入位置相关的 `applyStyle` / `clearStyle` / `styleLedger` 与整个 `godot-angular/css` 入口同属内部实现，不在公开清单内，其签名与行为看库内需求变动，不遵循语义化版本。需要命令式改变外观请使用组件样式 / class 选择器，或内联绑定 `[style.x]`。
 | `godot-angular/router` | `provideGodotRouter`、`GodotTitleStrategy`，并转发 `GODOT_HEADLESS` / `GODOT_INITIAL_URL` / `GodotPlatformLocation`。需自行安装 `@angular/router` |
 | `godot-angular/testing` | 测试工具 |
 | `godot-angular/vitest` | 宿主侧 vitest 插件 |

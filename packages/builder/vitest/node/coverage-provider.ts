@@ -7,10 +7,10 @@ import { toPosix } from "../../shared/path";
 
 /**
  * 构建器 → 本模块的配置通道见 `shared/coverage.ts`：provider 由 vitest 的 module runner
- * 加载，与 builder 不是同一个模块实例，同进程也无法传递闭包，环境变量是唯一那条无需落盘的通道。
+ * 加载，与 builder 不是同一个模块实例，同进程也无法传递闭包，环境变量是唯一那条无需写文件的通道。
  */
 interface CoverageEnvConfig {
-  /** remap 落点（发布物 source map 指回源码的位置） */
+  /** remap 写入根路径（发布物 source map 指回源码的位置） */
   sourceRoot: string;
   /** include / exclude 的基准，与 vitest 一致 = 工作区根 */
   workspaceRoot: string;

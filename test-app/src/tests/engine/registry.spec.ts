@@ -104,7 +104,7 @@ describe("resolveSignalName", () => {
     expect(resolveSignalName(newNode("LineEdit"), "input")).toBe("text_changed");
   });
 
-  it("(change) 按控件类型落到不同信号", () => {
+  it("(change) 按控件类型写入不同信号", () => {
     expect(resolveSignalName(newNode("LineEdit"), "change")).toBe("text_changed");
     expect(resolveSignalName(newNode("OptionButton"), "change")).toBe("item_selected");
   });
@@ -180,7 +180,7 @@ describe("coerceToProperty：按声明类型转值", () => {
     expect(coerceToProperty(newNode("Label"), "text", null)).toBeNull();
   });
 
-  it("真写一次：静态字符串落到 float 属性上不被引擎拒", () => {
+  it("真写一次：静态字符串写入 float 属性上不被引擎拒", () => {
     const slider = newNode("HSlider");
     slider.min_value = coerceToProperty(slider, "min_value", "10") as number;
     expect(slider.min_value).toBe(10);

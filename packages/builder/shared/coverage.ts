@@ -5,10 +5,10 @@ export const CUJ_COVERAGE_KEY = "__CUJ_COVERAGE__";
  * builder 与宿主侧 coverage provider 之间的配置通道。
  *
  * provider 由 vitest 的 module runner 加载，与 builder 不属于同一个模块实例，闭包无法共享；
- * 环境变量是同进程内最直接的传递方式（不落盘，也不产生临时文件）。
+ * 环境变量是同进程内最直接的传递方式（不写文件，也不产生临时文件）。
  */
 export const COVERAGE_ENV = {
-  /** remap 的落点：发布物 source map 中回指 `packages/**` 的根路径。 */
+  /** remap 的写入根路径：发布物 source map 中回指 `packages/**` 的根路径。 */
   sourceRoot: "CUJ_COVERAGE_SOURCE_ROOT",
   /** include / exclude 的相对基准，与 vitest 一致，为工作区根目录（angular.json 所在目录）。 */
   workspaceRoot: "CUJ_COVERAGE_WORKSPACE_ROOT",

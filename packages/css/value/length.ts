@@ -2,7 +2,7 @@
  * 来源：NativeScript/packages/core/ui/styling/length-shared.ts :: Length / FixedLength / PercentLength
  * 等级：部分修改（主体一致）
  * 改动：上游的 unit 可为 px / dip / %，本侧只保留 px 与 %；上游将百分比预先归一到
- * -1..1，本侧保留原始数字并带单位标记，换算推到落点。
+ * -1..1，本侧保留原始数字并带单位标记，换算推到写入位置。
  */
 export interface CssLength {
   value: number;
@@ -68,7 +68,7 @@ export function isUnsupportedUnit(text: string): boolean {
 /**
  * 来源：无
  *
- * 本值是否为百分比。百分比在 Godot 侧无落点，需要单独给出原因，
+ * 本值是否为百分比。百分比在 Godot 侧没有对应实现，需要单独给出原因，
  * 而非混入“解析失败”中
  */
 export function isPercentage(text: string): boolean {

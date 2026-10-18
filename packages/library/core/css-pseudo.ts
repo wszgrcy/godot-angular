@@ -1,7 +1,7 @@
-import { warnOnce } from "./warn";
+import { reportWarning } from "./warn";
 import { tryConnectGodotSignal } from "./godot-events";
 import { isControlClass } from "./registry";
-import { PROPERTY_STATE_CLASSES } from "godot-angular/css";
+import { CssCode, CssWarning, PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import type { Node } from "godot";
 
 /**
@@ -115,7 +115,7 @@ function reportHover(node: Node, on: boolean): Array<[Node, boolean]> {
  * 一个 `mouse_filter = STOP` 的子控件（Button / CheckBox / 用来撑位的空 Control）会把
  * 事件整个吃掉，父级一个信号都收不到。于是 CSS 里天经地义的
  * `.list-row:hover { border-color: … }`（指针停在行内的 CheckBox 上也要让整行亮）
- * 在引擎里变成「只有指针落在父级自己那一圈空白上才亮」。这里把冒泡补上：任何节点报告
+ * 在引擎里变成「只有指针停在父级自己那一圈空白上才亮」。这里把冒泡补上：任何节点报告
  * 悬停，它的 Control 祖先一律跟着亮，退出时同样一路撤掉。
  */
 function hoverPair(): Binder {
@@ -147,7 +147,7 @@ function signalToggle(signal: string): Binder {
 
 /**
  * 具有信号来源的伪类——可自动驱动的就这几个。引擎中伪类状态必须事件驱动，属性轮询 /
- * `property_list_changed` 均不可靠，因此名单之外的一律不自动生效（运行时会 warnOnce）。
+ * `property_list_changed` 均不可靠，因此名单之外的一律不自动生效（运行时会告警）。
  * 需要 `:selected` 这类既无信号、也无法从属性推出来的状态时：自行调用
  * `runtime.setPseudoClass(node, "selected", on)`。
  *
@@ -204,11 +204,13 @@ export function warnUnboundPseudoClasses(names: Iterable<string>): void {
   if (!ngDevMode) return;
   for (const name of names) {
     if (hasPseudoBinder(name)) continue;
-    warnOnce(
-      `css:pseudo-unbound:${name}`,
+    reportWarning(new CssWarning(
+      CssCode.PseudoUnbound,
       `样式表使用了 :${name}，但 Godot 无对应的信号/属性，它不会自动生效。可选方案：` +
         `① 通过 class 通道表达该状态（如 [class."${name}"]="…" 配合 CSS .x.${name}），class 变化会触发通知；` +
         `② 状态变化时自行调用 runtime.setPseudoClass(node, "${name}", true/false)。`,
-    );
+      "ignore",
+      { pseudo: name },
+    ));
   }
 }

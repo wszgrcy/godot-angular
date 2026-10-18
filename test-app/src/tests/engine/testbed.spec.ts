@@ -38,7 +38,7 @@ describe("TestBed 环境（引擎 + AOT）", () => {
     expect(label.text).toBe("hello");
   });
 
-  it("signal 改完 whenStable 就落到真节点", async () => {
+  it("signal 改完 whenStable 就写入真节点", async () => {
     @Component({
       selector: "t-sig",
       template: `<Label text="{{ count() }}"></Label>`,

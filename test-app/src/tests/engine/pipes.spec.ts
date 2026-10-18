@@ -126,7 +126,7 @@ describe("自定义管道", () => {
     expect(findAllNodes(fixture.nativeElement, "Label")[0].text).toBe("a-very…");
   });
 
-  it("管道产出结构体也能落到强类型属性（custom_minimum_size → Vector2）", async () => {
+  it("管道产出结构体也能写入强类型属性（custom_minimum_size → Vector2）", async () => {
     @Component({
       selector: "t-p-vec",
       imports: [MinSizePipe],
@@ -179,7 +179,7 @@ describe("内置管道", () => {
     expect(nodeTexts(fixture.nativeElement).slice(0, 2)).toEqual(["0.50", "50%"]);
   });
 
-  it("AsyncPipe 等 Promise：先占位，resolve 后落到节点（zoneless）", async () => {
+  it("AsyncPipe 等 Promise：先占位，resolve 后写入节点（zoneless）", async () => {
     @Component({
       selector: "t-p-async",
       imports: [AsyncPipe],

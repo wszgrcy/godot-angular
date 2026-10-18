@@ -6,7 +6,7 @@
  * 在 test-app/src/tests/engine/css-font.spec.ts 中约束。
  */
 import { describe, expect, it } from "vitest";
-import { buildRuleSets } from "godot-angular/css";
+import { buildRuleSets, CssCode, type CssWarnEntry } from "godot-angular/css";
 
 /** 仅关注 @font-face 的解析结果：返回 [家族名, 路径] 或 null */
 function face(css: string): { family: string; path: string } | null {
@@ -15,8 +15,13 @@ function face(css: string): { family: string; path: string } | null {
   return first ? { family: first.family, path: first.path } : null;
 }
 
-function warningsOf(css: string): string[] {
+function warningsOf(css: string): CssWarnEntry[] {
   return buildRuleSets(`@font-face { ${css} }`).warnings;
+}
+
+/** 告警码：文案会改，码不会 */
+function codesOf(css: string): CssCode[] {
+  return warningsOf(css).map((w) => w.code);
 }
 
 describe("合法写法", () => {
@@ -46,23 +51,23 @@ describe("合法写法", () => {
 describe("被拒绝的写法", () => {
   it("缺 font-family", () => {
     expect(face(`src: url("res://a.ttf");`)).toBeNull();
-    expect(warningsOf(`src: url("res://a.ttf");`)[0]).toContain("缺少 font-family");
+    expect(codesOf(`src: url("res://a.ttf");`)).toContain(CssCode.FontFaceInvalid);
   });
 
   it("缺 src", () => {
     expect(face(`font-family: X;`)).toBeNull();
-    expect(warningsOf(`font-family: X;`)[0]).toContain("缺少 src");
+    expect(codesOf(`font-family: X;`)).toContain(CssCode.FontFaceInvalid);
   });
 
   it("多个 url()：Godot 不做候选源回退", () => {
     const css = `font-family: X; src: url("res://a.ttf") format("truetype"), url("res://b.woff2");`;
     expect(face(css)).toBeNull();
-    expect(warningsOf(css)[0]).toContain("只支持一个");
+    expect(codesOf(css)).toContain(CssCode.ResourceUrlInvalid);
   });
 
-  it("local() 无落点", () => {
+  it("local() 没有对应实现", () => {
     expect(face(`font-family: X; src: local("Arial");`)).toBeNull();
-    expect(warningsOf(`font-family: X; src: local("Arial");`)[0]).toContain("local() 无落点");
+    expect(codesOf(`font-family: X; src: local("Arial");`)).toContain(CssCode.LocalSourceUnsupported);
   });
 
   it("src 中不含 url()", () => {
@@ -86,13 +91,13 @@ describe("被拒绝的写法", () => {
   });
 });
 
-describe("无落点的描述符", () => {
+describe("没有对应实现的描述符", () => {
   for (const descriptor of ["font-weight", "font-style", "font-stretch", "font-display", "unicode-range"]) {
     it(`${descriptor} 被忽略并输出告警`, () => {
       const css = `font-family: X; src: url("res://a.ttf"); ${descriptor}: 700;`;
       // 登记本身仍然有效：忽略描述符不等于整条作废
       expect(face(css)).not.toBeNull();
-      expect(warningsOf(css).join("\n")).toContain(`${descriptor} 无落点`);
+      expect(warningsOf(css).join("\n")).toContain(`${descriptor} 没有对应实现`);
     });
   }
 });

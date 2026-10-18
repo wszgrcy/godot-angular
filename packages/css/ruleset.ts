@@ -1,4 +1,5 @@
 import { parseCss, flattenRules, collectFontFaces, type CssRule } from "./parser";
+import { CssCode, CssWarnEntry } from "./diagnostics";
 import { parseFontFace, type FontFace } from "./runtime/fonts";
 import {
   InvalidSelector,
@@ -43,13 +44,16 @@ const LEADING_ELEMENT = /^([A-Za-z][\w-]*)/;
  * 全局 CSS 一次覆盖。调用点已按 `ngDevMode` 门控，生产构建里整个检查（含正则与集合
  * 查找）不执行，也不负责「摇除文案」以外的任何开销。
  */
-function checkElementNames(selectors: readonly string[], line: number, warnings: string[]): void {
+function checkElementNames(selectors: readonly string[], line: number, warnings: CssWarnEntry[]): void {
   for (const text of selectors) {
     const element = LEADING_ELEMENT.exec(text)?.[1];
     if (!element || isKnownClass(element)) continue;
     warnings.push(
-      `第 ${line} 行：元素选择器 "${element}" 不是已知的 Godot 类名，不会命中任何节点` +
-        `（元素选择器的落点就是节点类名，不可覆写）`,
+      new CssWarnEntry(
+        CssCode.ElementNameUnknown,
+        `第 ${line} 行：元素选择器 "${element}" 不是已知的 Godot 类名，不会命中任何节点` +
+          `（元素选择器对应的就是节点类名，不可覆写）`,
+      ),
     );
   }
 }
@@ -61,15 +65,18 @@ const ATTRIBUTE_SELECTOR = /\[[^\]]*\]/g;
 /**
  * 来源：无
  *
- * `#id` 能解析但无落点：Godot 节点没有 id 属性，`name` 可重名不能当 id。解析能力保留
+ * `#id` 能解析但在 Godot 没有对应写法：Godot 节点没有 id 属性，`name` 可重名不能当 id。解析能力保留
  * （纯选择器引擎仍照 id 比较），但接到 Godot 上时它永远零命中，不提示就是假可用。
  */
-function checkIdSelectors(selectors: readonly string[], line: number, warnings: string[]): void {
+function checkIdSelectors(selectors: readonly string[], line: number, warnings: CssWarnEntry[]): void {
   for (const text of selectors) {
     if (!ID_SELECTOR.test(text.replace(ATTRIBUTE_SELECTOR, ""))) continue;
     warnings.push(
-      `第 ${line} 行：选择器里的 "#id" 在 Godot 无落点（节点没有 id 属性，name 可重名不能当 id），` +
-        `不会命中任何节点；单点选中请改用 class`,
+      new CssWarnEntry(
+        CssCode.IdSelectorUnsupported,
+        `第 ${line} 行：选择器里的 "#id" 在 Godot 没有对应写法（节点没有 id 属性，name 可重名不能当 id），` +
+          `不会命中任何节点；单点选中请改用 class`,
+      ),
     );
   }
 }
@@ -95,7 +102,7 @@ export interface RuleSet {
  */
 export interface BuildResult {
   ruleSets: RuleSet[];
-  warnings: string[];
+  warnings: CssWarnEntry[];
   /** 样式表中登记成功的 `@font-face`（登记失败者仅输出告警，不纳入此处） */
   fontFaces: FontFace[];
 }
@@ -105,12 +112,12 @@ export interface BuildResult {
  * 等级：部分修改（主体一致）
  * 相同：都在解析期展开简写（级联定义在 longhand 上）；自定义属性（`--`）保留原样。
  * 改动：上游在 var()/calc() 无法展开时走 _pendingCssShorthandSubstitution，每个 longhand
- * 挂一个待代入占位值，运行期再解；本侧无这套挂起机制，变量在级联内先展开再落属性。
+ * 挂一个待代入占位值，运行期再解；本侧无这套挂起机制，变量在级联内先展开再写入属性。
  * 新增：`!important` 随简写分发到每条 longhand（上游不支持 !important）。
  *
  * 将一条 CSS 规则的声明展开为 longhand 序列
  */
-function toDeclarations(rule: CssRule, warnings: string[]): Declaration[] {
+function toDeclarations(rule: CssRule, warnings: CssWarnEntry[]): Declaration[] {
   const out: Declaration[] = [];
   for (const decl of rule.declarations) {
     if (decl.property.startsWith("--")) {
@@ -165,11 +172,11 @@ export function buildRuleSets(css: string): BuildResult {
     }
     const selectors: SelectorCore[] = [];
     for (const text of rule.selectors) {
-      const selector = createSelector(text, (message) => {
-        if (ngDevMode) warnings.push(`第 ${rule.position.line} 行 "${text}"：${message}`);
+      const selector = createSelector(text, (code, message) => {
+        if (ngDevMode) warnings.push(new CssWarnEntry(code, `第 ${rule.position.line} 行 "${text}"：${message}`));
       });
       if (selector instanceof InvalidSelector) {
-        if (ngDevMode) warnings.push(`第 ${rule.position.line} 行：选择器 "${text}" 已忽略 —— ${selector.error.message}`);
+        if (ngDevMode) warnings.push(new CssWarnEntry(selector.error.code, `第 ${rule.position.line} 行：选择器 "${text}" 已忽略 —— ${selector.error.message}`));
         continue;
       }
       selectors.push(selector);

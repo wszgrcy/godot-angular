@@ -144,7 +144,7 @@ class ColorHost {
   off = signal(false);
 }
 
-/** 模型传入 null 时 OptionButton 的落点是 -1（未选中任何项），而不是 0 */
+/** 模型传入 null 时 OptionButton 的写入位置是 -1（未选中任何项），而不是 0 */
 @Component({
   selector: "t-fb-option",
   imports: [FormsModule, GodotOptionButtonValueAccessor],
@@ -217,7 +217,7 @@ describe("writeValue(null)：Forms 初始化必来，节点侧必须自己兜住
     expect((picker.color as any).g).toBe(1);
   });
 
-  it("OptionButton 空值落 -1，不是 0", async () => {
+  it("OptionButton 空值写入 -1，不是 0", async () => {
     const fixture = await render(OptionHost);
     const option = findAllNodes(fixture.nativeElement, "OptionButton")[0];
     await fixture.whenStable();
@@ -278,7 +278,7 @@ describe("节点 → 模型：value$ 与 touched", () => {
   });
 });
 
-describe("setDisabledState：三档落点各自验", () => {
+describe("setDisabledState：三档写入位置各自验", () => {
   beforeEach(() => initGodotTestEnvironment());
 
   it("LineEdit 走 editable", async () => {

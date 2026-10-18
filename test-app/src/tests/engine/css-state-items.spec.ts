@@ -1,5 +1,5 @@
 /**
- * 状态伪类的**落点**取证：一条声明实际写入哪个 Godot 主题属性。
+ * 状态伪类的**写入位置**取证：一条声明实际写入哪个 Godot 主题属性。
  *
  * 运行于真实引擎，断言仅关注节点上的主题覆盖（has_theme_*_override / get_theme_*），
  * 不涉及像素，也不涉及级联内部计数。「一次重算执行了几次操作」一类计数探针仍位于
@@ -53,8 +53,8 @@ function strArr(value: any): string[] {
   return Array.from(value, String);
 }
 
-describe("一条规则的多个选择器各自决定落点", () => {
-  /** 在首次落地前即预先设置伪类，避免「基 item 先写入一次」干扰观察 */
+describe("一条规则的多个选择器各自决定写入位置", () => {
+  /** 在首次写入前即预先设置伪类，避免「基 item 先写入一次」干扰观察 */
   function makeHovered(classes: string[]): Button {
     const btn = new Button();
     root.add_child(btn);
@@ -65,22 +65,22 @@ describe("一条规则的多个选择器各自决定落点", () => {
     return btn;
   }
 
-  it("同一条声明按选择器各自要求的状态落点：状态 item 与基 item 各写一份", () => {
+  it("同一条声明按选择器各自要求的状态写入位置：状态 item 与基 item 各写一份", () => {
     runtime.addCss(`.btn:hover, .btn.is-off { color: rgb(255, 0, 0); }`);
     const btn = makeHovered(["btn", "is-off"]);
-    // 两个选择器共享同一批声明，但要求的状态不同 → 两个落点，不存在「后者覆盖前者」
+    // 两个选择器共享同一批声明，但要求的状态不同 → 两个写入位置，不存在「后者覆盖前者」
     expect(cssColor(btn, "font_hover_color", "Button")).toBe("#ff0000");
     expect(cssColor(btn, "font_color", "Button")).toBe("#ff0000");
   });
 
-  it("源码顺序反过来结果不变：落点不依赖「哪个选择器在后」", () => {
+  it("源码顺序反过来结果不变：写入位置不依赖「哪个选择器在后」", () => {
     runtime.addCss(`.btn.is-off, .btn:hover { color: rgb(255, 0, 0); }`);
     const btn = makeHovered(["btn", "is-off"]);
     expect(btn.has_theme_color_override("font_hover_color")).toBe(true);
     expect(btn.has_theme_color_override("font_color")).toBe(true);
   });
 
-  it("每个落点各自选胜者：特异度更高的基规则只抢走 font_color，不抢 font_hover_color", () => {
+  it("每个写入位置各自选胜者：特异度更高的基规则只抢走 font_color，不抢 font_hover_color", () => {
     runtime.addCss(`.btn:hover, .btn.is-off { color: rgb(255, 0, 0); }`);
     runtime.addCss(`.btn.is-off.x { color: rgb(0, 0, 255); }`);
     const btn = makeHovered(["btn", "is-off", "x"]);
@@ -89,7 +89,7 @@ describe("一条规则的多个选择器各自决定落点", () => {
     expect(cssColor(btn, "font_color", "Button")).toBe("#0000ff");
   });
 
-  it("!important 分支同样按落点各自算", () => {
+  it("!important 分支同样按写入位置各自算", () => {
     runtime.addCss(`.btn:hover, .btn.is-off { color: rgb(255, 0, 0) !important; }`);
     runtime.addCss(`.btn { color: rgb(0, 0, 255); }`);
     const btn = makeHovered(["btn", "is-off"]);
@@ -124,8 +124,8 @@ describe("基规则与状态规则是叠加，不是替换", () => {
   });
 });
 
-describe("落点只看选择器自身的主体段", () => {
-  it("`.card:hover .btn` 的落点不因按钮自身是否被悬停而改变", async () => {
+describe("写入位置只看选择器自身的主体段", () => {
+  it("`.card:hover .btn` 的写入位置不因按钮自身是否被悬停而改变", async () => {
     runtime.addCss(`.card:hover .btn { color: rgb(255, 0, 0); }`);
     const card = new PanelContainer();
     root.add_child(card);
@@ -191,17 +191,17 @@ describe("状态属性名与 CSS 伪类不一致的类", () => {
     expect(strArr(theme.get_stylebox_list("ItemList"))).toContain("hovered");
   });
 
-  it("ItemList:hover 仅能落回常态 item —— 词汇表中不含 hover 这一族", async () => {
+  it("ItemList:hover 仅能退回常态 item —— 词汇表中不含 hover 这一族", async () => {
     runtime.addCss(`ItemList:hover { color: rgb(255, 255, 0); background-color: rgb(0, 255, 0); }`);
     const list = make(new ItemList(), "");
     await hover(list);
-    // 落点为常态 item：效果整体错位，此为已记录的已知差异
+    // 写入位置为常态 item：效果整体错位，此为已记录的已知差异
     expect(list.has_theme_color_override("font_color")).toBe(true);
     expect(list.has_theme_color_override("font_hovered_color")).toBe(false);
     expect(list.has_theme_stylebox_override("hovered")).toBe(false);
   });
 
-  it("TextEdit 的只读文字色走例外表：:read-only 落 font_readonly_color", async () => {
+  it("TextEdit 的只读文字色走例外表：:read-only 写入 font_readonly_color", async () => {
     runtime.addCss(`.field:read-only { color: rgb(128, 128, 128); }`);
     // 仅 TextEdit / CodeEdit 具备 font_readonly_color；LineEdit 中的对应项名为 font_uneditable_color
     const edit = make(new TextEdit(), "field");
@@ -213,7 +213,7 @@ describe("状态属性名与 CSS 伪类不一致的类", () => {
   });
 });
 
-describe("两条入口对同一条基规则必须落在同一个盒", () => {
+describe("两条入口对同一条基规则必须写在同一个盒", () => {
   it("已禁用的按钮 + 未书写 :disabled 的底色规则 → 两条入口均写入 normal stylebox", async () => {
     runtime.addCss(`.btn { background-color: rgb(0, 0, 255); }`);
     const btn = new Button();
@@ -223,12 +223,12 @@ describe("两条入口对同一条基规则必须落在同一个盒", () => {
     btn.disabled = true;
     runtime.flush();
 
-    // 级联入口：节点当前处于 disabled 不改变基规则的落点
+    // 级联入口：节点当前处于 disabled 不改变基规则的写入位置
     expect((btn.get_theme_stylebox("normal") as StyleBoxFlat).bg_color.b).toBeCloseTo(1, 3);
     // disabled stylebox 仅将基声明继承过去，并非另写一份：两者必须同色
     expect((btn.get_theme_stylebox("disabled") as StyleBoxFlat).bg_color.b).toBeCloseTo(1, 3);
 
-    // 内联入口：同一属性名、同样未要求状态，必须落在同一个 stylebox（两侧需同步修改）
+    // 内联入口：同一属性名、同样未要求状态，必须写在同一个 stylebox（两侧需同步修改）
     runtime.setInline(btn, "background-color", "rgb(255, 0, 0)");
     await awaitFrames(1);
     expect((btn.get_theme_stylebox("normal") as StyleBoxFlat).bg_color.r).toBeCloseTo(1, 3);
@@ -237,7 +237,7 @@ describe("两条入口对同一条基规则必须落在同一个盒", () => {
 });
 
 describe(":enabled 由 disabled 反推", () => {
-  it("节点可用时 .btn:enabled 命中，禁用后落点撤销", async () => {
+  it("节点可用时 .btn:enabled 命中，禁用后写入位置撤销", async () => {
     runtime.addCss(`.btn:enabled { color: rgb(0, 255, 0); }`);
     const btn = make(new Button(), "btn");
     expect(cssColor(btn, "font_color", "Button")).toBe("#00ff00");

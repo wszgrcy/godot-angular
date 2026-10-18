@@ -1,5 +1,5 @@
 /**
- * `@font-face` 与 `font-family` 的落点取证。
+ * `@font-face` 与 `font-family` 的写入位置取证。
  *
  * 运行于真实引擎：断言的内容是节点上的字体覆盖（has_theme_font_override / get_theme_font），
  * 以及资源能否确实被 ResourceLoader 加载。写法校验（多个 url()、非 res:// 路径、
@@ -10,8 +10,9 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { Font, Label, SystemFont, type Control } from "godot";
+import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 /** 与真实字体文件走同一条加载路径的夹具 */
 const FIXTURE = "res://fixtures/css-font-fixture.tres";
@@ -146,7 +147,7 @@ describe("font-family 输出告警的情形", () => {
       runtime.flush();
       expect(label.has_theme_font_override("font")).toBe(false);
     });
-    expect(captured.warn.warnings.join("\n")).toContain("字体资源加载失败");
+    expect(captured.warn.codes).toContain(CssCode.FontLoadFailed);
   });
 
   it("候选列表不再告警：整串均有意义，不再仅取第一个", () => {

@@ -8,9 +8,9 @@ import type {
   StyleBackend,
   StyleBoxHandle,
 } from "godot-angular/css";
-import { applyCssProperty, hasThemeItem, pickBackgroundStylebox, themeItems } from "godot-angular/css";
+import { applyCssProperty, CssCode, CssError, CssWarnEntry, CssWarning, hasThemeItem, pickBackgroundStylebox, themeItems } from "godot-angular/css";
 import { classHasProperty, nodeHasProperty } from "./registry";
-import { warnOnce } from "./warn";
+import { reportWarning } from "./warn";
 import { asGodotControl, asGodotNode, type GodotControl } from "./godot-node";
 
 /**
@@ -34,9 +34,9 @@ const ledgers = new WeakMap<object, Ledger>();
  * 来源：NativeScript/packages/core/ui/core/properties/index.ts :: _isCssValueStillApplied
  * 等级：仅思路一致
  * 差异：上游按 cssLocalName 记录“值的来源”，用于判定样式与直接赋值的优先级；本侧只存
- * 上一轮落地的原文，用作 diff 与重复写入的短路。
+ * 上一轮写入的原文，用作 diff 与重复写入的短路。
  *
- * 上一次落地的值（`apply(node, v, prev)` 中 prev 的来源，也是重复写入的短路依据）
+ * 上一次写入的值（`apply(node, v, prev)` 中 prev 的来源，也是重复写入的短路依据）
  */
 const applied = new WeakMap<object, Map<string, string>>();
 
@@ -173,11 +173,13 @@ function seedBoxFor(node: GodotControl, cls: string, item: string, src: StyleBox
   if (src === null) return blankFlat(null);
   if (src instanceof StyleBoxEmpty) return blankFlat(src);
   if (!(src instanceof StyleBoxFlat)) {
-    if (ngDevMode) warnOnce(
-      `css:boxflat:${cls}:${item}`,
+    if (ngDevMode) reportWarning(new CssWarning(
+      CssCode.StyleBoxNotFlat,
       `${cls} 的 ${item} 盒是 ${src.get_class()}，只有 content_margin_* 可写（底色 / 圆角 / 边框粗细 / 阴影`
-        + "只有 StyleBoxFlat 支持）。本库不会把它的图形换成色块，如需底色请自行 add_theme_stylebox_override。",
-    );
+        + "只有 StyleBoxFlat 支持）。本包不会把它的图形换成色块，如需底色请自行 add_theme_stylebox_override。",
+      "compat",
+      { class: cls, item },
+    ));
   }
   return src.duplicate() as StyleBox;
 }
@@ -192,11 +194,13 @@ function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): vo
   const cls = box.get_class();
   for (const [key, value] of fields) {
     if (!classHasProperty(cls, key)) {
-      if (ngDevMode) warnOnce(
-        `css:boxfield:${cls}:${key}`,
+      if (ngDevMode) reportWarning(new CssWarning(
+        CssCode.StyleBoxFieldUnsupported,
         `${cls} 没有 ${key} 属性（底色 / 圆角 / 边框粗细 / 阴影只有 StyleBoxFlat 支持，`
-          + "纹理盒只能接 content_margin_*），该字段已忽略。",
-      );
+          + "纹理盒只能接 content_margin_*），该字段已丢弃。",
+        "ignore",
+        { class: cls, field: key },
+      ));
       continue;
     }
     switch (key) {
@@ -223,13 +227,18 @@ function applyBoxFields(box: StyleBox, fields: ReadonlyMap<string, unknown>): vo
       case "shadow_size": (box as StyleBoxFlat).shadow_size = value as number; break;
       case "shadow_color": (box as StyleBoxFlat).shadow_color = value as Color; break;
       case "shadow_offset": (box as StyleBoxFlat).shadow_offset = value as Vector2; break;
-      default: if (ngDevMode) warnOnce(`css:boxfield:${cls}:${key}`, `stylebox 字段 "${key}" 无对应属性，已忽略`);
+      default: if (ngDevMode) reportWarning(new CssWarning(
+        CssCode.StyleBoxFieldUnsupported,
+        `stylebox 字段 "${key}" 没有对应属性，已丢弃`,
+        "ignore",
+        { field: key },
+      ));
     }
   }
 }
 
 /* ------------------------------------------------------------------ *
- * 状态盒模型（CSS 层叠在 Godot Theme 上的落地形状）
+ * 状态盒模型（CSS 层叠在 Godot Theme 上的写入形状）
  *
  * Godot 为每个状态各存一个完整、互不继承的盒；CSS 的 `:hover` 只覆盖它自己声明的那几条，
  * 其余沿用基规则。所以状态盒必须由本库合成，规则是：
@@ -391,7 +400,7 @@ function readProp(node: Control, prop: string): unknown {
  * ------------------------------------------------------------------ */
 
 /**
- * 一条 stylebox 类声明的落地。
+ * 一条 stylebox 类声明的写入。
  *
  * `isBase` = 该声明所在的选择器**不要求任何状态**（基规则 / 内联）。只有基规则的字段才
  * 需要同步到其它状态的盒；状态规则只写它自己那个盒。
@@ -409,11 +418,16 @@ function writeStyleBox(
 
   const write = new StyleBoxWrite();
   apply(write);
-  // 纹理在写入前即校验一次：加载失败则该条声明根本无落点，不能先将其记入模型
+  // 纹理在写入前即校验一次：加载失败则该条声明根本没有可写入的位置，不能先将其记入模型
   // 再于重建时静默丢弃——那将遗留一个不绘制任何内容的盒，还会将其计入「本库创建过的盒」
   const wanted = write.fields.get("texture");
   if (wanted !== undefined && !loadTexture(String(wanted))) {
-    if (ngDevMode) warnOnce(`css:texture:${wanted}`, `纹理资源加载不到：${wanted}（background-image 已忽略）`);
+    if (ngDevMode) reportWarning(new CssWarning(
+      CssCode.TextureLoadFailed,
+      `纹理资源加载不到：${wanted}（background-image 已丢弃）`,
+      "ignore",
+      { path: String(wanted) },
+    ));
     write.fields.delete("texture");
   }
   if (write.fields.size === 0) return;
@@ -434,7 +448,7 @@ function writeStyleBox(
   rebuildBoxes(node, model, onBase ? undefined : [item]);
 
   // 槽位必须带上状态标记：`.card` 与 `.card:hover` 在 PanelContainer 这类只有一个盒的控件上
-  // 会落同一个 item，不带标记就是同一个槽位 → record 去重后只记下一条 undo，
+  // 会写同一个 item，不带标记就是同一个槽位 → record 去重后只记下一条 undo，
   // 退出状态时只能撑掉其中一条贡献，另一条永久残留。
   const slot = `stylebox:${item}${stateTag ? `@${stateTag}` : ""}`;
   record(node, cssName, slot, () => {
@@ -524,7 +538,7 @@ function loadFont(path: string): Font | null {
 /**
  * 系统字体实例缓存（key = 候选名拼接）。
  *
- * 必须复用：`font-family` 会在每次重排 / 重算时重新落点，若每次均 `new SystemFont()`，
+ * 必须复用：`font-family` 会在每次重排 / 重算时重新写入，若每次均 `new SystemFont()`，
  * 相当于为同一节点更换新的资源对象，既浪费资源，也会使“同一个字体”在引擎眼中成为两个。
  */
 const systemFontCache = new Map<string, SystemFont>();
@@ -605,7 +619,8 @@ function writeNodeBoolean(cssName: string, node: GodotControl, prop: string, val
 
 /** 写入类方法在基 backend 上必须抛错：缺少属性名 = 无法记账 = 永远无法撤销 */
 function needsScope(method: string): never {
-  throw new Error(
+  throw new CssError(
+    CssCode.BackendScopeMissing,
     `StyleBackend.${method} 必须经 applyProperty 给出的作用域门面调用（ledger 需要 CSS 属性名才能记账）`,
   );
 }
@@ -617,7 +632,7 @@ function needsScope(method: string): never {
  * 全部要记账，而记账需要 CSS 属性名，因此基 backend 上的写入方法一律抛错（needsScope），
  * 真实实现只能由 applyProperty 给出的作用域门面调用。
  *
- * 纯包识别的唯一落点实现，只保留读取与基础设施；写入方法一律抛错（needsScope），真实现在
+ * 纯包识别的唯一写入实现，只保留读取与基础设施；写入方法一律抛错（needsScope），真实现在
  * 上方，由 scopeOf() 按 CSS 属性名包装成门面。使用方刷新样式请使用 `applyStyle`。
  */
 export const backend: StyleBackend = {
@@ -654,7 +669,7 @@ export const backend: StyleBackend = {
     node: CssNode,
     cssName: string,
     raw: string,
-    warnings: string[],
+    warnings: CssWarnEntry[],
     states: ReadonlySet<string>,
     resolveFont?: (family: string) => string | null,
   ): boolean {
@@ -664,8 +679,7 @@ export const backend: StyleBackend = {
       raw,
       {
         backend: scopeOf(cssName, states),
-        // 本包仅输出「落点相关」的告警，未标等级的按忽略级处理
-        warn: (key, message, level) => warnOnce(`css:${key}`, message, level ?? "ignore"),
+        warn: (code, message, detail, level) => reportWarning(new CssWarning(code, message, level, detail)),
         states,
         resolveFont,
       },
@@ -694,7 +708,7 @@ const scopes = new Map<string, StyleBackend>();
 /** 属性名本应是个小闭集；设上限是为了防止“把任意字符串当属性名”使缓存无限增长 */
 const MAX_SCOPES = 256;
 
-/** 门面缓存键：同一属性名在不同状态下要落不同的盒，所以状态集也必须进键 */
+/** 门面缓存键：同一属性名在不同状态下要写不同的盒，所以状态集也必须进键 */
 function scopeKey(cssName: string, states: ReadonlySet<string>): string {
   return states.size === 0 ? cssName : `${cssName}\u0000${[...states].sort().join(",")}`;
 }
@@ -733,11 +747,11 @@ function scopeOf(cssName: string, states: ReadonlySet<string>): StyleBackend {
  * 对外入口
  * ------------------------------------------------------------------ */
 
-/** 裸声明的状态集：空集 = 不要求任何状态，落基 item */
+/** 裸声明的状态集：空集 = 不要求任何状态，写基 item */
 const NO_STATES: ReadonlySet<string> = new Set<string>();
 
 /**
- * 将一条 CSS 声明落到节点上。value 传空串表示撤销这一条。
+ * 将一条 CSS 声明写入节点。value 传空串表示撤销这一条。
  *
  * 这是一条**裸声明**通道（没有选择器），因此永远只写基 item：需要状态外观请走样式表
  * （`styles` / class 选择器 + `:hover` / `:disabled` …），那里才有「选择器要求了哪个状态」这个信息。
@@ -756,19 +770,21 @@ export function applyStyle(node: Control, cssName: string, value: unknown): void
   if (values.get(cssName) === raw) return; // Angular 每轮变更检测都会重递同样的值
   values.set(cssName, raw);
 
-  const warnings: string[] = [];
+  const warnings: CssWarnEntry[] = [];
   const target = asGodotControl(node);
   // 裸声明没有选择器，也就无从要求状态 → 空集 = 永远写基 item。
   // 否则一个 hover 中的节点会把基色写进 hover 盒，与级联对基规则的口径不一致。
   const known = backend.bulk(target, () => backend.applyProperty(target, cssName, raw, warnings, NO_STATES));
   if (!known) {
-    if (ngDevMode) warnOnce(
-      `css:unknown:${cssName}`,
-      `样式 "${cssName}" 无 Godot 对应，已忽略（布局请使用容器 + sizeFlags，外观请使用 Theme）`,
-    );
+    if (ngDevMode) reportWarning(new CssWarning(
+      CssCode.UnknownProperty,
+      `样式 "${cssName}" 在 Godot 侧没有对应实现，已丢弃（布局请使用容器 + sizeFlags，外观请使用 Theme）`,
+      "ignore",
+      { prop: cssName },
+    ));
   }
-  // 解析期的告警只会是「值被丢弃」，统一按忽略型输出
-  if (ngDevMode) for (const message of warnings) warnOnce(`css:value:${cssName}:${message}`, message, "ignore");
+  // 解析期的告警自带各自的码（颜色、长度、简写……），按码上报
+  if (ngDevMode) for (const entry of warnings) reportWarning(new CssWarning(entry.code, entry.message));
 }
 
 /** 撤销：给出属性名时只撤销那一条，未给出则全部撤销（只处理 ledger 记录过的项） */

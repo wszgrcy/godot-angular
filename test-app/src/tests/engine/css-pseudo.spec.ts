@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Button, CheckBox, Label, LineEdit, ItemList, type Control, type StyleBoxFlat } from "godot";
+import { CssCode } from "godot-angular/css";
 import { GodotRenderer, StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
@@ -50,7 +51,7 @@ describe("hover", () => {
 
     btn.emit_signal("mouse_entered");
     await awaitFrames(1);
-    // 颜色的落点仍由选择器要求的状态决定：引擎 hover 时读的是 font_hover_color
+    // 颜色的写入位置仍由选择器要求的状态决定：引擎 hover 时读的是 font_hover_color
     expect(btn.has_theme_color_override("font_hover_color")).toBe(true);
     expect((btn.get_theme_stylebox("hover") as StyleBoxFlat).bg_color.b).toBeCloseTo(1, 3);
   });
@@ -65,7 +66,7 @@ describe("hover", () => {
 
     btn.emit_signal("mouse_entered");
     await awaitFrames(1);
-    // 没有新声明命中 → 本轮不应产生任何写入（几何在基规则落地时就已同步过了）
+    // 没有新声明命中 → 本轮不应产生任何写入（几何在基规则写入时就已同步过了）
     expect(runtime.cascade.stats.applied).toBe(before);
 
     const hover = btn.get_theme_stylebox("hover") as StyleBoxFlat;
@@ -108,7 +109,7 @@ describe("focus / active / checked", () => {
     expect(btn.has_theme_color_override("font_focus_color")).toBe(false);
   });
 
-  it("button_down / button_up → :active 落到 pressed 盒", async () => {
+  it("button_down / button_up → :active 写入 pressed 盒", async () => {
     runtime.addCss(`.btn:active { background-color: rgb(3, 3, 3); }`);
     const btn = make(new Button(), "btn");
     btn.emit_signal("button_down");
@@ -126,7 +127,7 @@ describe("focus / active / checked", () => {
     btn.emit_signal("mouse_entered");
     btn.emit_signal("button_down");
     await awaitFrames(1);
-    // 落点由选择器自身要求的状态决定：两条规则各写自己的 item，互不挤掉。
+    // 写入位置由选择器自身要求的状态决定：两条规则各写自己的 item，互不挤掉。
     // 引擎在 hover+pressed 时读 font_hover_pressed_color，那里没被写过 → 走主题默认；
     // 想要自定义的组合态颜色，就得显式写 .btn:hover:active（下面那条用例钉的就是这个）。
     expect(btn.has_theme_color_override("font_hover_color")).toBe(true);
@@ -134,7 +135,7 @@ describe("focus / active / checked", () => {
     expect(btn.has_theme_color_override("font_hover_pressed_color")).toBe(false);
   });
 
-  it("CheckBox 勾选 → :checked 落到 pressed 家族", async () => {
+  it("CheckBox 勾选 → :checked 写入 pressed 家族", async () => {
     runtime.addCss(`.cb:checked { color: rgb(0, 255, 255); }`);
     const cb = make(new CheckBox(), "cb");
     // 引擎的 button_pressed setter 会自己发 toggled（typings 里注明了），
@@ -179,7 +180,7 @@ describe("focus / active / checked", () => {
     expect(btn.has_theme_stylebox_override("hover")).toBe(true);
   });
 
-  it(":selected 落到 selected 盒与 font_selected_color（ItemList / Tree）", async () => {
+  it(":selected 写入 selected 盒与 font_selected_color（ItemList / Tree）", async () => {
     runtime.addCss(`.list:selected { color: rgb(0, 255, 255); }`);
     const list = make(new ItemList(), "list");
     runtime.setPseudoClass(list, "selected", true);
@@ -303,7 +304,7 @@ describe("属性驱动的伪类", () => {
     expect(toggle.has_theme_color_override("font_pressed_color")).toBe(true);
   });
 
-  it("editable=false → :read-only（落 read_only 盒）", async () => {
+  it("editable=false → :read-only（写入 read_only 盒）", async () => {
     runtime.addCss(`.field:read-only { background-color: rgb(20, 20, 20); }`);
     const renderer = viaRenderer();
     const edit = renderer.createElement("LineEdit") as LineEdit;
@@ -322,7 +323,9 @@ describe("属性驱动的伪类", () => {
     // 选择器不命中与“状态未触发”在现象上完全一样，只能靠告警区分
     resetWarnOnce();
     const captured = captureWarn(() => runtime.addCss(`.field:readonly { background-color: rgb(20, 20, 20); }`));
-    expect(captured.warn.warnings.join("\n")).toContain("无对应落点");
+    // 解析期告警自带码：名单外的伪类就是 PseudoUnsupported，具体是哪个伪类看文案
+    expectWarnCode(captured.warn, CssCode.PseudoUnsupported);
+    expect(captured.warn.warnings.join("\n")).toContain(":readonly");
 
     const edit = make(new LineEdit(), "field");
     edit.editable = false;
@@ -441,7 +444,7 @@ describe("引擎绘制优先级（get_draw_mode 实测）", () => {
 });
 
 /**
- * 落点分两套口径，这里钉住它们的分界：
+ * 写入位置分两套口径，这里钉住它们的分界：
  * - **颜色**：只重定向「自己要求了该状态」的声明。基规则的 `color` 永远写 `font_color`，
  *   不能被顶进 `font_disabled_color`（那条 override 属于 `:disabled` 规则，基规则没资格写）。
  * - **stylebox**：基规则声明过的字段必须贯穿所有状态（层叠）。因此 `.btn { background-color: 蓝 }`

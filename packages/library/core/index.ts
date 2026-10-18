@@ -19,7 +19,7 @@ export {
   shimHostAttribute,
   shimStylesContent,
 } from "./renderer";
-// style-target：CSS 声明到 Godot theme 落点的唯一出口。属于内部实现，不在 README 公开清单里：
+// style-target：CSS 声明写入 Godot theme 的唯一出口。属于内部实现，不在 README 公开清单里：
 // 保留导出只因为两个内部消费者——库自身的命令式刷样式路径，以及引擎侧 spec 直接验证
 // duplicate / ledger 语义。使用方不应依赖，签名与行为不遵循语义化版本。
 export { applyStyle, clearStyle, styleLedger } from "./style-target";
@@ -32,7 +32,7 @@ export {
   takeGlobalCss,
   type StyleRuntimeOptions,
 } from "./css-runtime";
-// 伪类信号接线：级联内部在用（attach 时连信号、登记样式表时提示无落点的伪类）。
+// 伪类信号接线：级联内部在用（attach 时连信号、登记样式表时提示无法推导的伪类）。
 export { bindPseudoClasses, hasPseudoBinder, warnUnboundPseudoClasses } from "./css-pseudo";
 // 媒体查询环境：bootstrap 已自动把窗口尺寸 / 系统主题接到级联上，使用方无需自己接线；
 // readEnvironment 单独留出，供不用 bootstrap 时手动读一次环境。

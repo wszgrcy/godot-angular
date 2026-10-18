@@ -7,11 +7,11 @@ function hasSignal(node: any, signalName: string): boolean {
   return ClassDB.class_has_signal(node.get_class(), signalName);
 }
 
-/** 这个控件的禁用落在哪个属性上（三档，见 forms 各指令的 setDisabledState） */
+/** 这个控件的禁用写在哪个属性上（三档，见 forms 各指令的 setDisabledState） */
 type DisableProp = "editable" | "disabled" | "mouse_filter";
 
 const CONTRACTS: ReadonlyArray<readonly [string, string, string, DisableProp]> = [
-  // [控件类名, 值属性, 变更信号, 禁用落点]
+  // [控件类名, 值属性, 变更信号, 禁用写入位置]
   ["LineEdit", "text", "text_changed", "editable"],
   ["TextEdit", "text", "text_changed", "editable"],
   ["HSlider", "value", "value_changed", "editable"],

@@ -12,9 +12,9 @@ import type { CssNode } from "../types";
  */
 export interface NodeStyleState {
   /**
-   * 已落地的声明：账本键 → 落地时的原始值（diff 的唯一依据）。
+   * 已写入的声明：账本键 → 写入时的原始值（diff 的唯一依据）。
    *
-   * 一个 CSS 属性名可以对应多条落地声明（基规则与各个状态规则各占一个 theme item），
+   * 一个 CSS 属性名可以对应多条写入声明（基规则与各个状态规则各占一个 theme item），
    * 所键是 `\u0000` 分隔的 `属性名 + 选择器要求的状态串`（见 `slotKey`）。
    */
   readonly applied: Map<string, string>;
@@ -42,7 +42,7 @@ export function statesKey(states: ReadonlySet<string>): string {
   return states.size === 0 ? "" : [...states].sort().join(",");
 }
 
-/** 一条落地声明在账本里的键 */
+/** 一条写入声明在账本里的键 */
 export function slotKey(property: string, states: string): string {
   return states ? property + SLOT_SEP + states : property;
 }
@@ -69,7 +69,7 @@ export interface MergedDeclaration {
   /**
    * 命中的那条选择器**自身要求**的状态伪类（`:hover` / `:disabled` …），基规则与内联为空集。
    *
-   * 它直接决定落点：状态 item 由「选择器要求了哪个状态」推出来，而不是由「节点当前处于
+   * 它直接决定写入位置：状态 item 由「选择器要求了哪个状态」推出来，而不是由「节点当前处于
    * 哪些状态」猜出来。两者差别很大：后者需要知道引擎在 hover+focus 同时成立时究竟读哪个
    * item（无文档保证），前者不需要——每个状态各自写自己的 item，引擎读哪个都拿到正确值。
    *
@@ -122,7 +122,7 @@ export class TrackingClassSet extends Set<string> {
  *
  * 状态存放处。WeakMap 是默认存放处，`stashState` 那条兜底通道见文件末尾。
  *
- * 单独成类而不是分散在调用方：失效调度、变量继承、落地三处都要读取同一份状态，
+ * 单独成类而不是分散在调用方：失效调度、变量继承、写入三处都要读取同一份状态，
  * 任何一方都不应自行持有一份 Map。
  */
 export class NodeStates {

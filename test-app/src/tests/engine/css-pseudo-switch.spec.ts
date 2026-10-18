@@ -1,7 +1,7 @@
 /**
  * 伪类的**切换过程**：多状态共存、逐个撤销、退出后恢复、顺序无关性。
  *
- * 与 `css-pseudo.spec.ts` 的分工：那份钉「单个伪类怎么被驱动、落在哪个 item」，
+ * 与 `css-pseudo.spec.ts` 的分工：那份钉「单个伪类怎么被驱动、写在哪个 item」，
  * 本文件钉「状态来回变化时账本是否收敛」。判据始终是节点上的主题覆盖：
  * 该写的 item 写了、不该留的一个不剩。像素表现（引擎在合成态究竟读哪个 item）由
  * `css-pseudo.spec.ts` 的 `get_draw_mode` 实测负责，这里不重复。
@@ -131,7 +131,7 @@ describe("状态退出后的恢复", () => {
     settle();
     expect(has(btn, "font_hover_color")).toBe(false);
 
-    // 值没变，但落点从 font_color 换成 font_hover_color：只比值的 diff 会跳过写入，
+    // 值没变，但写入位置从 font_color 换成 font_hover_color：只比值的 diff 会跳过写入，
     // 引擎悬停时读 font_hover_color，症状是「写了 :hover 却毫无反应」
     await enter(btn);
     expect(color(btn, "font_hover_color")).toBe("#0000ff");
@@ -265,7 +265,7 @@ describe("多状态共存与逐个撤销", () => {
 
   it("Button：悬停 + 按住写 hover_pressed 盒，松手退回 hover 盒", async () => {
     // 默认主题只给 CheckBox 登记了 hover_pressed 盒，但 Button 的画法同样读它，
-    // 所以两个类的合成态落点应该一致（而不是退回 pressed 盒）
+    // 所以两个类的合成态写入位置应该一致（而不是退回 pressed 盒）
     runtime.addCss(`.btn:hover { background-color: rgb(10, 10, 10); }`);
     runtime.addCss(`.btn:hover:active { background-color: rgb(90, 90, 90); }`);
     const btn = mount(new Button(), root, ["btn"]);

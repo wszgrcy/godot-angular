@@ -10,9 +10,9 @@ import {
 } from "@angular/core";
 import { ClassDB, Control, Label, Node, VBoxContainer } from "godot";
 import type { TrackingClassSet } from "godot-angular/css";
-import { PROPERTY_STATE_CLASSES } from "godot-angular/css";
+import { CssCode, CssWarning, PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import { godotClass } from "./godot-host";
-import { warnOnce } from "./warn";
+import { reportWarning } from "./warn";
 import { coerceToProperty, hasJsAccessor, isControlClass, nodeHasProperty, resolveTag } from "./registry";
 import { NOOP, tryConnectGodotSignal } from "./godot-events";
 import { isGodotNode, markCssStructural } from "./godot-node";
@@ -165,8 +165,9 @@ export class GodotRenderer implements Renderer2 {
       // 大写开头说明作者本意是某个 Godot 类，值得提醒；小写（div / ui-card）静默降级
       if (/^[A-Z]/.test(tagName)) {
         if (ngDevMode) this.warn(
-          `tag:${tagName}`,
+          CssCode.NodeClassFallback,
           `<${tagName}> 不是可用的 Godot Control，已降级为 VBoxContainer`,
+          { tag: tagName },
         );
       }
       Ctor = VBoxContainer;
@@ -218,7 +219,7 @@ export class GodotRenderer implements Renderer2 {
    * 再 insert），因此先摘掉可能存在的旧父（引擎对重复 add_child 只打错误不抛异常），
    * 再入父。引擎没有 insert_at（`add_sibling` 要求目标无父且只能插在锚点之后），
    * add_child 只能追加到末尾，有参照时再 move_child 搬一次位——此时 newChild 已在末尾，
-   * 参照的索引就是它该落的位置，无需修正。
+   * 参照的索引就是它该写入的位置，无需修正。
    */
   insertBefore(parent: Node, newChild: Node, refChild: Node | null): void {
     const oldParent = newChild.get_parent();
@@ -328,7 +329,11 @@ export class GodotRenderer implements Renderer2 {
       return;
     }
     if (!nodeHasProperty(target, prop)) {
-      if (ngDevMode) this.warn(`${target.get_class()}.${prop}`, `${target.get_class()}.${prop} 不是真实属性，赋值已忽略`);
+      if (ngDevMode) this.warn(
+        CssCode.NodePropertyNotReal,
+        `${target.get_class()}.${prop} 不是真实属性，赋值已丢弃`,
+        { class: target.get_class(), prop },
+      );
       return;
     }
     // ClassDB 有这条属性 ≠ JS 能写：绑定只为部分属性生成访问器。缺访问器时赋值只写出
@@ -337,9 +342,10 @@ export class GodotRenderer implements Renderer2 {
     // 也不该被这条检查误拦。
     if (ngDevMode && !hasJsAccessor(target, prop)) {
       this.warn(
-        `accessor:${target.get_class()}.${prop}`,
+        CssCode.NodePropertyNoAccessor,
         `${target.get_class()}.${prop} 在 ClassDB 里存在，但这个 JS 绑定没为它生成属性访问器，` +
           `赋值不会进入引擎；请改用对应的 set_xxx() 方法（如 name → set_name()）`,
+        { class: target.get_class(), prop },
       );
     }
     // 属性名是运行期字符串，而引擎类上没有“任意属性名”索引，只能按表写
@@ -463,9 +469,9 @@ export class GodotRenderer implements Renderer2 {
 
   destroy(): void { }
 
-  /** 同类问题只告警一次，避免每帧刷屏（去重口径全库共用 warnOnce） */
-  private warn(key: string, message: string): void {
-    warnOnce(`prop:${key}`, message);
+  /** 同类问题只告警一次，避免每帧刷屏（去重口径全库共用 reportWarning） */
+  private warn(code: CssCode, message: string, detail?: Record<string, string | number>): void {
+    reportWarning(new CssWarning(code, message, "ignore", detail));
   }
 }
 
@@ -514,10 +520,10 @@ export class GodotRendererFactory implements RendererFactory2 {
         case ViewEncapsulationKind.ShadowDom:
         case ViewEncapsulationKind.ShadowDomSsr:
           if (type.encapsulation !== ViewEncapsulationKind.None) {
-            if (ngDevMode) warnOnce(
-              `css:shadow-dom:${type.encapsulation}`,
+            if (ngDevMode) reportWarning(new CssWarning(
+              CssCode.ShadowDomUnsupported,
               "组件的 encapsulation 为 ShadowDom，Godot 无 shadow root，已按 None（全局）处理。",
-            );
+            ));
           }
           // 不传 compId = 归入全局层
           renderer = new GodotRenderer(this.root, this.runtime, type, this.cssVarNamespace);

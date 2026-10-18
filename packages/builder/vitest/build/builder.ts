@@ -49,14 +49,14 @@ const builder: Builder<RawVitestOptions & JsonObject> =
     const port = session?.port ?? startPort(options.engine.port);
     try {
       if (!options.skipBuild) {
-        // 清单不落盘：提前 glob 一次只为“未匹配到时提前退出”，真正的清单由虚拟模块在
+        // 清单不写文件：提前 glob 一次只为“未匹配到时提前退出”，真正的清单由虚拟模块在
         // load 阶段给出（两边共用同一个 collectSpecFiles，不会漂移）
         const files = collectSpecFiles(context.workspaceRoot, options.specInclude, options.exclude);
         if (files.length === 0) {
           context.logger.error(`specInclude 未匹配到任何文件：${options.specInclude.join(", ")}`);
           return { success: false };
         }
-        context.logger.info(`spec 清单（虚拟模块，不落盘）：${files.length} 个文件`);
+        context.logger.info(`spec 清单（虚拟模块，不写文件）：${files.length} 个文件`);
         const built = await runGodotViteBuild(
           {
             ...options,

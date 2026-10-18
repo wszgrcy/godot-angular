@@ -21,6 +21,8 @@ import {
   splitOnSlash,
   splitValueTokens,
   toFourSides,
+  CssCode,
+  CssError,
 } from "godot-angular/css";
 
 describe("长度：认得的单位之外一律 null，而不是 0", () => {
@@ -42,7 +44,7 @@ describe("长度：认得的单位之外一律 null，而不是 0", () => {
     expect(isUnsupportedUnit("abc")).toBe(false);
   });
 
-  it("0 的几种写法都算 0（border: 0 要能落）", () => {
+  it("0 的几种写法都算 0（border: 0 要能写入）", () => {
     expect(isZero("0")).toBe(true);
     expect(isZero("0px")).toBe(true);
     expect(isZero("0%")).toBe(true);
@@ -127,20 +129,20 @@ describe("box-shadow：认不出的片段必须报出来", () => {
   });
 });
 
-describe("简写展开：值数不对 / 无落点都要说清", () => {
+describe("简写展开：值数不对 / 没有对应实现都要说清", () => {
   it("padding / border-width 期望 1–4 个值", () => {
     expect(expandShorthand("padding", "1px 2px 3px 4px 5px")).toMatchObject({
       longhands: [],
-      warnings: [expect.stringContaining("期望 1–4 个值")],
+      warnings: [expect.objectContaining({ code: CssCode.ShorthandInvalid })],
     });
     expect(expandShorthand("border-width", "1px 2px 3px 4px 5px")?.warnings.join("")).toContain("border-width");
     expect(fourSidesFromParts([1, 2, 3, 4, 5])).toBeNull();
   });
 
-  it("border-style 整个无落点（StyleBoxFlat 没有虚线）", () => {
+  it("border-style 整个没有对应实现（StyleBoxFlat 没有虚线）", () => {
     expect(expandShorthand("border-style", "dashed")).toMatchObject({ longhands: [] });
-    expect(expandShorthand("border-style", "dashed")?.warnings.join("")).toContain("无落点");
-    // border 简写中的 style 段单独告警，其余部分照常落地
+    expect(expandShorthand("border-style", "dashed")?.warnings.join("")).toContain("没有对应实现");
+    // border 简写中的 style 段单独告警，其余部分照常写入
     const border = expandShorthand("border", "1px dashed red");
     expect(border?.warnings.join("")).toContain("border-style");
     expect(border?.longhands.length).toBeGreaterThan(0);
@@ -174,8 +176,8 @@ describe("媒体查询：环境值缺失或类型不对就是不匹配", () => {
   const env = { width: 800, height: 600, "prefers-color-scheme": "light" as const };
 
   it("不合法的查询直接抛（写错名字比静默不匹配好查）", () => {
-    expect(() => parseQuery("")).toThrow(SyntaxError);
-    expect(() => parseQuery("()")).toThrow(SyntaxError);
+    expect(() => parseQuery("")).toThrow(CssError);
+    expect(() => parseQuery("()")).toThrow(CssError);
   });
 
   it("数值特性拿不到可用数字 → 不匹配（而不是当 0）", () => {

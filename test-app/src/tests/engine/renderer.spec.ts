@@ -87,7 +87,7 @@ describe("树操作", () => {
     expect(childNodes<Label>(parent).map((n) => n.text)).toEqual(["a", "b"]);
   });
 
-  it("insertBefore 同父内往后搬：依旧落在参照之前（@for 重排走的就是这条）", () => {
+  it("insertBefore 同父内往后搬：依旧写在参照之前（@for 重排走的就是这条）", () => {
     const { renderer } = makeRenderer();
     const box = renderer.createElement("VBoxContainer");
     const a = renderer.createText("a");
@@ -98,7 +98,7 @@ describe("树操作", () => {
     for (const n of [a, x, b, c]) renderer.appendChild(box, n);
     expect(texts()).toEqual(["a", "x", "b", "c"]);
 
-    // x 往后搬：move_child 是“摘出后按新列表插”，索引不修正就会落到 c 后面
+    // x 往后搬：move_child 是“摘出后按新列表插”，索引不修正就会写入 c 后面
     renderer.insertBefore(box, x, c);
     expect(texts()).toEqual(["a", "b", "x", "c"]);
 
@@ -106,7 +106,7 @@ describe("树操作", () => {
     expect(texts()).toEqual(["b", "x", "a", "c"]);
   });
 
-  it("insertBefore 跳父：先摘旧父，再落到新父的参照之前", () => {
+  it("insertBefore 跳父：先摘旧父，再写入新父的参照之前", () => {
     const { renderer } = makeRenderer();
     const from = renderer.createElement("VBoxContainer");
     const to = renderer.createElement("VBoxContainer");
@@ -216,7 +216,7 @@ describe("setStyle", () => {
     expect(typeof c.a).toBe("number");
   });
 
-  it("kebab-case 的 font-size 也能落到 theme（Angular 传的是 CSS 名）", () => {
+  it("kebab-case 的 font-size 也能写入 theme（Angular 传的是 CSS 名）", () => {
     const { renderer } = makeRenderer();
     const label = renderer.createText("x") as Label;
     renderer.setStyle(label, "font-size", "28");
@@ -280,7 +280,7 @@ describe("listen（Godot 信号 → Angular 回调）", () => {
   });
 });
 
-/** class 是 CSS 选择器的主要输入：静态 class、[class.x]、ngClass 最后都落到这三个方法上 */
+/** class 是 CSS 选择器的主要输入：静态 class、[class.x]、ngClass 最后都写入这三个方法上 */
 describe("class（选择器的输入）", () => {
   const classes = (node: any): string[] => [...(node.cssClasses ?? [])].sort();
 

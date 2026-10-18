@@ -1,5 +1,5 @@
 /**
- * CSS 属性 → theme item 的**落点存在性**与**共用 item 时的撤销粒度**。
+ * CSS 属性 → theme item 的**对应项是否存在**与**共用 item 时的撤销粒度**。
  *
  * 运行于真实引擎，判据仍是节点上的主题覆盖。本文件盯的是级联中间抽象与引擎真实读取之间
  * 剩下的那几处错位：
@@ -12,7 +12,7 @@
 * 2. 同一语义在个别类上**整体换名**而不是加中缀：`TabBar` / `TabContainer` 没有 `font_color`，
  *    字色按状态拆成 `font_unselected_color` / `font_selected_color` / `font_hovered_color` /
  *    `font_disabled_color`；`FoldableContainer` 的悬停色叫 `hover_font_color`（前缀而不是中缀）。
- *    两个推论：落点要先按状态解析、再查存在性（否则基 item 缺失会一票否决状态规则）；
+ *    两个推论：写入位置要先按状态解析、再查存在性（否则基 item 缺失会一票否决状态规则）；
  *    基 item 被拆成多个时一条声明要全写。`ItemList` / `Tree` 的 `font_hovered_color` 是行级
  *    状态，不参与映射。
  * 3. 多个 CSS 属性共用一个 theme item（`background-color` / `border` / `padding` 都写同一
@@ -103,8 +103,8 @@ const contentMarginLeft = (node: Control, item = "panel") => {
  * 基 item 缺失，但状态 item 存在
  * ------------------------------------------------------------------ */
 
-describe("基 item 缺失不等于状态规则无落点", () => {
-  it("TabBar:selected 落 font_selected_color（该类没有 font_color）", () => {
+describe("基 item 缺失不等于状态规则没有对应实现", () => {
+  it("TabBar:selected 写入 font_selected_color（该类没有 font_color）", () => {
     runtime.addCss(`.t:selected { color: rgb(20, 20, 20); }`);
     const t = mount(new TabBar(), ["t"]);
     runtime.setPseudoClass(t, "selected", true);
@@ -123,7 +123,7 @@ describe("基 item 缺失不等于状态规则无落点", () => {
     expect(hasColor(t, "font_color")).toBe(false);
   });
 
-  it("TabBar:hover 落 font_hovered_color（悬停字色的方言名，中缀推不出来）", async () => {
+  it("TabBar:hover 写入 font_hovered_color（悬停字色的方言名，中缀推不出来）", async () => {
     runtime.addCss(`.t:hover { color: rgb(20, 20, 20); }`);
     const t = mount(new TabBar(), ["t"]);
     runtime.flush();
@@ -135,7 +135,7 @@ describe("基 item 缺失不等于状态规则无落点", () => {
     expect(hasColor(t, "font_hovered_color")).toBe(false);
   });
 
-  it("TabContainer:hover 同样落 font_hovered_color", async () => {
+  it("TabContainer:hover 同样写入 font_hovered_color", async () => {
     runtime.addCss(`.c:hover { color: rgb(30, 30, 30); }`);
     const c = mount(new TabContainer(), ["c"]);
     runtime.flush();
@@ -143,7 +143,7 @@ describe("基 item 缺失不等于状态规则无落点", () => {
     expect(hasColor(c, "font_hovered_color")).toBe(true);
   });
 
-  it("FoldableContainer:hover 落 hover_font_color（前缀方言）", async () => {
+  it("FoldableContainer:hover 写入 hover_font_color（前缀方言）", async () => {
     runtime.addCss(`.f:hover { color: rgb(40, 40, 40); }`);
     const f = mount(new FoldableContainer(), ["f"]);
     runtime.flush();
@@ -162,7 +162,7 @@ describe("基 item 缺失不等于状态规则无落点", () => {
     expect(hasColor(t, "font_hovered_color")).toBe(false);
   });
 
-  it("RichTextLabel 的 item 别名不受落点解析顺序影响", () => {
+  it("RichTextLabel 的 item 别名不受写入位置解析顺序影响", () => {
     runtime.addCss(`.r { color: rgb(12, 12, 12); }`);
     const r = mount(new RichTextLabel(), ["r"]);
     runtime.flush();
@@ -190,7 +190,7 @@ describe("状态 item 的存在性判定", () => {
     expect(hasColor(k, "font_color")).toBe(false);
   });
 
-  it("Tree / ItemList 的 :hover 落整棵列表的 font_color，不是行级 hovered", async () => {
+  it("Tree / ItemList 的 :hover 写整棵列表的 font_color，不是行级 hovered", async () => {
     runtime.addCss(`.l:hover { color: rgb(40, 40, 40); }`);
     const tree = mount(new Tree(), ["l"]);
     const list = mount(new ItemList(), ["l"]);
@@ -203,22 +203,22 @@ describe("状态 item 的存在性判定", () => {
     expect(hasColor(list, "font_hovered_color")).toBe(false);
   });
 
-  it("Button 的 padding 落 stylebox 的 content margin，不是 theme constant", () => {
+  it("Button 的 padding 写入 stylebox 的 content margin，不是 theme constant", () => {
     runtime.addCss(`.b { padding: 6px; }`);
     const b = mount(new Button(), ["b"]);
     runtime.flush();
-    // Button 的词汇表里没有 padding_left 这类常量，底色盒的 content margin 才是落点
+    // Button 的词汇表里没有 padding_left 这类常量，底色盒的 content margin 才是写入位置
     expect(hasConstant(b, "padding_left")).toBe(false);
     expect(contentMarginLeft(b, "normal")).toBe(6);
   });
 });
 
 /* ------------------------------------------------------------------ *
- * 交集落点：状态并集里真正成立的那一支
+ * 交集写入位置：状态并集里真正成立的那一支
  * ------------------------------------------------------------------ */
 
-describe("状态并集的落点跟随实际成立的状态", () => {
-  it(":is(:hover, :disabled)：禁用时落 disabled 支，悬停时落 hover 支", async () => {
+describe("状态并集的写入位置跟随实际成立的状态", () => {
+  it(":is(:hover, :disabled)：禁用时写入 disabled 支，悬停时写入 hover 支", async () => {
     runtime.addCss(`.b:is(:hover, :disabled) { color: rgb(255, 0, 0); }`);
     const b = mount(new Button(), ["b"]);
     runtime.flush();
@@ -234,7 +234,7 @@ describe("状态并集的落点跟随实际成立的状态", () => {
     expect(hasColor(b, "font_hover_color")).toBe(false);
   });
 
-  it(":is(:focus, :pressed)：盒落点跟着实际成立的状态走", async () => {
+  it(":is(:focus, :pressed)：盒写入位置跟着实际成立的状态走", async () => {
     runtime.addCss(`.b:is(:focus, :pressed) { background-color: rgb(10, 10, 10); }`);
     const b = mount(new Button(), ["b"]);
     runtime.flush();

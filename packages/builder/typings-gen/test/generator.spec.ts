@@ -71,7 +71,7 @@ describe("writeTypingsBundle", () => {
     expect(() => writeTypingsBundle("", BUNDLE)).toThrow(/指向根目录/);
   });
 
-  it(".gdignore 确实落盘（Godot 靠它排除资源导入）", () => {
+  it(".gdignore 确实写入磁盘（Godot 靠它排除资源导入）", () => {
     const out = join(scratch, "typings");
     writeTypingsBundle(out, BUNDLE);
     expect(existsSync(join(out, GDIGNORE))).toBe(true);
@@ -110,7 +110,7 @@ describe("findWorkspaceRoot", () => {
     expect(findWorkspaceRoot(join(ws, "src", "deep"))).toBe(ws);
   });
 
-  it("找不到时回落到出发目录", () => {
+  it("找不到时回写入出发目录", () => {
     expect(findWorkspaceRoot(scratch)).toBe(scratch);
   });
 });

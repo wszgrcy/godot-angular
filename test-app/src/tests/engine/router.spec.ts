@@ -502,7 +502,7 @@ describe("路由：嵌套与策略", () => {
     expect(texts).not.toContain("home");
   });
 
-  it("withHashLocation：URL 落在 hash 上，path 保持根路径", async () => {
+  it("withHashLocation：URL 写在 hash 上，path 保持根路径", async () => {
     const fixture = await bootstrapRouter(HostComp, provideGodotRouter(TWO_ROUTES, withHashLocation()));
     const router = TestBed.inject(Router);
     const platform = TestBed.inject(PlatformLocation) as GodotPlatformLocation;
@@ -516,7 +516,7 @@ describe("路由：嵌套与策略", () => {
   });
 });
 
-describe("路由：route.title 的落点", () => {
+describe("路由：route.title 的写入位置", () => {
   beforeEach(() => initGodotTestEnvironment());
 
   it("title 记录在 GodotTitleStrategy 上，无头声明生效时不碰窗口", async () => {

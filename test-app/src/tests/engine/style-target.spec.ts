@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Button, Color, GridContainer, Label, MarginContainer, PanelContainer, StyleBoxFlat, VBoxContainer } from "godot";
+import { CssCode } from "godot-angular/css";
 import { applyStyle, clearStyle, styleLedger } from "godot-angular/core";
-import { captureWarn, expectWarned, resetWarnOnce } from "godot-angular/testing";
+import { captureWarn, expectWarnCode, expectWarned, resetWarnOnce } from "godot-angular/testing";
 
 beforeEach(() => {
   // warnOnce 是全局去重，不清空表格时“确实告警了”会依赖用例顺序
@@ -64,7 +65,7 @@ describe("StyleBox：duplicate 与污染", () => {
     expect(box.content_margin_top).toBe(6);
   });
 
-  it("PanelContainer 的底色落在 panel 上（不同类不同 item 名）", () => {
+  it("PanelContainer 的底色写在 panel 上（不同类不同 item 名）", () => {
     const panel = new PanelContainer();
     applyStyle(panel, "background-color", "red");
     expect(flat(panel, "panel").bg_color.r).toBeCloseTo(1, 3);
@@ -159,7 +160,7 @@ describe("ledger 记账", () => {
   });
 });
 
-describe("布局落点：只做提示式翻译", () => {
+describe("布局写入位置：只做提示式翻译", () => {
   it("gap → theme 常量 separation（Godot 4 的 BoxContainer 没这个属性）", () => {
     const box = new VBoxContainer();
     applyStyle(box, "gap", "10px");
@@ -175,7 +176,7 @@ describe("布局落点：只做提示式翻译", () => {
     expect(box.has_theme_constant_override("separation")).toBe(false);
   });
 
-  it("justify-content 三档能落；space-* 告警且节点没被动", () => {
+  it("justify-content 三档能写入；space-* 告警且节点没被动", () => {
     const box = new VBoxContainer();
     applyStyle(box, "justify-content", "center");
     expect(box.alignment).toBe(1);
@@ -188,14 +189,14 @@ describe("布局落点：只做提示式翻译", () => {
     expect(styleLedger(other)).toEqual([]);
   });
 
-  it("margin 落在 Label 上：告警且无 override 残留", () => {
+  it("margin 写在 Label 上：告警且无 override 残留", () => {
     const label = new Label();
     const { warn } = captureWarn(() => applyStyle(label, "margin", "8px"));
     expectWarned(warn);
     expect(styleLedger(label)).toEqual([]);
   });
 
-  it("margin 落在 MarginContainer 上：四条边都写进去", () => {
+  it("margin 写在 MarginContainer 上：四条边都写进去", () => {
     const box = new MarginContainer();
     applyStyle(box, "margin", "4px 5px");
     expect(box.get_theme_constant("margin_top")).toBe(4);
@@ -232,7 +233,7 @@ describe("布局落点：只做提示式翻译", () => {
     expect(label.size_flags_stretch_ratio).toBe(2);
   });
 
-  it("display 无落点：告警，节点树一个子都没多", () => {
+  it("display 没有对应实现：告警，节点树一个子都没多", () => {
     const box = new VBoxContainer();
     const childrenBefore = box.get_child_count();
     const { warn } = captureWarn(() => applyStyle(box, "display", "flex"));
@@ -282,7 +283,7 @@ describe("重复应用与撤销", () => {
   });
 });
 
-describe("节点属性落点：裁剪与鼠标", () => {
+describe("节点属性写入位置：裁剪与鼠标", () => {
   it("overflow: hidden → clip_contents，撤销后回到不裁剪", () => {
     const box = new PanelContainer();
     applyStyle(box, "overflow", "hidden");
@@ -298,7 +299,7 @@ describe("节点属性落点：裁剪与鼠标", () => {
     expect(box.clip_contents).toBe(false);
   });
 
-  it("overflow: auto 无落点：说明滚动由 ScrollContainer 承担", () => {
+  it("overflow: auto 没有对应实现：说明滚动由 ScrollContainer 承担", () => {
     const box = new PanelContainer();
     const { warn } = captureWarn(() => applyStyle(box, "overflow", "auto"));
     expectWarned(warn);
@@ -311,7 +312,7 @@ describe("节点属性落点：裁剪与鼠标", () => {
     // Control.MOUSE_FILTER_IGNORE
     expect(label.mouse_filter).toBe(2);
     expectWarned(warn);
-    expect(warn.warnings.join("\n")).toContain("子节点");
+    expectWarnCode(warn, CssCode.PointerEventsSubtree);
   });
 
   it("pointer-events: auto 不推测类别的默认值", () => {

@@ -6,6 +6,7 @@ import {
   readStashedState,
   stashState,
   type CssNode,
+  type CssWarnEntry,
   type FontSource,
   type StyleBackend,
   type StyleBoxHandle,
@@ -115,10 +116,10 @@ class Recorder implements StyleBackend {
     node: CssNode,
     cssName: string,
     raw: string,
-    warnings: string[],
+    warnings: CssWarnEntry[],
     states: ReadonlySet<string>,
   ): boolean {
-    // 使用真实的属性映射：假 backend 只替换“落到节点”那一步，CSS 名 → theme item 的映射必须为真
+    // 使用真实的属性映射：假 backend 只替换“写入节点”那一步，CSS 名 → theme item 的映射必须为真
     return applyCssProperty(
       node,
       cssName,
@@ -160,7 +161,7 @@ beforeEach(() => {
 });
 
 function makeCascade(): Cascade {
-  return new Cascade({ backend, warn: (key, message) => backend.warnings.push(`${key}::${message}`) });
+  return new Cascade({ backend, warn: (w) => backend.warnings.push(`${w.code}::${w.message}`) });
 }
 
 describe("合并顺序 = 级联顺序（specificity | tier | pos）", () => {
@@ -250,7 +251,7 @@ describe("diff：只写真变了的", () => {
     expect(cascade.stats.skipped).toBeGreaterThan(0);
   });
 
-  it("值变了才重写，且新值落地", () => {
+  it("值变了才重写，且新值写入", () => {
     const cascade = makeCascade();
     cascade.addCss(".a { color: rgb(255,0,0); }");
     const node = mk("n", "Label", ["a"]);
@@ -504,12 +505,12 @@ describe("attach 与内联", () => {
 });
 
 /**
- * 变量落在 shorthand 里：`padding: var(--p)` 在解析期就展开为 4 条 longhand，
- * 各自持有同一个 var()；变量要到落地前才展开，因此“变量变了”必须能同时把这 4 条重新取回。
+ * 变量写在 shorthand 里：`padding: var(--p)` 在解析期就展开为 4 条 longhand，
+ * 各自持有同一个 var()；变量要到写入前才展开，因此“变量变了”必须能同时把这 4 条重新取回。
  */
-describe("变量落在 shorthand 里", () => {
+describe("变量写在 shorthand 里", () => {
   // `padding: var(--p)` 在解析期就展开成 4 条 longhand，各自持着同一个 var()；
-  // 变量要到落地前才展开，因此“变量变了”必须能同时将这 4 条重新取回。
+  // 变量要到写入前才展开，因此“变量变了”必须能同时将这 4 条重新取回。
   it("祖先改变量：展开出的 4 条 longhand 一起重写", () => {
     const cascade = makeCascade();
     const root = mk("root", "VBoxContainer", ["slow"]);
@@ -531,7 +532,7 @@ describe("变量落在 shorthand 里", () => {
     expect(margins().join(" ")).toContain("8");
   });
 
-  it("变量取不到又没写 fallback：4 条一起不落地，并逐条告警", () => {
+  it("变量取不到又没写 fallback：4 条一起不写入，并逐条告警", () => {
     const cascade = makeCascade();
     const node = mk("n", "Label", ["box"]);
     cascade.addCss(`.box { padding: var(--nope); }`);
@@ -566,7 +567,7 @@ describe("变量落在 shorthand 里", () => {
 describe("元素选择器必须是已知 Godot 类名", () => {
   function warningsOf(css: string): string[] {
     const backend = new Recorder();
-    new Cascade({ backend, warn: (key, message) => backend.warnings.push(`${key}::${message}`) }).addCss(css);
+    new Cascade({ backend, warn: (w) => backend.warnings.push(`${w.code}::${w.message}`) }).addCss(css);
     return backend.warnings;
   }
 
@@ -584,7 +585,7 @@ describe("元素选择器必须是已知 Godot 类名", () => {
     expect(warningsOf(".y, *:hover { color: red }")).toEqual([]);
   });
 
-  it("#id 能解析但在 Godot 无落点，要单独报一次", () => {
+  it("#id 能解析但在 Godot 没有对应实现，要单独报一次", () => {
     const text = warningsOf("#x, .y { color: red }").join("\n");
     expect(text).toContain("#id");
     // 与元素名拼错无关，不串成另一条告警

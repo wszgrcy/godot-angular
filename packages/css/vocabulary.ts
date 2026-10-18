@@ -1,6 +1,6 @@
 import { VOCABULARY_DATA, VOCABULARY_META } from "./vocabulary.data";
 
-// 本文件整体无对应物：下游所有落点都必须先查这份由引擎 dump 出来的词汇表
+// 本文件整体无对应物：下游写入前都必须先查这份由引擎 dump 出来的词汇表
 // （见 vocabulary.data.ts）。
 
 /**
@@ -84,7 +84,7 @@ const DOCUMENTED_ITEMS: Record<string, Partial<Record<ThemeItemKind, readonly st
 /**
  * 来源：无
  *
- * 该类（含父链回落）是否真的拥有这个 item
+ * 该类（含沿父链查找）是否真的拥有这个 item
  */
 export function hasThemeItem(className: string, kind: ThemeItemKind, item: string): boolean {
   const key = LIST_KEYS[kind];
@@ -98,7 +98,7 @@ export function hasThemeItem(className: string, kind: ThemeItemKind, item: strin
 /**
  * 来源：无
  *
- * 列出该类（含父链回落）某类 item 的全集，顺序为“越近的父类越后”
+ * 列出该类（含沿父链查找）某类 item 的全集，顺序为“越近的父类越后”
  */
 export function themeItems(className: string, kind: ThemeItemKind): string[] {
   const key = LIST_KEYS[kind];
@@ -117,16 +117,16 @@ export function themeItems(className: string, kind: ThemeItemKind): string[] {
  * 「CSS 属性 → 该控件的 stylebox 名称」的候选顺序。
  *
  * 不同类的 stylebox 名称不一样，因此按候选逐个尝试，第一个在该类词汇表中存在的即采用。
- * 全部不存在 → 该属性对这类控件无落点（告警并忽略）。
+ * 全部不存在 → 该属性对这类控件没有可写入的位置（告警并丢弃）。
  */
 const STYLEBOX_CANDIDATES: readonly string[] = ["panel", "normal", "background"];
 
 /**
  * 为控件寻找一个可当作“底色”的 stylebox item。
  *
- * 只认基状态盒：`hover` / `focus` 这类状态盒不能当基规则的落点——那会把平时看不见的
+ * 只认基状态盒：`hover` / `focus` 这类状态盒不能当基规则的写入位置——那会把平时看不见的
  * 底色画进焦点提示里（`LinkButton` 只有 `focus` 盒，`background-color` 退过去后只有
- * Tab 键选中时才看得到）。想要状态底色请写 `:focus` / `:hover`，由状态规则自己落。
+ * Tab 键选中时才看得到）。想要状态底色请写 `:focus` / `:hover`，由状态规则自己写入。
  */
 export function pickBackgroundStylebox(className: string): string | null {
   for (const candidate of STYLEBOX_CANDIDATES) {
@@ -141,7 +141,7 @@ export function pickBackgroundStylebox(className: string): string | null {
  * 状态伪类 → stylebox 名称（引擎原生就拥有这几个状态盒），颜色 item 由它推出来（见
  * `stateItemCandidates`）。比原版多三个状态：
  *
- * - `checked` 落 `pressed`：开关控件（CheckBox / CheckButton / toggle_mode 的 Button）在
+ * - `checked` 写 `pressed`：开关控件（CheckBox / CheckButton / toggle_mode 的 Button）在
  *   `button_pressed=true` 时画的是 `pressed` 盒与 `font_pressed_color`，而不是 `normal` /
  *   `font_color`。漏掉它就会出现「`:checked` 的样式永远看不见」：样式写进了 `font_color`，
  *   而引擎在勾选态根本不读它，勾选框于是一直是主题默认的白字（浅色主题下＝不可见）。

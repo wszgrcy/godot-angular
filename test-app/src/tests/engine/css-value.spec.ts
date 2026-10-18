@@ -135,7 +135,7 @@ describe("box-shadow", () => {
     expectColor(shadow?.color, 0, 0, 0, 128);
   });
 
-  it("inset 无落点要告警；none 视为撤销；多层仅取第一层", () => {
+  it("inset 没有对应实现要告警；none 视为撤销；多层仅取第一层", () => {
     expect(parseBoxShadow("inset 0 0 4px black").warnings.join("\n")).toContain("inset");
     expect(parseBoxShadow("none").shadow).toBeNull();
     const multi = parseBoxShadow("0 0 2px red, 4px 4px 0 blue");

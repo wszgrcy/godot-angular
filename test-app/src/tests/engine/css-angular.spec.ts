@@ -241,12 +241,12 @@ describe("组件 styles 端到端", () => {
   });
 
 
-  it(":host 落在宿主节点上", async () => {
+  it(":host 写在宿主节点上", async () => {
     @Component({
       selector: "t-inner",
       // 宿主是未知标签 → VBoxContainer，它的 theme 词汇表中只有 constant `separation`，
-      // 没有 font_size（字体尺寸属于 Label 那一层的 item）——写错不会静默落空，
-      // requireItem 会告警，但断言需要使用确实能落地的属性。
+      // 没有 font_size（字体尺寸属于 Label 那一层的 item）——写错不会静默无效，
+      // requireItem 会告警，但断言需要使用确实能写入的属性。
       styles: [`:host { gap: 8px; }`],
       template: `<Label name="inner-child">x</Label>`,
     })
@@ -387,7 +387,7 @@ describe("class 绑定驱动级联", () => {
   it("宿主上的 class 绑定：宿主没经 createElement，也得进级联", async () => {
     @Component({
       selector: "t-host",
-      // opacity 落到 modulate，任何 Control 都能落地（宿主在测试中是裸 Control，没有 separation）
+      // opacity 写入 modulate，任何 Control 都能写入（宿主在测试中是裸 Control，没有 separation）
       styles: [`:host { opacity: 1; } :host.on { opacity: 0.5; }`],
       host: { class: "on" },
       template: `<Label name="kid">x</Label>`,
@@ -404,7 +404,7 @@ describe("class 绑定驱动级联", () => {
    * 宿主没有 class 绑定时也需要在级联中——否则 `:host` 静默不生效（上面那条能通过，很大程度
    * 是 class 那次 attach 顺带补上的）。登记时机在 `selectRootElement`，不依附于 class 路径。
    */
-  it("根宿主没有 class 绑定时，:host 样式照样落地", async () => {
+  it("根宿主没有 class 绑定时，:host 样式照样写入", async () => {
     @Component({
       selector: "t-nocls",
       styles: [`:host { opacity: 0.5; }`],

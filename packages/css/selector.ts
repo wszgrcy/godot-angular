@@ -1,5 +1,6 @@
 import type { CssNode } from "./types";
 import { SelectorTier } from "./types";
+import { CssCode, CssError } from "./diagnostics";
 
 /** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
 
@@ -59,7 +60,7 @@ export enum Combinator {
  * 名单外一律 InvalidSelector 并告警。原因：Godot 侧只有少数信号能驱动伪类，
  * 「写了不生效」与「这个伪类不存在」必须区分开。
  *
- * 能落到 Godot 状态上的伪类，由信号驱动写入 `node.cssPseudoClasses`。
+ * 能对应到 Godot 状态的伪类，由信号驱动写入 `node.cssPseudoClasses`。
  * 名单之外的伪类一律归为 InvalidSelector 并告警——静默忽略比报错更难定位。
  */
 export const SUPPORTED_PSEUDO_CLASSES: ReadonlySet<string> = new Set([
@@ -203,7 +204,7 @@ export abstract class SimpleSelector extends SelectorCore {}
  * （无效选择器不入索引）。
  */
 export class InvalidSelector extends SimpleSelector {
-  constructor(readonly error: Error) {
+  constructor(readonly error: CssError) {
     super();
     this.specificity = Specificity.Invalid;
     this.rarity = Rarity.Invalid;
@@ -265,7 +266,7 @@ export class IdSelector extends SimpleSelector {
  * 改动：上游在 AST 转换处做 `replace('-', '').toLowerCase()`，此处改为匹配时两侧归一
  * 小写且不再删连字符；另增加 cssType 为空时不匹配的保护。
  *
- * 元素选择器：落点 = 节点类名（Godot 没有可写的 theme_type），大小写不敏感
+ * 元素选择器：对应节点类名（Godot 没有可写的 theme_type），大小写不敏感
  */
 export class TypeSelector extends SimpleSelector {
   constructor(readonly cssType: string) {
@@ -310,7 +311,7 @@ export class ClassSelector extends SimpleSelector {
  * 来源：NativeScript/packages/core/ui/styling/css-selector.ts :: AttributeSelectorOperator
  * 等级：部分修改（主体一致）
  * 改动：七个操作符及其字符串值逐字相同，仅由 enum 改为操作符 → 测试名的查表对象，
- * 以便未知名能直接落入告警分支。
+ * 以便未知名能直接进入告警分支。
  */
 type AttributeTest = "exists" | "equals" | "start" | "end" | "any" | "element" | "hyphen";
 
@@ -484,7 +485,7 @@ export class FunctionalPseudoClassSelector extends SimpleSelector {
 /**
  * 来源：NativeScript/packages/core/ui/styling/css-selector.ts :: SimpleSelectorSequence
  * 等级：部分修改（主体一致）
- * 改动：新增 rarity 取子选择器最大值——上游未给序列设 rarity，落到原型上恒为
+ * 改动：新增 rarity 取子选择器最大值——上游未给序列设 rarity，取父类时恒为
  * Universal，使 head 选择退化为「取第一个」；其余（特异度求和、head、match /
  * mayMatch / trackChanges / lookupSort）逐字对应。
  *
@@ -698,7 +699,12 @@ type Token =
   | { kind: "pseudo"; name: string; argument: string | null; element: boolean }
   | { kind: "combinator"; value: Combinator };
 
-class SelectorSyntaxError extends Error {}
+class SelectorSyntaxError extends CssError {
+  constructor(message: string, code: CssCode = CssCode.SelectorSyntax) {
+    super(code, message);
+    this.name = "SelectorSyntaxError";
+  }
+}
 
 function tokenizeSelector(text: string): Token[] {
   const tokens: Token[] = [];
@@ -796,7 +802,7 @@ function tokenizeSelector(text: string): Token[] {
         const name = (IDENT.exec(text.slice(i + 2)) ?? [""])[0].toLowerCase();
         throw new SelectorSyntaxError(
           name
-            ? `不支持伪元素 "::${name}"（Godot 无伪元素概念，样式只能落在控件自身的主题属性上）`
+            ? `不支持伪元素 "::${name}"（Godot 无伪元素概念，样式只能写在控件自身的主题属性上）`
             : `伪元素缺少名称（位置 ${i}）`,
         );
       }
@@ -837,7 +843,7 @@ function tokenizeSelector(text: string): Token[] {
  * `[attribute=id]` 提升为 IdSelector / ClassSelector 的捷径在此不需要（`#id` / `.cls`
  * 在分词阶段已直接产出对应 Token）。
  */
-function simpleFromToken(token: Token, warn: (message: string) => void): SimpleSelector {
+function simpleFromToken(token: Token, warn: (code: CssCode, message: string) => void): SimpleSelector {
   switch (token.kind) {
     case "universal":
       return new UniversalSelector();
@@ -850,23 +856,23 @@ function simpleFromToken(token: Token, warn: (message: string) => void): SimpleS
     case "attr": {
       const test = ATTRIBUTE_OPERATORS[token.op];
       if (!test) {
-        if (ngDevMode) warn(`不支持属性操作符 "${token.op}"`);
-        return new InvalidSelector(new SelectorSyntaxError(`不支持的属性操作符 ${token.op}`));
+        if (ngDevMode) warn(CssCode.AttrOperatorUnsupported, `不支持属性操作符 "${token.op}"`);
+        return new InvalidSelector(new SelectorSyntaxError(`不支持的属性操作符 ${token.op}`, CssCode.AttrOperatorUnsupported));
       }
       return new AttributeSelector(token.name, test, token.value, token.ignoreCase);
     }
     case "pseudo": {
       if (token.argument !== null) {
         if (!FUNCTIONAL_PSEUDOS.has(token.name)) {
-          if (ngDevMode) warn(`不支持函数式伪类 ":${token.name}()"（:has / :nth-child 在 Godot 侧无对应能力）`);
-          return new InvalidSelector(new SelectorSyntaxError(`不支持的函数式伪类 :${token.name}`));
+          if (ngDevMode) warn(CssCode.FunctionalPseudoUnsupported, `不支持函数式伪类 ":${token.name}()"（:has / :nth-child 在 Godot 侧无对应能力）`);
+          return new InvalidSelector(new SelectorSyntaxError(`不支持的函数式伪类 :${token.name}`, CssCode.FunctionalPseudoUnsupported));
         }
         const args = splitTopLevel(token.argument, ",").map((arg) => createSelector(arg, warn));
         return new FunctionalPseudoClassSelector(token.name === "matches" ? "is" : token.name, args);
       }
       if (!SUPPORTED_PSEUDO_CLASSES.has(token.name)) {
-        if (ngDevMode) warn(`伪类 ":${token.name}" 在 Godot 侧无对应落点，整条选择器已忽略`);
-        return new InvalidSelector(new SelectorSyntaxError(`不支持的伪类 :${token.name}`));
+        if (ngDevMode) warn(CssCode.PseudoUnsupported, `伪类 ":${token.name}" 在 Godot 侧没有对应实现，整条选择器已丢弃`);
+        return new InvalidSelector(new SelectorSyntaxError(`不支持的伪类 :${token.name}`, CssCode.PseudoUnsupported));
       }
       return new PseudoClassSelector(token.name);
     }
@@ -933,7 +939,7 @@ export function splitTopLevel(text: string, separator: string): string[] {
  * 解析一条选择器。**不抛异常**：失败时返回 InvalidSelector，错误信息保留在其中，
  * 由调用方决定告警还是忽略（构建期需要告警，运行时只需要不崩溃）。
  */
-export function createSelector(text: string, warn: (message: string) => void = () => {}): SelectorCore {
+export function createSelector(text: string, warn: (code: CssCode, message: string) => void = () => {}): SelectorCore {
   const trimmed = text.trim();
   if (!trimmed) return new InvalidSelector(new SelectorSyntaxError("空选择器"));
   try {
@@ -966,7 +972,9 @@ export function createSelector(text: string, warn: (message: string) => void = (
     if (parts.length === 1) return parts[0].sequence;
     return new ComplexSelector(parts);
   } catch (error) {
-    return new InvalidSelector(error instanceof Error ? error : new Error(String(error)));
+    return new InvalidSelector(
+      error instanceof CssError ? error : new CssError(CssCode.SelectorSyntax, String(error)),
+    );
   }
 }
 
