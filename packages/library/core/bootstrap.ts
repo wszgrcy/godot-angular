@@ -19,7 +19,7 @@ import { GODOT_LOCATION_PROVIDERS } from "./location-providers";
 import { GodotRendererFactory } from "./renderer";
 import { GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 import { bindWindowEnvironment } from "./css-env";
-import { defaultStyleRuntime } from "./css-runtime";
+import { defaultStyleRuntime, StyleRuntime } from "./css-runtime";
 import type { Node } from "godot";
 
 /** 平台级 provider：替换 PLATFORM_ID。 */
@@ -55,6 +55,8 @@ export class GodotAngularApp {
    */
   start(): void {
     // 上一个应用 destroy 时停止了帧驱动（见 stopFrameCallbacks），新建的应用负责恢复。
+    // 帧钟是进程级单例，样式运行时则归本应用所有（见 STYLE_RUNTIME provider），
+    // 因此这里只需恢复帧驱动，无需处理上一个应用留下的级联状态。
     frameClock().resume();
     // 媒体查询环境：窗口尺寸 / 暗色模式。无头模式下读到的是 0 或假值（见 css-env.ts 注释），
     // 但接线必须在此完成——不应要求使用方自行记得接入，遗漏后的表现是“媒体查询静默失效”。
@@ -71,6 +73,18 @@ export class GodotAngularApp {
   tick(deltaMs: number): void {
     if (this.destroyed) return;
     frameClock().run(deltaMs);
+  }
+
+  /**
+   * 立刻把已置脏的样式写入节点，不等到帧末。
+   *
+   * 初次渲染把样式刷新排入 rAF，而 rAF 队列要等第一次 `tick()` 才泵送，因此第一帧画出的
+   * 内容只有节点、没有样式（全部退回引擎默认主题）。`bootstrapGodotApp()` 在 resolve 之前
+   * 调用一次，使首帧即带样式。使用方通常不需要自行调用。
+   */
+  flushStyles(): void {
+    if (this.destroyed) return;
+    this.styleRuntime.flush();
   }
 
   get rootComponent(): unknown {
@@ -92,6 +106,9 @@ export class GodotAngularApp {
     this.unbindEnv?.();
     this.unbindEnv = null;
     this.appRef.destroy();
+    // styleRuntime 不在此处清理：它只被本应用的 injector 持有，上面 stop() 已清空 rAF
+    // 队列（其中待执行的样式刷新是最后一个进程侧引用），appRef.destroy() 之后整个
+    // 运行时不再可达，无需手动拆。
   }
 }
 
@@ -114,9 +131,11 @@ export const GODOT_APP_PROVIDERS: (Provider | EnvironmentProviders)[] = [
   // core 由 tsc 编译（不经由 Angular compiler），类上没有 ɵprov，
   // 因此显式使用 useClass；构造参数为空，依赖在类内部通过 inject() 获取。
   { provide: GodotAngularApp, useClass: GodotAngularApp },
-  // CSS 级联运行时。渲染器从 DI 获取它，因此测试可以注入隔离实例；
-  // 未提供时渲染器会回退到进程级默认实例（见 GodotRendererFactory）。
-  { provide: STYLE_RUNTIME, useFactory: () => defaultStyleRuntime() },
+  // CSS 级联运行时：每个应用一份，销毁后整体丢弃，不跨应用复用进程单例。
+  // 共用时调度标记 / 脏队列 / 节点账本的生命周期会超过应用，而复位它们的帧钟队列
+  // 已随上一个应用 stop() 清空，新应用的刷新就排不上。渲染器从 DI 获取该实例，
+  // 测试可注入隔离实例；未提供时回退到进程级默认实例（见 GodotRendererFactory）。
+  { provide: STYLE_RUNTIME, useFactory: () => new StyleRuntime() },
   // 初始化交由 Angular 负责：必须在 bootstrap() resolve 之前执行完毕，
   // 因此 Godot 侧取得句柄时挂载点已校验完成，可以直接开始 tick。
   provideAppInitializer(() => {
@@ -140,5 +159,9 @@ export async function bootstrapGodotApp(
     appProviders: [...GODOT_APP_PROVIDERS, { provide: GODOT_ROOT, useValue: root }, ...extraProviders],
     platformProviders: GODOT_PLATFORM_PROVIDERS,
   });
-  return appRef.injector.get(GodotAngularApp);
+  const app = appRef.injector.get(GodotAngularApp);
+  // 初次渲染产生的样式刷新必须在第一帧绘制之前完成，否则首帧只有节点、没有样式。
+  // 见 `GodotAngularApp.flushStyles()`。
+  app.flushStyles();
+  return app;
 }

@@ -75,8 +75,13 @@ export interface CascadeOptions {
   backend: StyleBackend;
   /** 媒体查询环境。**由调用方注入**，本包不读取 DisplayServer */
   env?: MediaEnvironment;
-  /** 帧末调度的注入点：引擎侧提供 rAF，不提供则只能手动 flush */
-  schedule?: (flush: () => void) => void;
+  /**
+   * 帧末调度的注入点：引擎侧提供 rAF，不提供则只能手动 flush。
+   *
+   * 返回 `false` 表示**没接这个活**（帧钟停摆时 rAF 会拒收），调度器会当场同步 flush
+   * 补上。不返回值（或返回 `true`）视为已接管。
+   */
+  schedule?: (flush: () => void) => boolean | void;
   /** 告警出口，不提供则静默。收到的是组装好的诊断对象 */
   warn?: (warning: CssWarning) => void;
 }

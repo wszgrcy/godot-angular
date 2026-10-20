@@ -8,7 +8,8 @@ import type { Node } from "godot";
 export const GODOT_ROOT = new InjectionToken<Node>("godot-angular GODOT_ROOT");
 
 /** 本应用的 CSS 级联运行时。做成 token 而不是模块级单例：一个进程可以运行多个应用，
- * 各自持有一套样式表与状态，才能互不污染。默认提供 `defaultStyleRuntime()`。 */
+ * 每个应用持有一套独立的样式表与状态；应用销毁后该实例一并丢弃，重建结果与重建次数无关。
+ * 默认由 `GODOT_APP_PROVIDERS` 为每个应用创建一份，未提供时回退到 `defaultStyleRuntime()`。 */
 export const STYLE_RUNTIME = new InjectionToken<import("./css-runtime").StyleRuntime>(
   "godot-angular STYLE_RUNTIME",
 );

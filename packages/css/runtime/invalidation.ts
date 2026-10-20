@@ -33,7 +33,7 @@ export class Invalidator {
     private readonly states: NodeStates,
     private readonly backend: StyleBackend,
     private readonly flags: CombinatorFlags,
-    private readonly schedule: ((flush: () => void) => void) | undefined,
+    private readonly schedule: ((flush: () => void) => boolean | void) | undefined,
     private readonly onFlush: () => void,
   ) {}
 
@@ -241,7 +241,13 @@ export class Invalidator {
     if (this.flushing) return;
     if (this.flushScheduled) return;
     this.flushScheduled = true;
-    if (this.schedule) this.schedule(this.onFlush);
+    // 调度器拒收（帧钟已停摆）时必须当场同步刷一次：`flushScheduled` 只在 `endFlush`
+    // 里复位，回调一旦被丢弃就没有人再复位它，此后所有 invalidate 都会在第二行 return，
+    // 级联此后不再刷新——现象是下一个应用首帧全无样式且永不恢复。
+    if (this.schedule && this.schedule(this.onFlush) === false) {
+      this.flushScheduled = false;
+      this.onFlush();
+    }
   }
 
   /**

@@ -6,6 +6,7 @@ import { reportWarning, setDiagnosticSink } from "./warn";
 import { bindPseudoClasses, warnUnboundPseudoClasses } from "./css-pseudo";
 import { tryConnectGodotSignal } from "./godot-events";
 import { asGodotNode, isCssStructural, type GodotNode } from "./godot-node";
+import { readGlobalCss } from "./global-css";
 
 /** `new StyleRuntime()` 的选项。 */
 export interface StyleRuntimeOptions {
@@ -32,8 +33,12 @@ interface PseudoBinding {
 /**
  * CSS 级联运行时：把纯包的 `Cascade` 接到帧末调度与 Godot 节点树上。
  *
- * 一个实例 = 一套样式表 + 一份节点状态。多应用同进程时各自 `new` 一个，互不污染
- * （DI 中通过 `STYLE_RUNTIME` token 传递，默认提供 `defaultStyleRuntime()` 那个进程单例）。
+ * 一个实例 = 一套样式表 + 一份节点状态。生命周期与应用一致：`GODOT_APP_PROVIDERS`
+ * 为每个应用创建独立实例（DI 中通过 `STYLE_RUNTIME` token 传递）。应用销毁后该实例
+ * 不再被引用，脏队列、节点账本与调度标记随之释放，因此同进程运行多个应用、或同一场景
+ * 反复销毁重建，每次得到的都是初始状态。`defaultStyleRuntime()` 返回的进程级实例
+ * 用于未提供该 token 的场合（见 `GodotRendererFactory`）与测试。
+ *
  * 类名同时就是类型：`bindWindowEnvironment(runtime: StyleRuntime, …)`、
  * `InjectionToken<StyleRuntime>` 直接使用它，无需另配一份 interface。
  */
@@ -84,11 +89,15 @@ export class StyleRuntime {
     return handle;
   }
 
-  /** 取走构建期写入的全局样式（`styles` 选项）并注册，仅生效一次 */
+  /**
+   * 取构建期写入的全局样式（`styles` 选项）并注册到**本实例**的 cascade。
+   *
+   * 每个应用一份 runtime，因此每个都得自己注册一遍（全局样式只 drain 一次，见
+   * `readGlobalCss`）。“只取一次”的旧写法在共享 cascade 下成立，改成应用级之后会使
+   * 第 N 个应用一条全局样式都没有（外观随启动顺序变，极难归因）。
+   */
   takeGlobalCss(): void {
-    // 只取一次：第二个应用不应重复取得同一批（重复注册会把特异度相同的规则往后排）
-    // drainGlobalCss 是下面那个模块级 takeGlobalCss 的别名，见文件末尾说明
-    for (const css of drainGlobalCss()) this.cascade.addCss(css, { tier: 0 /* Application */ });
+    for (const css of readGlobalCss()) this.cascade.addCss(css, { tier: 0 /* Application */ });
   }
 
   removeCss(handle: number): void {
@@ -258,13 +267,24 @@ export class StyleRuntime {
   }
 }
 
-/** 帧末调度。rAF 由 polyfills 提供，队列由帧钟泵送。未安装补丁的环境直接同步 flush，
- * 以保证样式修改总能被刷新，代价是少合并一轮。 */
-function scheduleAtFrameEnd(flush: () => void): void {
+/**
+ * 帧末调度。rAF 由 polyfills 提供，队列由帧钟泵送。两种「排不上」的情形一律同步 flush，
+ * 以保证样式修改总能被刷新（代价是少合并一轮）：
+ *
+ *  - 未安装补丁的环境（没有 rAF）；
+ *  - 帧钟停摆（上一个应用 destroy 之后、新应用 start 之前）：此时 rAF 直接拒收并返回 -1。
+ *
+ * 返回 `false` 表示本次刷新未被接管，由 `Invalidator` 复位调度标记后同步执行。
+ */
+function scheduleAtFrameEnd(flush: () => void): boolean {
   const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
     .requestAnimationFrame;
-  if (typeof raf === "function") raf(() => flush());
-  else flush();
+  if (typeof raf !== "function") {
+    flush();
+    return true;
+  }
+  if (raf(() => flush()) < 0) return false;
+  return true;
 }
 
 let shared: StyleRuntime | null = null;
@@ -274,27 +294,6 @@ export function defaultStyleRuntime(): StyleRuntime {
   if (!shared) shared = new StyleRuntime();
   return shared;
 }
-
-/**
- * 全局样式表（`styles` 选项）的交接处。使用全局变量而不是 import：polyfill 入口必须在
- * Angular 之前求值，而它不能 import 本库。取完即置空，避免第二个应用重复注册。
- */
-const GLOBAL_CSS_KEY = "__CUJ_GLOBAL_CSS__";
-
-export function takeGlobalCss(): string[] {
-  const bag = globalThis as Record<string, unknown>;
-  const raw = bag[GLOBAL_CSS_KEY];
-  if (!Array.isArray(raw)) return [];
-  bag[GLOBAL_CSS_KEY] = [];
-  return raw.filter((css): css is string => typeof css === "string" && css.trim().length > 0);
-}
-
-/**
- * 为与 `StyleRuntime.takeGlobalCss()` 同名的模块函数起一个别名再调用。
- * 类方法不进入词法作用域，方法体内直接书写 `takeGlobalCss()` 取到的是下面那个函数，
- * 不会递归；使用别名是为了避免读起来像递归。
- */
-const drainGlobalCss: () => string[] = takeGlobalCss;
 
 /** `ViewEncapsulation`：0 Emulated / 1 None / 2 ShadowDom / 3 ShadowDomSsr */
 export const enum ViewEncapsulationKind {
