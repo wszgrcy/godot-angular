@@ -416,8 +416,16 @@ cd test-app && ./visual/run.sh            # 构建并运行；--no-build 仅运�
   样式层写入颜色，无法验证按钮是否按悬停状态绘制。报告中的
   `diag[...] font_hover_color_override` 用于区分“样式层未写入”与“已写入但未按悬停状态绘制”。
 
-它不进入 `pnpm test`：需要 `DISPLAY` 和可创建窗口的 GPU 驱动，CI 中缺少这些条件会导致整条
-链路失败。修改样式相关代码后手动执行一次即可，产物位于 `test-app/visual-out/`（已 gitignore）。
+它不进入 `pnpm test`（需要 `DISPLAY` 和一个 Vulkan 设备），而是走独立的工作流
+`.github/workflows/visual.yml`：Xvfb 提供 1280x720 的虚拟显示，`mesa-vulkan-drivers` 的
+lavapipe 用 CPU 实现 Vulkan，渲染路径与本地一致。工作流在开跑前先确认显示分辨率与 Vulkan
+设备，缺任一项直接报错退出——否则 Godot 报的是“创建表面失败”一类的间接错误，看不出是环境
+问题。报告与截图无论通过与否都上传为 artifact。
+
+本地执行：`pnpm run test:visual`，或 `cd test-app && ./visual/run.sh`。
+
+`visual-out/` 里必须留一个 `.gdignore`（已进版本库，`run.sh` 每次也会重建）：截图就存在工程
+目录内，没有这个文件时 `--import` 会把上一轮的 PNG 当贴图导入，导入完成后退出会崩。
 
 ### 为什么只有引擎一层（不要 Node 替身层）
 

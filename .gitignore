@@ -7,8 +7,10 @@ node_modules
 dist
 test-app/dist*/
 
-# 像素级验证的截图与报告（test-app/visual/run.sh 每次重写）
-test-app/visual-out/
+# 像素级验证的截图与报告（test-app/visual/run.sh 每次重写）。
+# 只排除产物：`.gdignore` 必须进版本库，否则引擎会把截图当贴图导入（导入完退出时会崩）。
+test-app/visual-out/*
+!test-app/visual-out/.gdignore
 
 # GodotJS 退出时偶发留下的 core dump，不是产物
 test-app/core.[0-9]*

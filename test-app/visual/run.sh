@@ -11,9 +11,16 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
 GODOT="${GODOT:-../bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64}"
+# 渲染驱动默认 vulkan（与项目配置一致）。CI 里没有真 GPU，靠 Mesa 的 lavapipe 软件驱动跑
+# 同一条路径，不需要改这里；留这个开关只是为了出问题时能快速定位“是驱动问题还是代码问题”。
+RENDERING_DRIVER="${RENDERING_DRIVER:-vulkan}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -un)}"
 mkdir -p "$XDG_RUNTIME_DIR" && chmod 700 "$XDG_RUNTIME_DIR"
 export DISPLAY="${DISPLAY:-:1}"
+
+# visual-out/ 里放的是上一轮的截图与报告。不加 `.gdignore` 的话，下面的 --import 会把
+# 那些 PNG 当贴图导入，导入完成后退出时会崩（signal 11）。
+mkdir -p visual-out && : > visual-out/.gdignore
 
 if [ ! -x "$GODOT" ]; then
   echo "找不到引擎二进制：$GODOT（用 GODOT=... 覆盖）" >&2
@@ -29,10 +36,11 @@ fi
 "$GODOT" --headless --path . --import >/tmp/visual-import.log 2>&1
 echo "== import exit=$?"
 
-rm -rf visual-out
-echo "== run (display=$DISPLAY)"
+# 只删产物，保留 .gdignore
+rm -f visual-out/*.png visual-out/report.txt visual-out/*.png.uid
+echo "== run (display=$DISPLAY, rendering=$RENDERING_DRIVER)"
 timeout -k 5 180 "$GODOT" --path . res://visual/visual.tscn \
-  --rendering-driver vulkan --audio-driver Dummy \
+  --rendering-driver "$RENDERING_DRIVER" --audio-driver Dummy \
   --resolution 1280x720 --quit-after 1200
 code=$?
 echo "== engine exit=$code"
