@@ -27,9 +27,9 @@ export { applyStyle, clearStyle, styleLedger } from "./style-target";
 // 它不知道 rAF、也不知道节点树，这两件事只有库内部接得对。
 // StyleRuntime 是类而不是接口：`new StyleRuntime()` 建实例，类名本身继续当类型用。
 export { StyleRuntime, defaultStyleRuntime, type StyleRuntimeOptions } from "./css-runtime";
-// 全局样式交接：`takeGlobalCss` 是一次性 drain（取完置空），`readGlobalCss` 带缓存，
-// 供同进程的每个应用各自往自己的 cascade 里注册一遍。
-export { readGlobalCss, takeGlobalCss } from "./global-css";
+// 全局样式交接：`takeGlobalCss` 取完置空，`readGlobalCss` 带缓存，供每个应用向自己的
+// 级联各注册一遍；`resetGlobalCssCache` 仅供测试。
+export { readGlobalCss, resetGlobalCssCache, takeGlobalCss } from "./global-css";
 // 伪类信号接线：级联内部在用（attach 时连信号、登记样式表时提示无法推导的伪类）。
 export { bindPseudoClasses, hasPseudoBinder, warnUnboundPseudoClasses } from "./css-pseudo";
 // 媒体查询环境：bootstrap 已自动把窗口尺寸 / 系统主题接到级联上，使用方无需自己接线；

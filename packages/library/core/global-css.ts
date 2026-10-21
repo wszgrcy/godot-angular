@@ -37,3 +37,13 @@ export function readGlobalCss(): string[] {
   if (globalCssCache === null) globalCssCache = takeGlobalCss();
   return globalCssCache;
 }
+
+/**
+ * 清空 `readGlobalCss()` 的缓存，仅供测试使用（与 `resetWarnOnce()` 同类）。
+ *
+ * 缓存是进程级的，测试用例需要各自决定全局样式的来源，否则前一个用例读过的内容
+ * 会静默地成为后一个用例的输入。运行期不应调用。
+ */
+export function resetGlobalCssCache(): void {
+  globalCssCache = null;
+}

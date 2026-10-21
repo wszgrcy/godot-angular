@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { HBoxContainer, Label, VBoxContainer, Vector2 } from "godot";
-import { StyleRuntime } from "godot-angular/core";
+import { resetGlobalCssCache, StyleRuntime, takeGlobalCss } from "godot-angular/core";
 import { SelectorTier } from "godot-angular/css";
 import { awaitFrames, makeRenderer } from "godot-angular/testing";
 
@@ -65,23 +65,40 @@ describe("C14：WeakMap 状态与包装对象身份", () => {
 });
 
 describe("级联写入真节点", () => {
-  it("构建期塞进来的全局样式（styles 选项）能被运行时取走并生效，且只取一次", () => {
+  it("构建期写入的全局样式（styles 选项）被每个运行时各注册一份，并在真节点上生效", () => {
     const bag = globalThis as Record<string, unknown>;
+    resetGlobalCssCache();
     bag.__CUJ_GLOBAL_CSS__ = [`.g1 { color: rgb(255,0,0); }`, "", `  `, `.g2 { font-size: 30px; }`];
 
-    const other = new StyleRuntime();
-    other.takeGlobalCss();
-    // 取完置空：第二个应用不应重复获取同一批（重复注册会将同特异度的规则往后排）
+    const first = new StyleRuntime();
+    first.takeGlobalCss();
+    // 首个运行时取走交接变量：取完置空，空白条目在交接时已被过滤
     expect(bag.__CUJ_GLOBAL_CSS__).toEqual([]);
+    expect(takeGlobalCss()).toEqual([]);
 
     const label = new Label();
     root.add_child(label);
-    other.attach(label);
+    first.attach(label);
     classes(label).add("g1");
     classes(label).add("g2");
-    other.flush();
+    first.flush();
     expect(label.get_theme_color("font_color").r).toBeCloseTo(1, 3);
     expect(label.get_theme_font_size("font_size")).toBe(30);
+
+    // 第二个运行时（同进程的第二个应用、或重建后的新实例）取到同一份副本，结果一致
+    const second = new StyleRuntime();
+    second.takeGlobalCss();
+    const label2 = new Label();
+    root.add_child(label2);
+    second.attach(label2);
+    classes(label2).add("g1");
+    classes(label2).add("g2");
+    second.flush();
+    expect(label2.get_theme_color("font_color").r).toBeCloseTo(1, 3);
+    expect(label2.get_theme_font_size("font_size")).toBe(30);
+
+    // 缓存是进程级的，不把测试数据留给后面的用例
+    resetGlobalCssCache();
   });
 
   it("同特异度后者赢；内联压过样式表", () => {
