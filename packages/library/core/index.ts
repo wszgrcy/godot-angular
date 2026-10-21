@@ -23,10 +23,12 @@ export {
 // 保留导出只因为两个内部消费者——库自身的命令式刷样式路径，以及引擎侧 spec 直接验证
 // duplicate / ledger 语义。使用方不应依赖，签名与行为不遵循语义化版本。
 export { applyStyle, clearStyle, styleLedger } from "./style-target";
-// 运行时：把纯包的 Cascade 接到帧末与节点树上。使用方自行 `new Cascade()` 没意义：
-// 它不知道 rAF、也不知道节点树，这两件事只有库内部接得对。
+// 运行时：把纯包的 Cascade 接到节点树上，并接上刷新调度。使用方自行 `new Cascade()` 没有意义：
+// 它拿不到 Godot 节点树，也无法确定该用哪个调度器，这两项装配只有库内部能完成。
 // StyleRuntime 是类而不是接口：`new StyleRuntime()` 建实例，类名本身继续当类型用。
 export { StyleRuntime, defaultStyleRuntime, type StyleRuntimeOptions } from "./css-runtime";
+// effect 版刷新调度器。`StyleRuntime` 传入 injector 时内部已接好，这里导出供自己组装时使用。
+export { effectStyleScheduler } from "./style-scheduler";
 // 全局样式交接：`takeGlobalCss` 是一次性 drain（取完置空），`readGlobalCss` 带缓存，
 // 供同进程的每个应用各自往自己的 cascade 里注册一遍。
 export { readGlobalCss, takeGlobalCss } from "./global-css";

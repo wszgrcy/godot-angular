@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { HBoxContainer, Label, VBoxContainer, Vector2 } from "godot";
 import { StyleRuntime } from "godot-angular/core";
 import { SelectorTier } from "godot-angular/css";
-import { awaitFrames, makeRenderer } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, makeRenderer } from "godot-angular/testing";
 
 /** 节点上的 class 集合（typings 中没有这个字段，它是 attach 时挂载的 JS 属性） */
 function classes(node: any): Set<string> {
@@ -15,7 +15,7 @@ let runtime: StyleRuntime;
 let root: any;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
 });
 
@@ -69,7 +69,7 @@ describe("级联写入真节点", () => {
     const bag = globalThis as Record<string, unknown>;
     bag.__CUJ_GLOBAL_CSS__ = [`.g1 { color: rgb(255,0,0); }`, "", `  `, `.g2 { font-size: 30px; }`];
 
-    const other = new StyleRuntime();
+    const other = newStyleRuntime();
     other.takeGlobalCss();
     // 取完置空：第二个应用不应重复获取同一批（重复注册会将同特异度的规则往后排）
     expect(bag.__CUJ_GLOBAL_CSS__).toEqual([]);

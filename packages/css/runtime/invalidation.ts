@@ -1,5 +1,5 @@
 import type { ChangeMap } from "../selector";
-import type { CssNode, StyleBackend } from "../types";
+import type { CssNode, StyleBackend, StyleScheduler } from "../types";
 import type { CombinatorFlags } from "./sheets";
 import { NodeStates, TrackingClassSet, type NodeStyleState } from "./state";
 
@@ -9,12 +9,14 @@ import { NodeStates, TrackingClassSet, type NodeStyleState } from "./state";
  *      + NativeScript/packages/core/ui/styling/style-scope.ts :: CssState 的 changeMap 订阅
  * 等级：仅思路一致（合成类）
  * 差异：上游的失效是“推”——属性 setter 直接触发重算，子树与兄弟靠事件厂广播；
- * Godot 侧属性赋值没有任何通知，因此改为“标脏 + 帧末统一拉取”，并额外维护
+ * Godot 侧向属性赋值不会发出任何通知，因此改为拉取式：先把需要重算的节点加入
+ * `dirty` 集合，等 `flush()` 被调用时一并处理，并额外维护
  * changeMap 的反向索引（上游只有正向的 changeMap，靠逐个订阅事件补救）。
  * 保留的契约：失效范围仍为自身 + 子树 + 兄弟 + 动态依赖者，且只在样式表确实用到
  * 后代 / 兄弟组合器时才展开。
  *
- * 谁需要重算：脏队列、失效范围、动态依赖的反向索引，以及帧末调度。
+ * 本类维护四项内容：待重算的节点集合、失效范围、动态依赖的反向索引，以及对
+ * `scheduler.request()` 的调用。
  */
 export class Invalidator {
   /** 反向索引：被依赖的节点 → 依赖它的那些节点 */
@@ -22,18 +24,18 @@ export class Invalidator {
   private readonly dirty = new Set<CssNode>();
   /** 已 attach 的节点集合（WeakMap 不可遍历，需要遍历时用这个） */
   private readonly attachedSet = new Set<CssNode>();
-  private flushScheduled = false;
-  /**
-   * 正在 flush。期间 `invalidate` 只入队不重复调度：本轮 flush 会把新入脏的节点一并
-   * 处理完，另起一次空转的 flush 只会白跑一轮。收尾时由 `endFlush` 统一决定要不要补一次。
-   */
-  private flushing = false;
 
   constructor(
     private readonly states: NodeStates,
     private readonly backend: StyleBackend,
     private readonly flags: CombinatorFlags,
-    private readonly schedule: ((flush: () => void) => boolean | void) | undefined,
+    /**
+     * 刷新时机的注入点。未传入时不会自动刷新（构建期检查样式表、纯逻辑测试都是这种用法）。
+     * 合并多次请求也由它完成：本类每标记一个节点就调用一次 `request()`，
+     * 自身不记录「是否已经调用过 `request()`」。
+     */
+    private readonly scheduler: StyleScheduler | undefined,
+    /** 调用 `request()` 时传入的回调，即 `Cascade.flush` */
     private readonly onFlush: () => void,
   ) {}
 
@@ -107,13 +109,13 @@ export class Invalidator {
     }
     const dependents = this.dependents.get(node);
     if (dependents) for (const dependent of dependents) this.markDirty(dependent);
-    this.scheduleFlush();
+    this.requestFlush();
   }
 
   /** 整棵子树标脏（appendChild / removeChild 之后可调用） */
   invalidateTree(root: CssNode): void {
     this.markSubtree(root);
-    this.scheduleFlush();
+    this.requestFlush();
   }
 
   /**
@@ -127,7 +129,7 @@ export class Invalidator {
   invalidateSiblings(parent: CssNode): void {
     if (!this.flags.siblingSensitive) return;
     for (const child of this.backend.childrenOf(parent)) this.markDirty(child);
-    this.scheduleFlush();
+    this.requestFlush();
   }
 
   /**
@@ -139,7 +141,7 @@ export class Invalidator {
    */
   invalidateAll(): void {
     for (const node of this.attachedSet) this.markDirty(node);
-    this.scheduleFlush();
+    this.requestFlush();
   }
 
   /** 已登记的节点（新样式表引入新伪类时，运行时要为存量节点补连信号） */
@@ -234,44 +236,17 @@ export class Invalidator {
    * 来源：NativeScript/packages/core/ui/core/view-base/index.ts :: ViewBase._batchUpdate
    *      的批处理计数（CssState 用它合并一次同步调用栈内的重算）
    * 等级：仅思路一致
-   * 差异：上游的批处理靠 _changingCnt 在同步调用栈内合并，本侧改为帧末异步调度（可注入）。
-   */
-  private scheduleFlush(): void {
-    // flush 内部产生的脏交给 endFlush，不在这里抢排下一次调度
-    if (this.flushing) return;
-    if (this.flushScheduled) return;
-    this.flushScheduled = true;
-    // 调度器拒收（帧钟已停摆）时必须当场同步刷一次：`flushScheduled` 只在 `endFlush`
-    // 里复位，回调一旦被丢弃就没有人再复位它，此后所有 invalidate 都会在第二行 return，
-    // 级联此后不再刷新——现象是下一个应用首帧全无样式且永不恢复。
-    if (this.schedule && this.schedule(this.onFlush) === false) {
-      this.flushScheduled = false;
-      this.onFlush();
-    }
-  }
-
-  /**
-   * 来源：无
+   * 差异：上游的批处理靠 _changingCnt 在同步调用栈内合并，本侧改为调用一次
+   * `scheduler.request()`。
    *
-   * flush 开始：进入「不再重复调度」区间。必须在 `takeDirty()` 之前调。
-   */
-  beginFlush(): void {
-    this.flushing = true;
-  }
-
-  /**
-   * 来源：无
+   * 合并多次请求不在本方法内完成，而是由 {@link StyleScheduler} 的实现完成
+   *（Angular 的 effect 调度会将同一批内的多次请求合并为一次执行）。
    *
-   * flush 收尾：退出区间，并补上期间新入脏的节点。
-   *
-   * 队列已排空（状态跃迁在本轮内收敛）时**不**另起一次空转的 flush；确实还有残留
-   * （`applyNode` 里 `var()` 变化触发的 `invalidateTree`）才补排一次，那一轮是有活的。
+   * 刷新过程中新标记的节点也经过这里。`flush()` 一开头就取空了队列，那些节点只能依靠
+   * 本次 `request()` 在下一次刷新时被取走，因此这里不能加入「正在刷新则跳过」之类的拦截。
    */
-  endFlush(): void {
-    this.flushing = false;
-    // 先释放调度权：本轮期间被 `scheduleFlush` 拦下的那些脏节点，现在才有机会排上去
-    this.flushScheduled = false;
-    if (this.dirty.size > 0) this.scheduleFlush();
+  private requestFlush(): void {
+    this.scheduler?.request(this.onFlush);
   }
 }
 

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Button, CheckBox, GridContainer, HBoxContainer, Label, LineEdit, MarginContainer, PanelContainer, VBoxContainer } from "godot";
 import { StyleRuntime } from "godot-angular/core";
 import { SUPPORTED_PSEUDO_CLASSES, cssPropertyNames } from "godot-angular/css";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: any;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
   resetWarnOnce();
 });
@@ -22,7 +22,7 @@ beforeEach(() => {
 function apply(css: string, make: () => any): [any, string[]] {
   // 每个用例一套独立级联：共用 runtime 会将历次 `.s { … }` 叠加在同一批节点上，
   // 前一个用例的声明会混进后一个用例的告警中
-  const local = new StyleRuntime();
+  const local = newStyleRuntime();
   const host = makeRenderer().root;
   const node = make();
   host.add_child(node);
@@ -35,7 +35,7 @@ function apply(css: string, make: () => any): [any, string[]] {
 
 /** 整张样式表版本：选择器由调用方自行编写 */
 function sheet(css: string, make: () => any): [any, string[]] {
-  const local = new StyleRuntime();
+  const local = newStyleRuntime();
   const node = make();
   makeRenderer().root.add_child(node);
   local.attach(node);
@@ -418,7 +418,7 @@ describe("选择器", () => {
 
   it("常见选择器各命中一次（写进去才算命中）", () => {
     for (const [selector, which] of CASES) {
-      const local = new StyleRuntime();
+      const local = newStyleRuntime();
       const box = new VBoxContainer();
       const label = new Label();
       const button = new Button();
@@ -449,7 +449,7 @@ describe("选择器", () => {
       ["Button + Label", false], // Label 前面是容器开头，没有 Button
       ["VBoxContainer > Label + Button", true],
     ] as Array<[string, boolean]>) {
-      const local = new StyleRuntime();
+      const local = newStyleRuntime();
       const box = new VBoxContainer();
       const label = new Label();
       const button = new Button();
@@ -470,7 +470,7 @@ describe("选择器", () => {
     const pseudo = [...SUPPORTED_PSEUDO_CLASSES];
     expect(pseudo.length).toBeGreaterThan(6);
     for (const name of pseudo) {
-      const local = new StyleRuntime();
+      const local = newStyleRuntime();
       const label = new Label();
       root.add_child(label);
       // addCss 需要在 attach 之前：伪类的信号绑定是 attach 时按“表中使用了哪些”建立的
@@ -523,7 +523,7 @@ describe("选择器", () => {
   it("无法识别的伪类 / 伪元素使整条规则失效并输出告警", () => {
     // 告警在 addCss 那一刻发出（不是 flush）：此处必须将两个窗口都覆盖
     for (const selector of ["Label:hoverry", "Label::before", "Label:nth-child(2)"]) {
-      const local = new StyleRuntime();
+      const local = newStyleRuntime();
       const label = new Label();
       root.add_child(label);
       local.attach(label);

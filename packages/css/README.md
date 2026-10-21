@@ -20,7 +20,7 @@ css/
 ├─ types.ts          CssNode / StyleBackend 等接口（后端抽象的唯一出口）
 ├─ value/            值解析：color / sides / tokens / keyword / length / shadow
 └─ runtime/          ★ 只有运行期用，构建期一行都不碰
-   ├─ cascade.ts     级联：合并 → diff → 精确撤除 → 定向失效 → 帧末批量
+   ├─ cascade.ts     级联：合并 → diff → 精确撤除 → 定向失效 → 批量刷新
    ├─ properties.ts  CSS 属性 → 写入哪个 theme item
    └─ vars.ts        var() 展开（级联内部已调，导出给诊断工具复用）
 ```
@@ -41,7 +41,7 @@ css/
 这一侧。
 
 `runtime/` 不是"新加的一层"，是把本来就存在的边界画出来：构建期永远不可能在这里
-拿到级联、帧末状态或 theme item 的写入位置。
+拿到级联、刷新队列或 theme item 的写入位置。
 
 ## 谁在用
 
@@ -56,6 +56,8 @@ css/
 
 ## 加代码时的规矩
 
+- 运行期不许碰 rAF / 帧钟 / 变更检测：重算时机一律交给 `CascadeOptions.scheduler` 的实现方
+  （见 `types.ts` 的 `StyleScheduler`），本包也不记录「是否已调用过 `request()`」
 - 新模块放哪：**构建期会不会 import 它**？会 → 留在顶层；不会 → 进 `runtime/`
 - 别从 `runtime/` 往顶层反向依赖之外加东西（`runtime/` 可以依赖顶层，反过来不行）
 - 值解析一律进 `value/`，别按"谁用"拆散它 —— `keyword`/`length`/`shadow` 目前只有

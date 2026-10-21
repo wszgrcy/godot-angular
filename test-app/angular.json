@@ -15,13 +15,29 @@
             "resRoot": "res://dist-engine-test",
             "optimization": false,
             "sourceMap": false,
-            "specInclude": ["src/tests/engine/*.spec.ts"],
+            "specInclude": [
+              "src/tests/engine/*.spec.ts"
+            ],
             "coverage": {
               "enabled": true,
-              "include": ["../packages/library/**/*.ts", "../packages/css/**/*.ts"],
-              "exclude": ["**/*.spec.ts", "**/test/**", "**/typings/**", "**/*.d.ts"],
+              "include": [
+                "../packages/library/**/*.ts",
+                "../packages/css/**/*.ts"
+              ],
+              "exclude": [
+                "**/*.spec.ts",
+                "**/test/**",
+                "**/typings/**",
+                "**/*.d.ts"
+              ],
               "reportsDirectory": "../coverage",
-              "reporter": ["text", "html", "text-summary", "json-summary", "lcov"]
+              "reporter": [
+                "text",
+                "html",
+                "text-summary",
+                "json-summary",
+                "lcov"
+              ]
             },
             "engine": {
               "projectPath": ".",
@@ -29,6 +45,22 @@
               "connectTimeout": 30000,
               "godotBin": "../bin"
             }
+          }
+        },
+        "visual": {
+          "builder": "godot-angular:application",
+          "options": {
+            "entries": [
+              "visual/main.ts"
+            ],
+            "tsConfig": "tsconfig.visual.json",
+            "outputPath": "dist-visual",
+            "resRoot": "res://dist-visual",
+            "optimization": false,
+            "sourceMap": false,
+            "styles": [
+              "visual/global.css"
+            ]
           }
         }
       }

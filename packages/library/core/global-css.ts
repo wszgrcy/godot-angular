@@ -27,13 +27,18 @@ export function takeGlobalCss(): string[] {
 let globalCssCache: string[] | null = null;
 
 /**
- * 为一个运行时取全局样式：第一个运行时从全局变量取走并缓存，之后的运行时（同进程的第二个
+ * 为一个运行时取全局样式：交接变量非空时取走其内容并存入缓存；之后的运行时（同进程的第二个
  * 应用、或同一场景销毁重建后的新实例）取到同一份副本，各自注册。
  *
  * 与 `takeGlobalCss()` 的差别只有缓存。运行时按应用独立创建后，每个级联都必须注册一遍
  * 全局样式，否则第二个应用取到空数组，整屏没有全局样式，且现象随应用创建顺序变化。
+ *
+ * 每次调用都检查交接变量，而不是整个模块生命周期只取一次：后者会永久屏蔽第一批之后才写入的
+ * 样式，而写入时机并不由本库控制（取决于 polyfill 入口与 Angular 的求值顺序）。交接变量为空
+ * 时返回缓存；多应用场景走的是这条路径。
  */
 export function readGlobalCss(): string[] {
-  if (globalCssCache === null) globalCssCache = takeGlobalCss();
-  return globalCssCache;
+  const drained = takeGlobalCss();
+  if (drained.length > 0) globalCssCache = drained;
+  return globalCssCache ?? [];
 }

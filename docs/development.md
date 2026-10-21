@@ -39,11 +39,13 @@ packages/library/        ← **一个包，多个入口**（ng-packagr，发布�
     godot-events.ts        tryConnectGodotSignal（接不到返回 null）
     frame.ts               帧钟句柄（从 globalThis.__CUJ_FRAME__ 拿）
     bootstrap.ts           平台 & 应用 provider、GodotAngularApp.tick()
-    css-runtime.ts         StyleRuntime：把纯包的 Cascade 接到帧末与节点树
+    css-runtime.ts         StyleRuntime：把纯包的 Cascade 接到节点树，并接上刷新调度
+    style-scheduler.ts     刷新调度：只有 effect 一条路（injector 由应用传入）
     style-target.ts        CSS 声明 → Godot theme 落点（实现 css 包的 StyleBackend）
   forms/                 → godot-angular/forms        输入控件的 CVA **指令**
     base.ts                GodotControlBase / GodotValueAccessorBase / GodotMouseDisabledBase
   testing/               → godot-angular/testing      TestBed 环境（引擎）/ 节点查询 / spy
+    style-scheduler.ts     测试专用脚手架：独立根 injector / 同步 flush effect / newStyleRuntime()
 
 packages/css/            ← **纯 JS，不许 import "godot"**（详见 css/README.md）
   parser / selector / ruleset / shorthand / mediaquery / vocabulary
@@ -92,10 +94,17 @@ docs/                    本文 + css-plan.md
 
 - **引擎测试**（`test-app/src/tests/engine/`）：凡是需要真引擎才能判定的，全部在这边。
   典型是「某条 CSS 声明到底写了哪个主题属性」「状态盒是怎么组成的」「上一轮的值有没有被
-  撤掉」。断言只看节点上的主题覆盖与节点属性，不看像素。
+  撤掉」。断言只看节点上的主题覆盖与节点属性，不看像素。需要自动刷新时机的用例用
+  `godot-angular/testing` 的 `newStyleRuntime()` 建运行时（内部传入一个独立 injector，走的
+  是和生产同一条 effect 链路）；`new StyleRuntime()` 不传 injector 时不安排自动刷新，
+  只能手动 `flush()`。
 - **Node 测试**（`packages/css/test/`）：只留纯算法与内部成本探针 —— CSS 解析、特异度
-  比较、标脏范围、`hasNodeProperty` 调用次数、是否多排了一次空转 flush。这些量在引擎侧
-  没有对应的可观察出口，搬过去只会变成无法断言或断言无意义。
+  比较、标脏范围、`hasNodeProperty` 调用次数。这些量在引擎侧没有对应的可观察出口，搬过去
+  只会变成无法断言或断言无意义。判据是“这个事实的最终表现在哪”：凡终点是节点属性的，
+  就在引擎里用真节点断言——刷新调度的契约（多次标记合并为一次、回调未被执行时不残留
+  已调度状态、effect 的实际时机）在
+  `test-app/src/tests/engine/css-scheduler-contract.spec.ts` 里读真 `Label` 的 theme
+  override 断。Node 里只能拿假 backend 记录写入流水，而“流水里有”不等于“节点上写进了”。
 
 ---
 
@@ -364,7 +373,7 @@ pnpm run build        # dist/：软链落地，消费方立刻看得到
 
 ## 6. 测试架构
 
-### 只有两层
+### 引擎真机 + 纯 Node，没有“假引擎”层
 
 引擎真机（test-app 那份入口）与纯 Node，**没有第三层“假引擎”测试**。
 | 层 | 位置 | 规模 | 能证明什么 |
@@ -373,6 +382,42 @@ pnpm run build        # dist/：软链落地，消费方立刻看得到
 | 纯 Node | `packages/library/polyfills/test/`、`packages/builder/vite/test/` | 95 项 / 9 文件 | 我们自己那套 rAF / 帧驱动的语义、builder 选项解析与产物改写（临时目录造夹具，不碰仓库源码） |
 
 引擎层里 `app-sample.spec.ts` 跑的是**示例 App 的整棵树**，其余 spec 用内联小组件验单个机制。
+
+### 像素级验证（`test-app/visual/`，需要显示环境，不进 `pnpm test`）
+
+引擎真机 spec 断言的对象全部是**节点属性**：`has_theme_color_override("font_color")` 为真、
+`get_theme_color(...)` 分量正确。但“属性已写入”不等于“屏幕上有对应像素”，两者确实会分离：
+实测的一例是——为 Button 写入 `font_hover_color` 覆盖后属性断言全部通过，而 Button 依据
+**真实鼠标位置**选择绘制状态，鼠标不在其上方时不会读取该 item，屏幕上没有任何变化。
+
+`test-app/visual/` 用于补上这一段：在真实窗口（Vulkan）中运行一个真实应用，按帧截图，
+统计指定节点画面矩形内目标颜色的像素数量。三个文件：
+
+| 文件 | 作用 |
+| --- | --- |
+| `visual/app.ts` | 被测组件。五种修改样式的方式各占一行：组件样式 / 全局样式 / class 绑定 / 背景（StyleBoxFlat）/ `:hover` |
+| `visual/main.ts` | 场景根脚本：启动应用 → 按帧推进 → 截图 → 统计像素 → 写入 `visual-out/report.txt` |
+| `visual/run.sh` | 构建 `test-app:visual` → 打开窗口运行 → 输出报告；退出码即结论 |
+
+```bash
+cd test-app && ./visual/run.sh            # 构建并运行；--no-build 仅运行
+```
+
+这些断言遵循几条约定，修改时不要破坏：
+
+- **颜色只取纯色原色 / 二次色**（红蓝青黄品红）。Godot 的 UI 颜色要经过 sRGB ↔ 线性转换，
+  只有 0 与 1 两个端点转换后不变；取中间值（绿 200）读回的数值会偏移，断言必须放宽容差。
+- **每条“必须存在”都配一条“必须不存在”**。只断言存在无法验证撤销，
+  `03-class-off` / `05-hover-off` 才是撤销逻辑的证明。
+- **统计像素数量而不是取单点**。文字只占节点矩形的一小部分，取中心点大概率落在文字间隙上。
+- **动作与截图之间留两帧**。`_process` 在本帧绘制之前执行，截图取到的是上一帧的画面；
+  一帧供变更检测与样式刷新执行，一帧供结果进入绘制。
+- **悬停使用 `Input.warp_mouse()` 实际移动指针**，而不是 `emit_signal("mouse_entered")`。后者只能让
+  样式层写入颜色，无法验证按钮是否按悬停状态绘制。报告中的
+  `diag[...] font_hover_color_override` 用于区分“样式层未写入”与“已写入但未按悬停状态绘制”。
+
+它不进入 `pnpm test`：需要 `DISPLAY` 和可创建窗口的 GPU 驱动，CI 中缺少这些条件会导致整条
+链路失败。修改样式相关代码后手动执行一次即可，产物位于 `test-app/visual-out/`（已 gitignore）。
 
 ### 为什么只有引擎一层（不要 Node 替身层）
 
@@ -678,7 +723,8 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 7. 裸 V8 缺 `document` `window` `navigator` `location` `requestAnimationFrame`
    `queueMicrotask` `performance` `Event` `EventTarget` `Intl` `fetch` `structuredClone`
    `localStorage` `process` `Buffer`（有 `setTimeout`/`Promise`/`Proxy`/`Map`/`Set`）。
-   补丁模块（`builder/vite/polyfills.ts`）只补**真被读到**的四项：`queueMicrotask`（调度器直接调用）、
+   补丁模块（`builder/vite/polyfills.ts`）只补**真被读到**的四项：`queueMicrotask`（Angular
+   zoneless 调度器调用）、
    `requestAnimationFrame`（zoneless + 帧钟）、`performance`（`performance?.mark?.()` 的
    可选链**挡不住未声明的标识符**）、`document`（`getDocument()` 拿不到就 NG0210）。
    `navigator` `location` `structuredClone` `MutationObserver` `PerformanceObserver` 一类
@@ -1001,6 +1047,12 @@ GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 "$GODOT" --headless --path <工程目录> --import
 ```
 
+需要验证样式确实绘制到屏幕上（而不只是写入节点属性）时：
+
+```bash
+cd test-app && ./visual/run.sh          # 像素级验证，结论在 visual-out/report.txt
+```
+
 ---
 
 ## 12. 内部工具脚本
@@ -1078,3 +1130,9 @@ godot --headless --editor --path <工程> --generate-types
   产物只由 `require()` 读取，缺了它时一次 `--import` 就为每个 chunk 生成 `.uid` 并写进
   `uid_cache.bin`，而 chunk 名每次重建都可能变。必须在构建之后写（`deleteOutputPath` 会先清空目录）。
   场景的 `ext_resource` 与 `require` 都是按路径直接读文件，不受 `.gdignore` 影响（已实测）。
+- **引擎测试的源码目录 `test-app/src/tests/engine/` 也放了 `.gdignore`**：GodotJS 把 `.ts`
+  当脚本资源，编辑器扫描一次就给每个 `.spec.ts` 生成一个 `.uid` 侧车文件（几十个，纯噪音）。
+  这些源文件只由 vite 用 Node 的文件系统读取，编译成产物后才交给引擎，引擎从不按 `res://`
+  加载它们，所以整个目录被排除在导入之外没有副作用（已实测：加完 `.gdignore` 后 `--import`
+  不再生成 `.uid`，跑测 47 个文件 880 例全通过）。代价是往这个目录放需要导入的资源
+  （字体 / 贴图）会静默失效——测试夹具因此放在 `test-app/fixtures/`，不在被忽略的子树里。

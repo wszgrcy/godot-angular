@@ -1,5 +1,6 @@
-import type { CssNode, CssWarning, MediaEnvironment, SelectorTier } from "godot-angular/css";
+import type { CssNode, CssWarning, MediaEnvironment, SelectorTier, StyleScheduler } from "godot-angular/css";
 import { Cascade } from "godot-angular/css";
+import type { Injector } from "@angular/core";
 import type { Node } from "godot";
 import { backend } from "./style-target";
 import { reportWarning, setDiagnosticSink } from "./warn";
@@ -7,6 +8,7 @@ import { bindPseudoClasses, warnUnboundPseudoClasses } from "./css-pseudo";
 import { tryConnectGodotSignal } from "./godot-events";
 import { asGodotNode, isCssStructural, type GodotNode } from "./godot-node";
 import { readGlobalCss } from "./global-css";
+import { effectStyleScheduler } from "./style-scheduler";
 
 /** `new StyleRuntime()` 的选项。 */
 export interface StyleRuntimeOptions {
@@ -22,6 +24,20 @@ export interface StyleRuntimeOptions {
    * 不需要匹配中文文案。与控制台输出的区别：该通道不去重，每条都送。
    */
   onDiagnostic?: (warning: CssWarning) => void;
+  /**
+   * 将样式刷新的时机交给 Angular 的 effect 调度，effect 建在该 injector 上。生产路径由
+   * `GODOT_APP_PROVIDERS` 传入应用的 EnvironmentInjector，因此应用销毁、injector 被销毁时，
+   * 驱动刷新的 effect 同时失效。
+   *
+   * `injector` 与 `scheduler` 都未传入时不安排自动刷新：节点仍会被标记为待重算，但需要调用方
+   * 显式调用 `flush()`。测试里想要自动时机，传入一个 injector 即可（见 `godot-angular/testing`）。
+   */
+  injector?: Injector;
+  /**
+   * 直接指定刷新调度器，优先级高于 `injector`。用于两类场合：接管刷新时机，以及验证调度契约时
+   * 由用例决定回调何时执行。
+   */
+  scheduler?: StyleScheduler;
 }
 
 /** 单个节点上已绑定的伪类信号。版本未变化则不重绑，因此必须保存版本号。 */
@@ -30,13 +46,24 @@ interface PseudoBinding {
   unbind: () => void;
 }
 
+/** `scheduler` 优先；否则有 injector 就交给 effect 调度；两者都没有时不安排自动刷新 */
+function pickScheduler(options: StyleRuntimeOptions): StyleScheduler | undefined {
+  if (options.scheduler) return options.scheduler;
+  if (options.injector) return effectStyleScheduler(options.injector);
+  return undefined;
+}
+
 /**
- * CSS 级联运行时：把纯包的 `Cascade` 接到帧末调度与 Godot 节点树上。
+ * CSS 级联运行时：把纯包的 `Cascade` 接到 Godot 节点树上，并决定何时重算。
+ *
+ * 刷新时机不在本类内实现：传入 injector 时 effect 建在该 injector 上（见 style-scheduler.ts），
+ * `scheduler` 与 `injector` 都没传时不安排自动刷新。两种情形下 `Cascade` 都只做两件事：
+ * 将节点加入待重算集合，然后调用一次 `scheduler.request()`；内部不再计算帧数。
  *
  * 一个实例 = 一套样式表 + 一份节点状态。生命周期与应用一致：`GODOT_APP_PROVIDERS`
  * 为每个应用创建独立实例（DI 中通过 `STYLE_RUNTIME` token 传递）。应用销毁后该实例
- * 不再被引用，脏队列、节点账本与调度标记随之释放，因此同进程运行多个应用、或同一场景
- * 反复销毁重建，每次得到的都是初始状态。`defaultStyleRuntime()` 返回的进程级实例
+ * 不再被引用，脏队列、节点账本与驱动它的那个 effect 随之释放，因此同进程运行多个应用、
+ * 或同一场景反复销毁重建，每次得到的都是初始状态。`defaultStyleRuntime()` 返回的进程级实例
  * 用于未提供该 token 的场合（见 `GodotRendererFactory`）与测试。
  *
  * 类名同时就是类型：`bindWindowEnvironment(runtime: StyleRuntime, …)`、
@@ -72,7 +99,7 @@ export class StyleRuntime {
     this.cascade = new Cascade({
       backend,
       env: options.env,
-      schedule: scheduleAtFrameEnd,
+      scheduler: pickScheduler(options),
       warn: (warning) => reportWarning(warning),
     });
   }
@@ -182,10 +209,10 @@ export class StyleRuntime {
   }
 
   /**
-   * 只标脏这一个节点（连带子树与依赖者，范围由级联判定）。
+   * 只标记这一个节点（连带子树与依赖者，范围由级联判定）。
    *
-   * 给「写了不会发信号的属性」用：渲染器写完 button_pressed / disabled / editable、
-   * 表单指令改完值之后调它，帧末重算时会把伪类从属性上读回来。
+   * 用于「写入后不会发出信号的属性」：渲染器写完 button_pressed / disabled / editable、
+   * 表单指令改完值之后调用它，下一次重算时会从属性上读回伪类状态。
    */
   invalidate(node: Node): void {
     this.cascade.invalidate(asGodotNode(node));
@@ -231,7 +258,7 @@ export class StyleRuntime {
     this.cascade.flush();
   }
 
-  /** 立即重算**这一个**节点（不等到帧末）。`setStyle` 依托它保持“设置后立即生效”的既有语义 */
+  /** 立即重算**这一个**节点（不排进刷新队列）。`setStyle` 依托它保持“设置后立即生效”的既有语义 */
   applyNow(node: Node): void {
     this.cascade.applyNow(asGodotNode(node));
   }
@@ -267,29 +294,14 @@ export class StyleRuntime {
   }
 }
 
-/**
- * 帧末调度。rAF 由 polyfills 提供，队列由帧钟泵送。两种「排不上」的情形一律同步 flush，
- * 以保证样式修改总能被刷新（代价是少合并一轮）：
- *
- *  - 未安装补丁的环境（没有 rAF）；
- *  - 帧钟停摆（上一个应用 destroy 之后、新应用 start 之前）：此时 rAF 直接拒收并返回 -1。
- *
- * 返回 `false` 表示本次刷新未被接管，由 `Invalidator` 复位调度标记后同步执行。
- */
-function scheduleAtFrameEnd(flush: () => void): boolean {
-  const raf = (globalThis as { requestAnimationFrame?: (cb: () => void) => number })
-    .requestAnimationFrame;
-  if (typeof raf !== "function") {
-    flush();
-    return true;
-  }
-  if (raf(() => flush()) < 0) return false;
-  return true;
-}
-
 let shared: StyleRuntime | null = null;
 
-/** 常规路径的默认运行时（一个进程只跑一个应用时使用）。测试请自行 `new StyleRuntime()` */
+/**
+ * 常规路径的默认运行时（一个进程只跑一个应用时使用）。测试请自行 `new StyleRuntime()`。
+ *
+ * 本实例没有 injector，因此不安排自动刷新：修改样式后需要调用 `flush()`。需要自动时机时给
+ * `new StyleRuntime()` 传 injector。
+ */
 export function defaultStyleRuntime(): StyleRuntime {
   if (!shared) shared = new StyleRuntime();
   return shared;

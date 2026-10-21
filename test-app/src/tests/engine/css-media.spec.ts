@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Control, Label, VBoxContainer, Vector2, Vector2i, Window } from "godot";
 import { bindWindowEnvironment, readEnvironment, StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, expectWarned, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, expectWarned, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
   resetWarnOnce();
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
 });
 

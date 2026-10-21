@@ -723,18 +723,29 @@ Button.primary.x     { color: #00c853; }  /* → font_color，只覆盖同写入
 - **状态属性没有变更信号**。`disabled` / `editable` 变化时引擎不发通知，因此只有经模板绑定（`[button_pressed]` /`[disabled]` / `[editable]`）或表单指令（`ngModel` / `formControl`）修改时，样式才会更新。直接对节点赋值（`node.button_pressed = true`）绕过上述通道，需手动标脏：
 
 ```ts
-inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回来
+inject(STYLE_RUNTIME).invalidate(node); // 伪类会在下一次刷新时从属性上读回来
 ```
 
 ### 样式运行时的作用域
 
-`StyleRuntime` 持有一套样式表、已登记节点的集合，以及用于合并同帧刷新的排队状态。`GODOT_APP_PROVIDERS` 为每个应用创建独立实例（token：`STYLE_RUNTIME`）：
+`StyleRuntime` 持有一套样式表与已登记节点的集合。`GODOT_APP_PROVIDERS` 为每个应用创建独立实例（token：`STYLE_RUNTIME`）：
 
 - 同一进程内的多个应用各持一份，样式互不干扰；
 - 应用 `destroy()` 后该实例不再被引用，新建应用得到全新状态，与之前创建过多少次无关；
 - 全局样式（angular.json 的 `styles` 选项）在构建期写入全局变量，运行期由第一个应用读取并缓存，其余应用向各自的级联注册同一批内容，样式结果与应用的创建顺序无关。
 
-未提供 `STYLE_RUNTIME` 时，渲染器使用 `defaultStyleRuntime()` 返回的进程级实例，该实例适用于测试与不经过 `bootstrapGodotApp()` 的命令式拼装。多个应用共用一个实例时，前一个应用停止帧驱动会丢弃其尚未执行的样式刷新，而级联中用于合并同帧刷新的标记无法复位，后续应用安排的刷新不再执行，表现为节点创建正常、样式全部不生效。
+**什么时候写回节点**：修改 class、修改内联样式、悬停等引擎信号只会将节点标记为待刷新；
+真正写入由 Angular 的 `effect` 执行，与变更检测在同一次内完成。因此 `detectChanges()` 返回时、
+以及 `await appRef.whenStable()` 之后，样式已是最终结果，无需再等待一帧。应用销毁时该
+`effect` 随 injector 一同销毁，不会出现“应用已销毁而样式仍向节点写入”。
+
+刷新时机由 `StyleRuntime` 拿到的 injector 决定（走 Angular 的 `effect`，没有第二条路径）。自己
+`new StyleRuntime()` 而不传 `injector` 时不安排自动刷新：节点仍会被标记，需要调用方显式调用
+`runtime.flush()`。
+
+未提供 `STYLE_RUNTIME` 时，渲染器使用 `defaultStyleRuntime()` 返回的进程级实例，该实例不调度
+刷新，适合不调用 `bootstrapGodotApp()` 的手工组装（自己控制何时 `flush()`）。多个应用同时运行
+时请为每个应用提供各自的实例，否则两个应用的样式表与已登记节点会相互可见。
 
 样式的三个入口共用同一套级联规则：
 
@@ -753,7 +764,7 @@ inject(STYLE_RUNTIME).invalidate(node); // 伪类会在帧末从属性上读回�
 <Label [style.color]="'#ff8800'" [style.fontSize]="28"></Label>
 ```
 
-`class` 为有效输入：`[class.disabled]="busy()"`、`[class]` 与静态 `class="a b"` 在帧末重新计算级联。特异度按 CSS 算法计算，`!important` 独立成层（普通 → 内联 → important）。`ViewEncapsulation` 的分层与浏览器端一致：`Emulated`（默认）为局部层，`None` 与 `ShadowDom` 归入全局层；Godot 没有 shadow root，`ShadowDom` 会告警并按 `None` 处理。
+`class` 为有效输入：`[class.disabled]="busy()"`、`[class]` 与静态 `class="a b"` 会标脏节点，并在本轮变更检测的 effect 阶段重新计算级联。特异度按 CSS 算法计算，`!important` 独立成层（普通 → 内联 → important）。`ViewEncapsulation` 的分层与浏览器端一致：`Emulated`（默认）为局部层，`None` 与 `ShadowDom` 归入全局层；Godot 没有 shadow root，`ShadowDom` 会告警并按 `None` 处理。
 
 支持的选择器：`*`、类型选择器（对应节点类名）、`.class`、`[attr]`、`[attr=v]`、后代 `A B`、子选择器 `A > B`、相邻 `A + B`、兄弟 `A ~ B`、并列 `A.b`、逗号分组。组件样式中的 `:host` 与 `:host.on` 由 Angular 编译为宿主属性选择器。
 
@@ -1086,6 +1097,8 @@ it("signal 改动会写入真实节点", async () => {
 ```
 
 `godot-angular/testing` 提供测试环境（`initGodotTestEnvironment`、`GodotTestingModule`）、节点查询（`findAllNodes`、`nodeTexts`、`newNode`）与等待引擎帧（`awaitFrames`）。等待变更检测统一使用官方的 `fixture.whenStable()`。
+
+不经 `TestBed` 直接测样式时，用 `newStyleRuntime()` 建运行时（带自动刷新，与生产同一条链路）；`flushStyleEffects(injector)` 可同步把排队的刷新跑完，不等帧。
 
 布局计算与 `queue_free` 需要真实帧：`add_child` 之后立即读取 `size` 为 0，测试中使用 `awaitFrames(2)`。
 

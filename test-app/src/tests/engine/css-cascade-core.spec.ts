@@ -428,15 +428,13 @@ describe("定向失效（changeMap + 子树/兄弟门控）", () => {
     expect(backend.clearsFor("title")).toEqual(["color"]);
   });
 
-  it("帧末批量：一轮里改三次只 apply 一次", () => {
-    let scheduled = 0;
+  it("批量：连续修改三次，一次 flush 写入最终结果", () => {
     let pending: (() => void) | null = null;
     const cascade = new Cascade({
       backend,
-      schedule: (flush) => {
-        scheduled++;
-        pending = flush;
-      },
+      // 与真实调度器行为一致：多次 request 只保留一个待执行回调
+      //（合并多次请求本就是调度器的职责）
+      scheduler: { request: (flush) => { pending = flush; } },
     });
     cascade.addCss(`.a { color: rgb(255,0,0); } .b { font-size: 12px; }`);
     const node = mk("n", "Label");
@@ -445,9 +443,10 @@ describe("定向失效（changeMap + 子树/兄弟门控）", () => {
     classes.add("a");
     classes.add("b");
     classes.delete("a");
-    expect(scheduled).toBe(1);
+    expect(pending).toBeTruthy();     // 排上了队
     expect(backend.writes).toEqual([]); // 还没 flush
     (pending as unknown as () => void)();
+    // 中间状态（先加 a 再加 b）不会各写一遍：一次 flush 只写入最终结果
     expect(backend.writesFor("n")).toEqual(["font_size:font_size:12"]);
   });
 });

@@ -7,6 +7,12 @@ node_modules
 dist
 test-app/dist*/
 
+# 像素级验证的截图与报告（test-app/visual/run.sh 每次重写）
+test-app/visual-out/
+
+# GodotJS 退出时偶发留下的 core dump，不是产物
+test-app/core.[0-9]*
+
 # GodotJS 引擎二进制（175 MB/个，不进版本库；放置位置见 bin/README.md）
 bin/*
 !bin/README.md

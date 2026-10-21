@@ -7,7 +7,14 @@ import {
   SUPPORTED_PSEUDO_CLASSES,
 } from "../selector";
 import type { SelectorCore } from "../selector";
-import type { CssNode, Declaration, MediaEnvironment, StyleBackend, WarnLevel } from "../types";
+import type {
+  CssNode,
+  Declaration,
+  MediaEnvironment,
+  StyleBackend,
+  StyleScheduler,
+  WarnLevel,
+} from "../types";
 import { CssCode, CssWarnEntry, CssWarning, type CssWarnDetail, type CssWarnReport } from "../diagnostics";
 
 /** 开发模式标记：生产构建中整个 `if (ngDevMode)` 分支连同告警文案一并消除（口径见 runtime/properties.ts） */
@@ -76,12 +83,10 @@ export interface CascadeOptions {
   /** 媒体查询环境。**由调用方注入**，本包不读取 DisplayServer */
   env?: MediaEnvironment;
   /**
-   * 帧末调度的注入点：引擎侧提供 rAF，不提供则只能手动 flush。
-   *
-   * 返回 `false` 表示**没接这个活**（帧钟停摆时 rAF 会拒收），调度器会当场同步 flush
-   * 补上。不返回值（或返回 `true`）视为已接管。
+   * 决定重算时机的注入点（见 {@link StyleScheduler}）。未传入时不会自动重算，只能由调用方
+   * 显式调用 `flush()`；构建期只解析样式表、不写入节点，用的就是这种配置。
    */
-  schedule?: (flush: () => void) => boolean | void;
+  scheduler?: StyleScheduler;
   /** 告警出口，不提供则静默。收到的是组装好的诊断对象 */
   warn?: (warning: CssWarning) => void;
 }
@@ -184,7 +189,8 @@ function landingStates(required: RequiredStates, node: CssNode): RequiredStates 
  * 等级：仅思路一致（合成类）
  * 差异：上游 StyleScope 同时管样式表文本、解析、作用域与屏幕变化；CssState 同时管匹配、
  * 合并与写入，两者靠事件订阅耦合。本侧拆为 Cascade / SheetRegistry / Invalidator 三块，
- * 并改为“脏队列 + 帧末 flush”拉模型（上游是属性 setter 当场重算）。
+ * 并改为拉取式：`Invalidator` 先把需要重算的节点加入集合，`flush()` 被调用时一并处理；
+ * 调用时机由 `scheduler` 决定（上游是属性 setter 当场重算）。
  * 保留的契约：级联只在 longhand 上定义、匹配结果按特异度/层级/源码顺序排序、
  * 动态伪类变化只重算受影响节点。
  *
@@ -195,7 +201,7 @@ function landingStates(required: RequiredStates, node: CssNode): RequiredStates 
  *   - `Invalidator`（invalidation.ts）：谁需要重算、什么时候重算
  *   - 本文件：匹配 → 合并 → diff → 写入，以及变量继承
  *
- * 只重算单个节点时走 `applyNow`，批量则走帧末 `flush`。
+ * 只重算单个节点时调用 `applyNow`，批量则调用 `flush`（`flush` 的调用时机见 `scheduler` 选项）。
  */
 export class Cascade {
   private readonly states = new NodeStates();
@@ -205,6 +211,12 @@ export class Cascade {
   private readonly warnedStates = new Set<string>();
   private readonly sheets: SheetRegistry;
   private readonly invalidator: Invalidator;
+  /**
+   * 标记 `flush()` 正在执行。刷新过程中新标记的节点由下一次 `flush()` 处理，不在此处
+   * 递归调用：递归会把同一批节点计算两遍，而第二遍读到的父链 / 变量仍是本次执行到一半
+   * 的中间状态。
+   */
+  private flushing = false;
 
   readonly stats: CascadeStats = { flushes: 0, applied: 0, cleared: 0, nodes: 0, skipped: 0 };
 
@@ -216,7 +228,7 @@ export class Cascade {
       this.states,
       options.backend,
       this.sheets,
-      options.schedule,
+      options.scheduler,
       () => this.flush(),
     );
   }
@@ -298,7 +310,7 @@ export class Cascade {
    *      + CssState.subscribeForDynamicUpdates
    * 等级：部分修改（主体一致）
    * 相同：都是“节点进入样式系统”的唯一入口，并在这一刻换上可追踪的 class 集合。
-   * 改动：上游在 onLoaded 里直接 lookupRulesets 并一次性应样式，本侧只标脏，写入推到帧末；
+   * 改动：上游在 onLoaded 里直接 lookupRulesets 并一次性应样式，本侧只标脏，写入推到下一次刷新；
    * 上游的 cssClasses 本来就是 Observable 集合，本侧需要主动替换为 TrackingClassSet。
    *
    * 登记一个节点：将 cssClasses 替换为 `TrackingClassSet`，并标脏等待下一轮 apply。
@@ -432,14 +444,15 @@ export class Cascade {
    * 改动：上游的批量入口靠 _ignoreDynamicStyleUpdatesChanged 暂停事件后逐条处理，本侧
    * 改为从脏队列取整批；上游处完直接写 Style 对象，本侧写入交给 applyNode（可被 diff 短路）。
    *
-   * 将全部脏节点写一遍。帧末由调度器调用，测试中手动调用
+   * 写入所有被标记的节点。由刷新调度器调用，测试中也可以手动调用
    */
   flush(): number {
-    this.invalidator.beginFlush();
+    if (this.flushing) return 0;
+    this.flushing = true;
     try {
       return this.drain();
     } finally {
-      this.invalidator.endFlush();
+      this.flushing = false;
     }
   }
 
@@ -484,9 +497,9 @@ export class Cascade {
   /**
    * 来源：NativeScript/packages/core/ui/styling/style-scope.ts :: CssState.updateMatch
    * 等级：部分修改（主体一致）
-   * 改动：上游是“样式表变了，全量重查并写入”，本侧是单节点即时重算（不等待帧末）。
+   * 改动：上游是“样式表变了，全量重查并写入”，本侧是单节点即时重算（不等到下一次刷新）。
    *
-   * 立即重算一个节点（不等待帧末）。返回是否确实写入了节点
+   * 立即重算一个节点（不排进刷新队列）。返回是否确实写入了节点
    */
   applyNow(node: CssNode): boolean {
     const state = this.states.of(node);

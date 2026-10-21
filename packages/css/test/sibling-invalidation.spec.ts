@@ -54,7 +54,7 @@ let scheduled: number;
 
 beforeEach(() => {
   scheduled = 0;
-  cascade = new Cascade({ backend, schedule: () => scheduled++ });
+  cascade = new Cascade({ backend, scheduler: { request: () => scheduled++ } });
 });
 
 function register(cssType: string, classes: string[] = []): FakeNode {

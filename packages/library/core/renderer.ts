@@ -1,5 +1,6 @@
 import {
   APP_ID,
+  EnvironmentInjector,
   EnvironmentProviders,
   InjectionToken,
   makeEnvironmentProviders,
@@ -18,8 +19,8 @@ import { NOOP, tryConnectGodotSignal } from "./godot-events";
 import { isGodotNode, markCssStructural } from "./godot-node";
 import {
   defaultStyleRuntime,
+  StyleRuntime,
   ViewEncapsulationKind,
-  type StyleRuntime,
 } from "./css-runtime";
 import { GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 
@@ -356,7 +357,7 @@ export class GodotRenderer implements Renderer2 {
     // 重复写同一个值不该换一整轮重算
     if (drivesState && (target as unknown as Record<string, unknown>)[prop] === next) return;
     (target as unknown as Record<string, unknown>)[prop] = next;
-    // 伪类本身在帧末重算时读属性（见 css 包 PROPERTY_STATE_CLASSES），此处不必再读一次
+    // 重算时会自行读取该属性以推导伪类（见 css 包 PROPERTY_STATE_CLASSES），此处不必再读一次
     if (drivesState) this.runtime.invalidate(target);
   }
 
@@ -398,7 +399,7 @@ export class GodotRenderer implements Renderer2 {
 
   // ------------------------------------------------------------------ 样式
   // 内联样式进入级联的 inline 层，`[style.color]` 才能压过普通声明、输给 `!important`。
-  // 但仍旧当场 apply：Angular 的既有行为是 setStyle 同步生效，推迟到帧末会静默晚一帧。
+  // 但仍旧当场 apply：Angular 的既有行为是 setStyle 同步生效；改为进入刷新队列会静默地晚一次刷新。
 
   setStyle(el: Control, style: string, value: unknown): void {
     const name = toCssName(style);
@@ -418,7 +419,7 @@ export class GodotRenderer implements Renderer2 {
 
   /**
    * class 是 CSS 选择器的主要输入（`.card` / `.card.on .title`）：写入级联的会通知集合，
-   * 改动自动标脏，帧末统一重算。（class 同时也是 `ng-content select=".body"` 的投影标记，
+   * 改动会自动标记节点，重算由调度器统一安排。（class 同时也是 `ng-content select=".body"` 的投影标记，
    * 那个在编译期就被 Angular 消费掉了，不经过这里。）
    */
   addClass(el: Node, name: string): void {
@@ -431,7 +432,7 @@ export class GodotRenderer implements Renderer2 {
 
   /**
    * 取回节点的 class 集合。返回的是 `TrackingClassSet` 而不是普通 Set：向其中 add / delete
-   * 会直接标脏节点并排一次帧末重算——因此下面两个方法里看不到任何“刷新”调用，样式却会更新。
+   * 会直接标记节点并调用一次 `scheduler.request()`——因此下面两个方法里看不到任何“刷新”调用，样式却会更新。
    * 集合由 `Cascade.attach` 在节点入树时安装（全库唯一赋值点）。
    */
   private classesOf(el: Node): TrackingClassSet {
@@ -477,7 +478,9 @@ export class GodotRenderer implements Renderer2 {
 
 export class GodotRendererFactory implements RendererFactory2 {
   private readonly root = inject(GODOT_ROOT);
-  private readonly runtime: StyleRuntime = inject(STYLE_RUNTIME, { optional: true }) ?? defaultStyleRuntime();
+  // 未提供 STYLE_RUNTIME 时也要有自动刷新，因此回退实例自己递一个 injector
+  private readonly runtime: StyleRuntime =
+    inject(STYLE_RUNTIME, { optional: true }) ?? new StyleRuntime({ injector: inject(EnvironmentInjector) });
   private readonly appId: string = inject(APP_ID);
   /** 按组件类型缓存渲染器，键是 `type.id` */
   private readonly rendererByCompId = new Map<string, GodotRenderer>();

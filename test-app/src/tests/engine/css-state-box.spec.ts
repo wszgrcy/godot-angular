@@ -14,7 +14,7 @@ import {
 } from "godot";
 import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 /**
  * 状态盒的层叠语义（v0.3.1 悬停重排回归的回归测试）。
@@ -32,7 +32,7 @@ let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
   resetWarnOnce();
 });
@@ -396,7 +396,7 @@ describe("Godot 没有的能力不硬造", () => {
 
   it("TabBar 没有可当底色的盒：明确告警，而不是偷偷写进 tab_focus", () => {
     const captured = captureWarn(() => {
-      const local = new StyleRuntime();
+      const local = newStyleRuntime();
       const bar = new TabBar();
       root.add_child(bar);
       local.attach(bar);

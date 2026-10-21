@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { PanelContainer, StyleBoxFlat, StyleBoxTexture, type Control } from "godot";
 import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 const FIXTURE = "res://fixtures/css-texture-fixture.tres";
 
@@ -20,7 +20,7 @@ let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
   resetWarnOnce();
 });

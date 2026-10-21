@@ -7,7 +7,7 @@
  *   - css-pseudo.spec.ts / css-state-box.spec.ts：各状态的信号通道与状态盒组成
  * 本文件仅保留两类引擎侧无法观察的内容：
  *   1. 账本槽位（哪个 CSS 属性名占用哪个 item）——引擎侧无对应的可观察量；
- *   2. 固定成本与调度次数（hasNodeProperty 次数、是否多排一次空转 flush）。
+ *   2. 固定成本与收敛行为（hasNodeProperty 次数、一次刷新内能否收敛）。
  *
  * mock backend 按 style-target.ts 的 ledger 语义实现：setColorOverride 记录 item 并关联至
  * CSS 属性名，clearProperty(cssName) 撤销该属性名下记录过的全部 item。
@@ -116,6 +116,14 @@ const backend: StyleBackend = {
 };
 
 let cascade: Cascade;
+
+/**
+ * 执行已请求的刷新：先把待执行队列取空再逐个调用（执行期间新增的请求归下一轮）。
+ * 与 Angular 的 effect 调度行为一致：一次执行不会提前跑掉同一轮内新增的任务。
+ */
+function pump(pending: Array<() => void>): void {
+  for (const flush of pending.splice(0)) flush();
+}
 
 beforeEach(() => {
   cascade = new Cascade({ backend });
@@ -283,15 +291,11 @@ describe("syncPropertyPseudoClasses 的成本（已优化）", () => {
     expect(hasNodeProperty).toBe(2); // disabled + checked 重探
   });
 
-  it("状态跃迁不再另排一次空转的 flush", () => {
-    let scheduled = 0;
-    const queue: Array<() => void> = [];
+  it("状态变化在一次刷新内写入完成，不拖到下一次", () => {
+    const pending: Array<() => void> = [];
     const c = new Cascade({
       backend,
-      schedule: (flush) => {
-        scheduled++;
-        queue.push(flush);
-      },
+      scheduler: { request: (flush) => pending.push(flush) },
     });
     c.addCss(`.cb:checked { color: rgb(0, 255, 255); }`);
 
@@ -299,29 +303,27 @@ describe("syncPropertyPseudoClasses 的成本（已优化）", () => {
     cb.props.button_pressed = false;
     c.attach(cb);
     cb.cssClasses!.add("cb"); // class 必须在 attach 之后写
-    queue.shift()!(); // 第 1 次调度：attach 的标脏
+    pump(pending); // 第 1 次刷新：处理 attach 时标记的节点
 
     cb.props.button_pressed = true;
     c.invalidate(cb);
-    const before = scheduled;
-    queue.shift()!(); // 第 2 次调度：状态跃迁那一轮
+    pump(pending); // 第 2 次刷新：处理状态变化
 
-    expect(c.isDirty(cb)).toBe(false); // 本轮已收敛
-    // ★ 修复点：同步产生的脏在本轮内消化，不再多排一次空转。
-    //   修复前 takeDirty 把 flushScheduled 复位 → setPseudoClass 回调又排了一次
-    expect(scheduled).toBe(before);
-    expect(queue).toHaveLength(0);
+    expect(c.isDirty(cb)).toBe(false); // 本次已处理完毕，无残留
+    expect(cb.overrides.size).toBe(1); // :checked 的颜色已写入
+
+    // 再刷新一次不得多写任何内容（刷新过程中顺带标记的节点已在本次处理完，
+    // 不需要下一次补写）
+    const written = new Map(cb.overrides);
+    c.flush();
+    expect(cb.overrides).toEqual(written);
   });
 
-  it("确实还有残留时才补排一次：applyNode 里 var() 变化触发的子树重算不会被吞掉", () => {
-    let scheduled = 0;
-    const queue: Array<() => void> = [];
+  it("applyNode 里 var() 变化触发的子树重算不会丢失", () => {
+    const pending: Array<() => void> = [];
     const c = new Cascade({
       backend,
-      schedule: (flush) => {
-        scheduled++;
-        queue.push(flush);
-      },
+      scheduler: { request: (flush) => pending.push(flush) },
     });
     c.addCss(`.a { --c: rgb(255, 0, 0); }`);
     c.addCss(`.b { --c: rgb(0, 0, 255); }`);
@@ -334,20 +336,23 @@ describe("syncPropertyPseudoClasses 的成本（已优化）", () => {
     root.add(kid);
     c.attach(kid);
     kid.cssClasses!.add("kid");
-    queue.shift()!();
+    pump(pending);
     expect(kid.overrides.get("font_color")).toBe("#ff0000");
 
     // 换 class → 根节点变量变 → applyNode 里 invalidateTree(子树)
     root.cssClasses!.delete("a");
     root.cssClasses!.add("b");
-    const before = scheduled;
-    // 把排到的 flush 跑完（最多 3 轮，再多就是没收敛）
-    for (let i = 0; i < 3 && queue.length; i++) queue.shift()!();
+    // 连续执行直到没有待执行回调（最多 5 轮，仍有则说明未收敛）
+    let rounds = 0;
+    while (pending.length && rounds < 5) {
+      rounds++;
+      pump(pending);
+    }
 
     expect(kid.overrides.get("font_color")).toBe("#0000ff");
-    // ★ 子树在 applyNode 期间才入脏，本轮 drain 已扫完 → endFlush 必须补排一次，
-    //   否则这条变量继承永远停在旧值（不能把“不空转”优化成“吞掉真活的”）
-    expect(scheduled).toBeGreaterThan(before);
-    expect(queue).toHaveLength(0); // 收敛，不再多排
+    // ★ 子树是在 applyNode 执行期间才被标记的，而本次刷新已将队列取空 → 必须重新调用
+    //   request()，否则这条变量继承会一直停在旧值。（合并多余的空刷新可以，
+    //   遗漏真正需要刷新的节点不行）
+    expect(rounds).toBeLessThan(5); // 几次之内结束，不会无限刷新
   });
 });

@@ -42,6 +42,21 @@ describe("全局样式的交接", () => {
     expect(fresh.readGlobalCss()).toEqual(["Label { color: #00ff00 }"]);
   });
 
+  it("交接变量里后来写入的一批不会被旧缓存永久屏蔽", async () => {
+    setBag(["Label { color: #111111 }"]);
+    vi.resetModules();
+    const fresh = await import("../global-css");
+    expect(fresh.readGlobalCss()).toEqual(["Label { color: #111111 }"]);
+
+    // 缓存已建立，交接变量又被写入了一批：此时返回新写入的那一批，而不是旧缓存
+    setBag(["Button { color: #222222 }"]);
+    expect(fresh.readGlobalCss()).toEqual(["Button { color: #222222 }"]);
+    expect(takeGlobalCss()).toEqual([]); // 已被取空
+
+    // 交接变量为空 → 返回最近一次取到的副本（多个应用共用同一批全局样式的情形）
+    expect(fresh.readGlobalCss()).toEqual(["Button { color: #222222 }"]);
+  });
+
   it("没有全局样式时返回空数组而不是抛错", async () => {
     setBag(undefined);
     vi.resetModules();

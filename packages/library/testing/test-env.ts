@@ -1,8 +1,10 @@
 import {
   APP_ID,
+  EnvironmentInjector,
   ErrorHandler,
   NgModule,
   RendererFactory2,
+  inject,
   platformCore,
   provideZonelessChangeDetection,
   ɵINJECTOR_SCOPE,
@@ -54,7 +56,13 @@ class GodotTestComponentRenderer extends TestComponentRenderer {
     // 每个测试模块一套全新的 CSS 级联。共用进程默认那套时，前一个用例注册的
     // 组件 CSS 会一直留在索引里，同名 class（如 `.box`）会跨用例互相影响；
     // 而“作用域不外泄”正是这一层要验证的内容，状态不干净就无法验证。
-    { provide: STYLE_RUNTIME, useFactory: () => new StyleRuntime(), deps: [] },
+    // 传入 injector 后，测试模块销毁时驱动刷新的 effect 同时失效；
+    // 这与生产路径走的是同一条链路，不是测试专用分支。
+    {
+      provide: STYLE_RUNTIME,
+      useFactory: () => new StyleRuntime({ injector: inject(EnvironmentInjector) }),
+      deps: [],
+    },
     { provide: GODOT_ROOT, useFactory: () => currentRoot, deps: [] },
     // 引擎测试进程真的跑在 `--headless` 下，所以这里主动声明，而不是让库去探测
     // DisplayServer.get_name()：无头下没有可命名的窗口，写标题只会多一行引擎错误。

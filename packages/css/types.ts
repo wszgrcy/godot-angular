@@ -264,3 +264,25 @@ export interface MediaEnvironment {
  * 两者都只在开发模式输出（见构建器对 `ngDevMode` 的处理）。
  */
 export type WarnLevel = "ignore" | "compat";
+
+/**
+ * 来源：无
+ *
+ * 决定「什么时候执行一次重算」的注入点。
+ *
+ * `Cascade` 自身不安排重算时机：节点被标记为需要重算之后，要有人调用 `Cascade.flush()`
+ * 才会真正写入。调用时机取决于运行环境，本接口把该时机的实现留给使用方。
+ *
+ * 未提供该接口时，`Cascade` 不会自动重算，只能由调用方显式调用 `Cascade.flush()`。
+ * 构建期检查样式表时正是这种用法：只解析样式表，不写入节点。
+ */
+export interface StyleScheduler {
+  /**
+   * 请求在稍后执行一次 `flush`。
+   *
+   * 调用频率很高（每修改一个 class 就是一次），因此**合并由实现负责**：连续调用五次
+   * `request` 只应触发一次 `flush`。传入的始终是同一个函数，实现保存它即可，无需区分
+   * 调用来源。
+   */
+  request(flush: () => void): void;
+}

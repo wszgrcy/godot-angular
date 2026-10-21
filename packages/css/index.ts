@@ -21,6 +21,7 @@ export type {
   MediaEnvironment,
   RuleSet as CssRuleSetShape,
   StyleBackend,
+  StyleScheduler,
   StyleBoxHandle,
   WarnLevel,
 } from "./types";

@@ -2,13 +2,13 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Button, CheckBox, Label, LineEdit, ItemList, type Control, type StyleBoxFlat } from "godot";
 import { CssCode } from "godot-angular/css";
 import { GodotRenderer, StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
 });
 

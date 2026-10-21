@@ -8,13 +8,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Button, ItemList, Label, PanelContainer, TextEdit, ThemeDB, type Control, type StyleBoxFlat } from "godot";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, captureWarn, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
   resetWarnOnce();
 });

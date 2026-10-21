@@ -97,7 +97,8 @@ describe("性能护栏", () => {
 
   it("首帧写入后，空 flush 被 diff 全部短路", () => {
     const { backend, writes } = fakeBackend();
-    const cascade = new Cascade({ backend, schedule: () => {} });
+    // 不传 scheduler：由本用例控制 flush() 的调用时机，不产生任何自动刷新
+    const cascade = new Cascade({ backend });
     cascade.addCss(sheet(200));
     for (let i = 0; i < 500; i++) {
       const node = new FakeNode();
@@ -117,7 +118,7 @@ describe("性能护栏", () => {
 
   it("单节点换 class 是亚毫秒级（这是最常见的交互）", () => {
     const { backend } = fakeBackend();
-    const cascade = new Cascade({ backend, schedule: () => {} });
+    const cascade = new Cascade({ backend });
     cascade.addCss(sheet(200));
     const nodes: FakeNode[] = [];
     for (let i = 0; i < 1000; i++) {

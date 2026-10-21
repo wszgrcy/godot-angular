@@ -1,0 +1,6 @@
+/* 全局样式：由 angular.json 的 styles 选项在构建期写进产物，运行期由第一个应用读取。
+   颜色同样只用纯色原色，理由见 app.ts。 */
+.glob {
+  color: rgb(255, 0, 255);
+  font-size: 40px;
+}

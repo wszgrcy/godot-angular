@@ -20,6 +20,7 @@ import {
   findAllNodes,
   initGodotTestEnvironment,
   nodeTexts,
+  walkNodes,
 } from "godot-angular/testing";
 import { bootstrapGodotApp, tryConnectGodotSignal } from "godot-angular/core";
 
@@ -733,6 +734,25 @@ describe("$event 的形状：实参个数永远跟着引擎信号走", () => {
  * 帧泵跟随应用生命周期。必须放在文件最后且结尾保留一个存活的 app——`destroy()` 会停止帧泵，
  * 影响后面的文件。 */
 describe("GodotAngularApp 生命周期（生产 API）", () => {
+  it("bootstrap resolve 时首帧样式已写入（不用先 tick 一帧）", async () => {
+    @Component({
+      selector: "t-frame",
+      styles: [`.hd { color: rgb(255, 0, 0); }`],
+      template: `<Label name="hd" class="hd">title</Label>`,
+    })
+    class FrameComp {}
+
+    const root = initGodotTestEnvironment();
+    const app = await bootstrapGodotApp(FrameComp, root);
+    // 未调用 app.tick()，也未调用 awaitFrames：样式刷新由 effect 驱动，在 bootstrap 的第一次
+    // 变更检测内完成。旧写法在此处必定“只有节点、没有样式”。
+    const label = walkNodes(root).find((n) => n.get_name() === "hd") as any;
+    expect(label, "没找到组件里的 Label").toBeTruthy();
+    expect(label.has_theme_color_override("font_color")).toBe(true);
+    expect(label.get_theme_color("font_color").r).toBeCloseTo(1, 3);
+    app.destroy();
+  });
+
   it("destroy 后 tick 不抛错、rAF 被拒；新应用把帧泵开回来", async () => {
     @Component({ selector: "t-life", template: `<Label text="x"></Label>` })
     class LifeComp {}

@@ -30,13 +30,13 @@ import {
   type StyleBoxFlat,
 } from "godot";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import { awaitFrames, newStyleRuntime, makeRenderer, resetWarnOnce } from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
 
 beforeEach(() => {
-  runtime = new StyleRuntime();
+  runtime = newStyleRuntime();
   root = makeRenderer().root;
   resetWarnOnce();
 });
