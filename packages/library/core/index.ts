@@ -30,8 +30,8 @@ export { StyleRuntime, defaultStyleRuntime, type StyleRuntimeOptions } from "./c
 // effect 版刷新调度器。`StyleRuntime` 传入 injector 时内部已接好，这里导出供自己组装时使用。
 export { effectStyleScheduler } from "./style-scheduler";
 // 全局样式交接：`takeGlobalCss` 是一次性 drain（取完置空），`readGlobalCss` 带缓存，
-// 供同进程的每个应用各自往自己的 cascade 里注册一遍。
-export { readGlobalCss, takeGlobalCss } from "./global-css";
+// 供同进程的每个应用各自往自己的 cascade 里注册一遍。`resetGlobalCssCache` 只给测试用。
+export { readGlobalCss, resetGlobalCssCache, takeGlobalCss } from "./global-css";
 // 伪类信号接线：级联内部在用（attach 时连信号、登记样式表时提示无法推导的伪类）。
 export { bindPseudoClasses, hasPseudoBinder, warnUnboundPseudoClasses } from "./css-pseudo";
 // 媒体查询环境：bootstrap 已自动把窗口尺寸 / 系统主题接到级联上，使用方无需自己接线；
