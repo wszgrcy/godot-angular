@@ -20,7 +20,8 @@ permissions:
 env:
   GODOTJS_TAG: v1.1.0.beta1-4.6.1
   GODOTJS_ASSET: linux-editor-4.6.1-v8.zip
-  GODOT_BIN_PATH: bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+  # 必须是绝对路径：visual/run.sh 从 test-app/ 里执行，相对路径的基准不是仓库根
+  GODOT_BIN_PATH: ${{ github.workspace }}/bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 
 jobs:
   visual:

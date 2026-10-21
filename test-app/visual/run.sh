@@ -11,6 +11,12 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
 GODOT="${GODOT:-../bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64}"
+# 下面已经切到 test-app/，所以默认值用的是相对于它的写法。外部传进来的相对路径先按这里找，
+# 找不到再按仓库根找一遗（调用方习惯从仓库根给路径）。
+if [ ! -x "$GODOT" ] && [ "${GODOT:0:1}" != "/" ]; then
+  candidate="$(cd .. && pwd)/$GODOT"
+  [ -x "$candidate" ] && GODOT="$candidate"
+fi
 # 渲染驱动默认 vulkan（与项目配置一致）。CI 里没有真 GPU，靠 Mesa 的 lavapipe 软件驱动跑
 # 同一条路径，不需要改这里；留这个开关只是为了出问题时能快速定位“是驱动问题还是代码问题”。
 RENDERING_DRIVER="${RENDERING_DRIVER:-vulkan}"
@@ -23,7 +29,7 @@ export DISPLAY="${DISPLAY:-:1}"
 mkdir -p visual-out && : > visual-out/.gdignore
 
 if [ ! -x "$GODOT" ]; then
-  echo "找不到引擎二进制：$GODOT（用 GODOT=... 覆盖）" >&2
+  echo "找不到引擎二进制：$GODOT（当前目录 $(pwd)，可用 GODOT=<绝对路径> 覆盖）" >&2
   exit 2
 fi
 
