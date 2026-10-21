@@ -378,30 +378,36 @@ pnpm run build        # dist/：软链落地，消费方立刻看得到
 引擎真机（test-app 那份入口）与纯 Node，**没有第三层“假引擎”测试**。
 | 层 | 位置 | 规模 | 能证明什么 |
 | --- | --- | --- | --- |
-| 引擎真机 spec | `test-app/src/tests/engine/*.spec.ts` | 611 项 / 34 文件 | 真 GodotJS 进程里跑真 vitest：模板 / 变更检测 / 信号 / 表单 / 容器真实布局 / ClassDB 怪癖，以及 CSS 文本进 `get_theme_*` 出的值语法穷举 |
-| 纯 Node | `packages/library/polyfills/test/`、`packages/builder/vite/test/` | 95 项 / 9 文件 | 我们自己那套 rAF / 帧驱动的语义、builder 选项解析与产物改写（临时目录造夹具，不碰仓库源码） |
+| 引擎真机 spec | `test-app/src/tests/engine/*.spec.ts` | 902 项 / 50 文件 | 真 GodotJS 进程里跑真 vitest：模板 / 变更检测 / 信号 / 表单 / 容器真实布局 / ClassDB 怪癖，以及 CSS 文本进 `get_theme_*` 出的值语法穷举；其中 6 项是像素级验证，无头下自动跳过 |
+| 纯 Node | `packages/{css,library,builder}/**/test/` | 218 项 / 20 文件 | 我们自己那套 rAF / 帧驱动的语义、builder 选项解析与产物改写（临时目录造夹具，不碰仓库源码） |
 
 引擎层里 `app-sample.spec.ts` 跑的是**示例 App 的整棵树**，其余 spec 用内联小组件验单个机制。
 
-### 像素级验证（`test-app/visual/`，需要显示环境，不进 `pnpm test`）
+### 像素级验证（`visual-pixels.spec.ts`，需要显示环境）
 
 引擎真机 spec 断言的对象全部是**节点属性**：`has_theme_color_override("font_color")` 为真、
 `get_theme_color(...)` 分量正确。但“属性已写入”不等于“屏幕上有对应像素”，两者确实会分离：
 实测的一例是——为 Button 写入 `font_hover_color` 覆盖后属性断言全部通过，而 Button 依据
 **真实鼠标位置**选择绘制状态，鼠标不在其上方时不会读取该 item，屏幕上没有任何变化。
 
-`test-app/visual/` 用于补上这一段：在真实窗口（Vulkan）中运行一个真实应用，按帧截图，
-统计指定节点画面矩形内目标颜色的像素数量。三个文件：
+`test-app/src/tests/engine/visual-pixels.spec.ts` 用于补上这一段：在真实窗口里渲染一个组件，
+读取窗口实际画出的图像，统计指定节点画面矩形内目标颜色的像素数量。它和其它引擎 spec 一起跑，
+不是独立脚本。操作工具在 `godot-angular/testing` 的 `Screen`：
 
-| 文件 | 作用 |
-| --- | --- |
-| `visual/app.ts` | 被测组件。五种修改样式的方式各占一行：组件样式 / 全局样式 / class 绑定 / 背景（StyleBoxFlat）/ `:hover` |
-| `visual/main.ts` | 场景根脚本：启动应用 → 按帧推进 → 截图 → 统计像素 → 写入 `visual-out/report.txt` |
-| `visual/run.sh` | 构建 `test-app:visual` → 打开窗口运行 → 输出报告；退出码即结论 |
+| 能力 | 方法 | 无头下 |
+| --- | --- | --- |
+| 定位 | `byName` / `byText` / `byClass` / `byType` | 可用 |
+| 输入注入 | `click` / `hover` / `typeText` / `pressKey` | 点击与键盘可用；`hover` 靠移动真实指针，无头下不动 |
+| 读取像素 | `screenshot` / `countColor` / `hasColor` / `savePng` | 直接报错，不返回空图 |
+| 等待 | `settle` / `waitFor` / `waitForColor` | 可用 |
 
 ```bash
-cd test-app && ./visual/run.sh            # 构建并运行；--no-build 仅运行
+cd test-app && ../node_modules/.bin/ng test                          # 有头（默认），含像素用例
+cd test-app && ../node_modules/.bin/ng test --configuration=headless  # 无头，像素用例自动跳过
 ```
+
+有头还是无头由 angular.json 测试目标的 `engine.headless` 决定，默认 false（有头）。同一套用例
+有头比无头慢约 5 秒（本机 5.7s → 11.7s），为此起一条独立链路不划算，所以两套跑的是同一条。
 
 这些断言遵循几条约定，修改时不要破坏：
 
@@ -410,22 +416,40 @@ cd test-app && ./visual/run.sh            # 构建并运行；--no-build 仅运�
 - **每条“必须存在”都配一条“必须不存在”**。只断言存在无法验证撤销，
   `03-class-off` / `05-hover-off` 才是撤销逻辑的证明。
 - **统计像素数量而不是取单点**。文字只占节点矩形的一小部分，取中心点大概率落在文字间隙上。
-- **动作与截图之间留两帧**。`_process` 在本帧绘制之前执行，截图取到的是上一帧的画面；
-  一帧供变更检测与样式刷新执行，一帧供结果进入绘制。
-- **悬停使用 `Input.warp_mouse()` 实际移动指针**，而不是 `emit_signal("mouse_entered")`。后者只能让
-  样式层写入颜色，无法验证按钮是否按悬停状态绘制。报告中的
-  `diag[...] font_hover_color_override` 用于区分“样式层未写入”与“已写入但未按悬停状态绘制”。
+- **用 `waitForColor` 轮询，而不是固定等几帧**。`_process` 在本帧绘制之前执行，截图取到的是
+  上一帧的画面；指针事件从窗口系统送过来还要多花几帧，且帧数不稳定。固定等两帧实测会
+  间歇性误报，轮询到颜出现（超时上限 60 帧）才不会拿偶发慢一帧当失败。
+- **悬停使用 `Input.warp_mouse()` 实际移动指针**，而不是 `emit_signal("mouse_entered")`。
+  后者只能让样式层写入颜色，无法验证按钮是否按悬停状态绘制。
+- **有头专属用例用 `describe.skipIf(!isHeaded())` 包起来**。需要真实指针或真实渲染的断言
+  （`:hover` 合成态到底画哪一支、贴图是否真画出来、悬停冒泡在真实事件下成不成立）写在各自
+  的 spec 末尾，无头下整组跳过而不是静默通过。写这种用例前先问一句：它验的是不是
+  「引擎真的会这么做」——只验「我们往对的 item 写了值」的话，属性级断言更快也更稳。
+- **不得改动共享状态**。整个套件共用一个引擎进程与一个窗口，以下三处已经踩过：
+  1. 不要改窗口尺寸（`Viewport.size`），布局影响会泄给其它文件；测试根尺寸取默认窗口的
+     一半以内即可。
+  2. 注入过全局样式表（`provideGlobalCss`）的文件必须在 `afterAll` 里调
+     `resetGlobalCssCache()`，否则 `readGlobalCss()` 的缓存会把这条规则给后面每个运行时重注一遍。
+  3. 指针停在某个控件上时，引擎会给后来建在该位置的控件发真实的 `mouse_entered`，依赖悬停
+     状态的用例会随机失败。`initGodotTestEnvironment()` 已在每个用例开始时把指针移到窗口右下角。
 
-它不进入 `pnpm test`（需要 `DISPLAY` 和一个 Vulkan 设备），而是走独立的工作流
-`.github/workflows/visual.yml`：Xvfb 提供 1280x720 的虚拟显示，`mesa-vulkan-drivers` 的
-lavapipe 用 CPU 实现 Vulkan，渲染路径与本地一致。工作流在开跑前先确认显示分辨率与 Vulkan
-设备，缺任一项直接报错退出——否则 Godot 报的是“创建表面失败”一类的间接错误，看不出是环境
-问题。报告与截图无论通过与否都上传为 artifact。
+CI 侧不需要单独的工作流：`publish.yml` 的 ubuntu job 就是开 Xvfb（1280x720）后直接跑
+`pnpm run test:ci`，像素用例与其它用例同批跑，截图作为 artifact 上传（失败时也上传）。
+`mesa-vulkan-drivers` 提供 lavapipe（CPU 实现的 Vulkan），所以 runner 没有 GPU 也能跑；
+开跑前有 `check-display-and-vulkan` 步骤先确认分辨率与 Vulkan 设备，缺任一项直接报错退出
+——否则 Godot 报的是“创建表面失败”一类的间接错误，看不出是环境问题。
 
-本地执行：`pnpm run test:visual`，或 `cd test-app && ./visual/run.sh`。
+runner 没有 GPU 不影响这件事：lavapipe 报 Vulkan 1.4 / `PHYSICAL_DEVICE_TYPE_CPU`，满足
+Forward+ 的要求。本地强制只用 lavapipe（`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`）
+跑过，引擎输出 `Using Device #0: Unknown - llvmpipe`，断言全过。**不要改成 `opengl3`
++ `gl_compatibility`**：那验的是项目根本不发布的渲染器，而颜色断言是在 Forward+ 的 sRGB
+转换下校准的。
 
-`visual-out/` 里必须留一个 `.gdignore`（已进版本库，`run.sh` 每次也会重建）：截图就存在工程
-目录内，没有这个文件时 `--import` 会把上一轮的 PNG 当贴图导入，导入完成后退出会崩。
+windows job 跑 `--configuration=headless`：runner 上的软件 Vulkan 不可靠，而像素用例在无头下
+会自动跳过，其余 896 项照常跑。本地没有显示环境时也用这个配置。
+
+`visual-out/` 里必须留一个 `.gdignore`（已进版本库）：截图就存在工程目录内，没有这个文件时
+`--import` 会把上一轮的 PNG 当贴图导入，导入完成后退出会崩。
 
 ### 为什么只有引擎一层（不要 Node 替身层）
 
@@ -1058,7 +1082,7 @@ GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
 需要验证样式确实绘制到屏幕上（而不只是写入节点属性）时：
 
 ```bash
-cd test-app && ./visual/run.sh          # 像素级验证，结论在 visual-out/report.txt
+cd test-app && ../node_modules/.bin/ng test --configuration=headless   # 无头跑，像素用例自动跳过
 ```
 
 ---

@@ -245,6 +245,18 @@ export const engineOptionsSchema = v.object({
     v.pipe(v.boolean(), v.description("不自动启动引擎，仅等待其主动连接。")),
     false,
   ),
+  headless: v.optional(
+    v.pipe(
+      v.boolean(),
+      v.description(
+        "是否以 `--headless` 启动引擎（默认 true）。设为 false 时引擎会真的开一个窗口，"
+        + "截图取像素这类只能在实际渲染下验证的用例需要它。此时运行环境必须提供显示服务"
+        + "（Linux 上为 `DISPLAY`，CI 中通常由 Xvfb 提供），否则引擎起不来。"
+        + "无头下视口尺寸固定为 64x64 且 `Viewport.get_texture().get_image()` 返回 null。",
+      ),
+    ),
+    true,
+  ),
 });
 
 /* ------------------------------------------------------------------ *

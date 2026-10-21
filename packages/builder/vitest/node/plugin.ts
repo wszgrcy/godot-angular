@@ -109,7 +109,9 @@ async function launchEngine(
   }
   const bin = requireGodotBin(root, options.godotBin);
   ensureImported(projectDir, bin);
-  const proc = spawn(bin, ["--headless", "--path", projectDir, options.scene], {
+  // 有头模式用于截图取像素；默认无头。见 `engineOptionsSchema.headless` 的说明。
+  const launchArgs = options.headless === false ? [] : ["--headless"];
+  const proc = spawn(bin, [...launchArgs, "--path", projectDir, options.scene], {
     env: { ...process.env, CUJ_WS_PORT: String(port) },
   });
   // 引擎自身的 stdout 中 [EVITEST]/[JS] 那些行是有用的诊断，透传输出。

@@ -21,7 +21,6 @@
     "test": "pnpm run build && pnpm run test:ci",
     "test:ci": "cross-env CUJ_COVERAGE_PACKAGE=1 pnpm --filter test-app test",
     "test:node": "vitest run --config vitest.node.config.mts",
-    "test:visual": "pnpm run build && cd test-app && ./visual/run.sh",
     "test:all": "pnpm run test:node && pnpm run test",
     "typecheck": "pnpm run build && pnpm run typecheck:lib && pnpm run typecheck:css && pnpm run typecheck:builder && pnpm run typecheck:test-app && pnpm run typecheck:tools",
     "typecheck:lib": "tsc -p packages/library/tsconfig.json --noEmit",

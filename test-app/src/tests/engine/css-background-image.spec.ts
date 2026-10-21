@@ -9,12 +9,23 @@
  * 遵循与真实图片完全相同的加载路径，而它本身是文本文件，可以纳入版本库。
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { PanelContainer, StyleBoxFlat, StyleBoxTexture, type Control } from "godot";
+import { PanelContainer, StyleBoxFlat, StyleBoxTexture, Vector2, type Control } from "godot";
 import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import {
+  Screen,
+  awaitFrames,
+  captureWarn,
+  expectWarnCode,
+  isHeaded,
+  makeRenderer,
+  newStyleRuntime,
+  resetWarnOnce,
+} from "godot-angular/testing";
 
 const FIXTURE = "res://fixtures/css-texture-fixture.tres";
+/** 纯色（青色）贴图，像素断言用 */
+const SOLID = "res://fixtures/css-solid-cyan.tres";
 
 let runtime: StyleRuntime;
 let root: Control;
@@ -116,5 +127,26 @@ describe("与 background-color 互斥：层叠靠后者胜出", () => {
     await awaitFrames(1);
     // PanelContainer 仅有 panel 一个 stylebox：hover 规则写在同一个 stylebox 上，填充按层叠关系换为纹理
     expect(panel.get_theme_stylebox(PANEL)).toBeInstanceOf(StyleBoxTexture);
+  });
+});
+
+/**
+ * 贴图是否真的被画出来。
+ *
+ * 上面的用例断到 `get_theme_stylebox()` 是 `StyleBoxTexture` 且纹理已挂载为止。属性写对但
+ * 画面上看不见（控件尺寸为 0、被其它节点遮住、纹理本身是空的）只有读像素能发现。
+ * 夹具是一张纯色（青色）贴图，因此断言就是「面板区域内出现了青色」。
+ */
+describe.skipIf(!isHeaded())("贴图真的画出来（有头）", () => {
+  const CYAN: readonly [number, number, number] = [0, 1, 1];
+
+  it("url() 指向的贴图会出现在面板区域内", async () => {
+    runtime.addCss(`.p { background-image: url("${SOLID}"); }`);
+    const panel = make(new PanelContainer(), "p");
+    panel.position = new Vector2(40, 40);
+    panel.size = new Vector2(200, 80);
+
+    const screen = Screen.attach(root);
+    expect(await screen.waitForColor(panel, CYAN)).toBe(true);
   });
 });

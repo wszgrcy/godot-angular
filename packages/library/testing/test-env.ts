@@ -10,7 +10,7 @@ import {
   ɵINJECTOR_SCOPE,
 } from "@angular/core";
 import { TestBed, TestComponentRenderer } from "@angular/core/testing";
-import { Control, Vector2 } from "godot";
+import { Control, Input, Vector2 } from "godot";
 import {
   GODOT_HEADLESS,
   GODOT_LOCATION_PROVIDERS,
@@ -26,8 +26,7 @@ import { getEngineSceneRoot } from "./render";
 /** 当前用例的根 Control。由 `initGodotTestEnvironment()` 在每个用例更换一个 */
 let currentRoot: Control | null = null;
 
-/** 只为使 `instanceof Node` 不报错，并且必须不匹配任何真实节点 */
-function installNodeGlobal(): void {
+/** 只为使 `instanceof Node` 不报错，并且必须不匹配任何真实节点 */function installNodeGlobal(): void {
   const g = globalThis as { Node?: unknown };
   if (g.Node === undefined) g.Node = class Node {};
 }
@@ -75,6 +74,22 @@ class GodotTestComponentRenderer extends TestComponentRenderer {
 export class GodotTestingModule {}
 
 /**
+ * 把指针移到测试根之外的位置。
+ *
+ * 有头模式下指针停在桌面的某个位置，一旦落在某个用例刚建好的控件上，引擎就会发出真实的
+ * `mouse_entered`，那些依赖悬停状态的用例因此会随机失败。每个用例开始时把指针归位，
+ * 就把这个变量消除了。无头下 `warp_mouse` 什么都不做，对无头模式没有影响。
+ *
+ * 位置取窗口右下角：测试根通常从左上角铺开且远小于窗口，因此两者不会重叠。
+ */
+function parkMouse(root: Control): void {
+  const window = root.get_tree()?.root as unknown as { size?: Vector2 } | undefined;
+  const size = window?.size;
+  if (!size) return;
+  Input.warp_mouse(new Vector2(Math.max(size.x - 2, 0), Math.max(size.y - 2, 0)));
+}
+
+/**
  * 每个用例开始前调用一次（放在 `beforeEach`）：换一个全新的根 Control 并重建 TestBed 环境。
  * `GODOT_PLATFORM_PROVIDERS` 是常量数组，而 platformCore() 按引用缓存，因此不会每个用例
  * 创建一个平台。未知标签 / 属性检查关闭：Godot 的属性代理不保证 `in` 能命中。
@@ -90,6 +105,7 @@ export function initGodotTestEnvironment(options: { width?: number; height?: num
   // 无头模式下 Control 默认 0x0，容器布局断言会失去意义，因此显式给定尺寸
   root.size = new Vector2(options.width ?? 600, options.height ?? 400);
   currentRoot = root;
+  parkMouse(root);
 
   TestBed.resetTestEnvironment();
   TestBed.initTestEnvironment(GodotTestingModule, platformCore(GODOT_PLATFORM_PROVIDERS), {

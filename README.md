@@ -1068,7 +1068,8 @@ godot --headless --path . res://pages.tscn
       "projectPath": ".",                 // 指定后自动启动引擎；noLaunch: true 时自行启动
       "scene": "res://engine_vitest.tscn",
       "port": 18781,                     // 起始端口，被占用则 +1（可省略）
-      "connectTimeout": 30000
+      "connectTimeout": 30000,
+      "headless": false                  // 需要截图取像素时关掉无头，环境要有 DISPLAY
     }
   }
 }
@@ -1156,7 +1157,7 @@ ng test --reporters=json
 | --- | --- |
 | `specInclude` | 必填。测试文件 glob，相对 workspaceRoot |
 | `exclude` | 排除的测试文件 glob |
-| `engine` | 必填。`projectPath`、`scene`、`port`（起始端口，被占则 +1）、`connectTimeout`、`godotBin`、`noLaunch` |
+| `engine` | 必填。`projectPath`、`scene`、`port`（起始端口，被占则 +1）、`connectTimeout`、`godotBin`、`noLaunch`、`headless`（默认 true；设为 false 时引擎真的开窗口，截图取像素需要它，此时环境必须提供 `DISPLAY`） |
 | `skipRun` / `skipBuild` | 仅构建不执行 / 仅执行不构建 |
 | `reporters` / `filter` / `fileFilters` | 透传 vitest |
 | `coverage` | `true` 或配置对象：`enabled`、`include`、`exclude`、`instrument`、`sourceRoot`、`reportsDirectory`、`reporter`、`thresholds`、`reportOnFailure` |

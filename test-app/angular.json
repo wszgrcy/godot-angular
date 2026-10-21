@@ -43,24 +43,20 @@
               "projectPath": ".",
               "scene": "res://engine_vitest.tscn",
               "connectTimeout": 30000,
-              "godotBin": "../bin"
+              "godotBin": "../bin",
+              "headless": false
             }
-          }
-        },
-        "visual": {
-          "builder": "godot-angular:application",
-          "options": {
-            "entries": [
-              "visual/main.ts"
-            ],
-            "tsConfig": "tsconfig.visual.json",
-            "outputPath": "dist-visual",
-            "resRoot": "res://dist-visual",
-            "optimization": false,
-            "sourceMap": false,
-            "styles": [
-              "visual/global.css"
-            ]
+          },
+          "configurations": {
+            "headless": {
+              "engine": {
+                "projectPath": ".",
+                "scene": "res://engine_vitest.tscn",
+                "connectTimeout": 30000,
+                "godotBin": "../bin",
+                "headless": true
+              }
+            }
           }
         }
       }

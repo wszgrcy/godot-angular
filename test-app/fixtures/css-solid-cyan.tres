@@ -1,0 +1,14 @@
+[gd_resource type="GradientTexture2D" load_steps=2 format=3]
+
+; 纯色（青色）贴图夹具，供像素级验证使用。
+; 用 GradientTexture2D 而不是 PNG：两个色标同色即纯色，且它是文本文件，
+; 不需要引擎导入，也不会像 PNG 那样在 --import 时被当资源处理。
+
+[sub_resource type="Gradient" id="Gradient_solid"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0, 1, 1, 1, 0, 1, 1, 1)
+
+[resource]
+gradient = SubResource("Gradient_solid")
+width = 64
+height = 64

@@ -23,5 +23,13 @@ export {
   flushStyleEffects,
   newStyleRuntime,
 } from "./style-scheduler";
+// 屏幕级操作：定位节点、注入鼠标键盘、读取实际渲染出的像素。
+export {
+  Screen,
+  isHeaded,
+  requireHeaded,
+  provideGlobalCss,
+  type Rgb,
+} from "./screen";
 // 告警去重表与运行期开关的重置（定义于 core/warn，此处仅转发至测试入口）。
 export { resetWarnOnce, setWarnEnabled } from "godot-angular/core";

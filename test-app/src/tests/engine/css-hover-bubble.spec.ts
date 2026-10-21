@@ -6,10 +6,18 @@ import {
   HBoxContainer,
   Label,
   PanelContainer,
+  Vector2,
   type StyleBoxFlat,
 } from "godot";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, newStyleRuntime, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import {
+  Screen,
+  awaitFrames,
+  isHeaded,
+  makeRenderer,
+  newStyleRuntime,
+  resetWarnOnce,
+} from "godot-angular/testing";
 
 /**
  * `:hover` 向祖先冒泡（CSS 语义，库侧补齐）。
@@ -170,5 +178,40 @@ describe(":hover 冒泡到祖先", () => {
     tag.emit_signal("mouse_entered");
     await awaitFrames(1);
     expect(rowColor(row)).toBe(hex(HOVER));
+  });
+});
+
+/**
+ * 真实指针下的悬停冒泡。
+ *
+ * 上面的用例手工在父与子上分别 `emit_signal` 来模拟引擎的事件序列，但「引擎真的会这么发」
+ * 本身没被当成被测对象。这里把指针真的移到 STOP 子控件上，引擎实际发出的那串信号就是输入。
+ *
+ * 颜色取纯原色：UI 颜色要经过 sRGB 与线性空间来回转换，只有 0 与 1 两个端点转换后不变。
+ */
+describe.skipIf(!isHeaded())("真实指针下的悬停冒泡（有头）", () => {
+  const PIX_BASE: readonly [number, number, number] = [1, 0, 0];
+  const PIX_HOVER: readonly [number, number, number] = [0, 0, 1];
+
+  it("停在 STOP 子控件上：祖先行真的画成悬停色", async () => {
+    // beforeEach 的夹具色换成纯原色（同特异度，后写的胜出），像素断言才有稳定端点
+    runtime.addCss(`.row { background-color: rgb(255, 0, 0); }`);
+    runtime.addCss(`.row:hover { background-color: rgb(0, 0, 255); }`);
+    const { row, box } = makeRow();
+    row.position = new Vector2(40, 40);
+    row.size = new Vector2(300, 60);
+    runtime.flush();
+
+    const screen = Screen.attach(root);
+    // 容器要等一帧才会把尺寸分给子节点，否则 CheckBox 的画面区域还是 0x0
+    await screen.settle(2);
+    await screen.moveMouseAway();
+    expect(await screen.waitForColor(row, PIX_BASE)).toBe(true);
+    expect(screen.hasColor(row, PIX_HOVER)).toBe(false);
+
+    // CheckBox 是 STOP：引擎只把它自己标成悬停，父链一个信号都收不到。
+    // 行还能变蓝，说明库侧补的冒泡在真实事件下也接得上。
+    await screen.hover(box);
+    expect(await screen.waitForColor(row, PIX_HOVER)).toBe(true);
   });
 });

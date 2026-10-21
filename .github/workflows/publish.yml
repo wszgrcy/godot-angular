@@ -26,10 +26,17 @@ jobs:
             os: ubuntu-latest
             godotjs_asset: linux-editor-4.6.1-v8.zip
             godot_bin: bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+            # 有头跑全部用例，包含像素级验证
+            test_args: ""
+            pixels: true
           - name: windows
             os: windows-latest
             godotjs_asset: windows-editor-4.6.1-v8.zip
             godot_bin: bin/windows-editor-4.6.1-v8/godot.windows.editor.x86_64.exe
+            # 无头：runner 上的软件 Vulkan 不可靠，而像素用例在无头下会自动跳过，
+            # 其余 892 项照常跑
+            test_args: "--configuration=headless"
+            pixels: false
 
     steps:
       - name: pull-code
@@ -65,6 +72,33 @@ jobs:
           pnpm run gen:typings
           pnpm run build
 
+      # 测试目标默认以有头模式启动引擎（像素级验证需要真实渲染）。Xvfb 提供 X 显示；
+      # mesa-vulkan-drivers 提供 lavapipe（CPU 实现的 Vulkan），所以 runner 没有 GPU 也能跑。
+      # xrandr 来自 x11-xserver-utils（不是 x11-utils）。
+      - name: virtual-display
+        if: matrix.pixels
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb x11-xserver-utils mesa-vulkan-drivers vulkan-tools
+          /usr/bin/Xvfb :99 -screen 0 1280x720x24 &
+          sleep 3
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+
+      # 开跑前先确认显示尺寸与 Vulkan 设备。缺任一项时 Godot 报的是“创建表面失败”一类的
+      # 间接错误，看不出是环境问题。像素断言用了固定坐标，显示比 1280x720 小会落到窗口外。
+      - name: check-display-and-vulkan
+        if: matrix.pixels
+        run: |
+          command -v xrandr >/dev/null || { echo "xrandr 不可用：x11-xserver-utils 没装上" >&2; exit 1; }
+          xrandr --query | tee /tmp/xrandr.txt
+          grep -q "1280x720" /tmp/xrandr.txt
+          command -v vulkaninfo >/dev/null || { echo "vulkaninfo 不可用：vulkan-tools 没装上" >&2; exit 1; }
+          vulkaninfo --summary | tee /tmp/vulkaninfo.txt
+          grep -q "deviceName" /tmp/vulkaninfo.txt || {
+            echo "没有可用的 Vulkan 设备：lavapipe 未生效，无法运行像素级验证" >&2
+            exit 1
+          }
+
       - name: typecheck
         run: pnpm run typecheck
 
@@ -75,7 +109,17 @@ jobs:
         run: pnpm run test:node
 
       - name: test-engine
-        run: pnpm run test:ci
+        run: pnpm run test:ci ${{ matrix.test_args }}
+
+      # 像素用例的截图。失败时也上传，否则只能从日志文字猜当时画成了什么样。
+      - name: upload-screenshots
+        if: always() && matrix.pixels
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-out-${{ matrix.name }}
+          path: test-app/visual-out/
+          if-no-files-found: warn
+          retention-days: 14
 
   publish:
     name: publish

@@ -1,8 +1,17 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Button, CheckBox, Label, LineEdit, ItemList, type Control, type StyleBoxFlat } from "godot";
+import { Button, CheckBox, Label, LineEdit, ItemList, Vector2, type Control, type StyleBoxFlat } from "godot";
 import { CssCode } from "godot-angular/css";
 import { GodotRenderer, StyleRuntime } from "godot-angular/core";
-import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import {
+  Screen,
+  awaitFrames,
+  captureWarn,
+  expectWarnCode,
+  isHeaded,
+  makeRenderer,
+  newStyleRuntime,
+  resetWarnOnce,
+} from "godot-angular/testing";
 
 let runtime: StyleRuntime;
 let root: Control;
@@ -423,8 +432,8 @@ describe("引擎绘制优先级（get_draw_mode 实测）", () => {
     btn.button_pressed = true;
     expect(btn.get_draw_mode()).toBe(1); // DRAW_PRESSED
     btn.disabled = true;
-    // DRAW_DISABLED：勾选与 hover 全部让位（无头下没法伪造 hover，hover_pressed 那一支
-    // 只能靠引擎自己的判定，这里不试）
+    // DRAW_DISABLED：勾选与 hover 全部让位。hover_pressed 那一支靠真实指针验证，
+    // 见本文件末尾的“悬停合成态的真实绘制（有头）”（无头下移动不了指针，那组会自动跳过）
     expect(btn.get_draw_mode()).toBe(3);
   });
 
@@ -491,5 +500,63 @@ describe("基规则不被状态顶掉", () => {
     await awaitFrames(1);
     // 重新可用后回到基 item：每个状态各占一个 item，引擎自己挑该读哪个
     expect(btn.get_theme_color("font_color").b).toBeCloseTo(1, 3);
+  });
+});
+
+/**
+ * `hover_pressed` 这一支的真实绘制。
+ *
+ * 上面的用例靠 `emit_signal` 伪造状态，能证明「我们往对的 item 里写了值」，但证明不了
+ * 「引擎在这个状态下真的会读那个 item」——`get_draw_mode` 那组就留了这个缺口（无头下
+ * 移动不了指针）。有头下可以把指针真的移到控件上，由引擎自己决定画哪一支。
+ *
+ * 颜色取纯原色 / 二次色：UI 颜色要经过 sRGB 与线性空间来回转换，只有 0 与 1 两个端点
+ * 转换后不变，中间值读回来会偏移。
+ */
+describe.skipIf(!isHeaded())("悬停合成态的真实绘制（有头）", () => {
+  const GREEN: readonly [number, number, number] = [0, 1, 0];
+  const YELLOW: readonly [number, number, number] = [1, 1, 0];
+
+  /** 控件默认 0x0，像素断言需要实际的画面面积 */
+  const place = (node: Control): void => {
+    node.position = new Vector2(40, 40);
+    node.size = new Vector2(200, 60);
+  };
+
+  it("勾选后真实悬停：画的是 hover_pressed 那一支", async () => {
+    runtime.addCss(`.cb:checked { background-color: rgb(0, 255, 0); }`);
+    runtime.addCss(`.cb:hover:checked { background-color: rgb(255, 255, 0); }`);
+    const cb = make(new CheckBox(), "cb");
+    cb.button_pressed = true;
+    place(cb);
+    runtime.invalidate(cb);
+    const screen = Screen.attach(root);
+
+    await screen.moveMouseAway();
+    // 只勾选没悬停：引擎走 DRAW_PRESSED，读的是 checked 那一支
+    expect(await screen.waitForColor(cb, GREEN)).toBe(true);
+    expect(screen.hasColor(cb, YELLOW)).toBe(false);
+
+    await screen.hover(cb);
+    // 引擎走 DRAW_HOVER_PRESSED：只有真的把 hover_pressed 写对了才会变黄
+    expect(await screen.waitForColor(cb, YELLOW)).toBe(true);
+  });
+
+  it("悬停后取消勾选：退回 hover 那一支", async () => {
+    runtime.addCss(`.cb:hover { background-color: rgb(0, 0, 255); }`);
+    runtime.addCss(`.cb:hover:checked { background-color: rgb(255, 255, 0); }`);
+    const cb = make(new CheckBox(), "cb");
+    cb.button_pressed = true;
+    place(cb);
+    runtime.invalidate(cb);
+    const screen = Screen.attach(root);
+
+    await screen.hover(cb);
+    expect(await screen.waitForColor(cb, YELLOW)).toBe(true);
+
+    cb.button_pressed = false;
+    runtime.invalidate(cb);
+    expect(await screen.waitForColor(cb, [0, 0, 1])).toBe(true);
+    expect(screen.hasColor(cb, YELLOW)).toBe(false);
   });
 });

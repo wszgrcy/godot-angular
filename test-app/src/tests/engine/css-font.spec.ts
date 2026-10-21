@@ -9,10 +9,19 @@
  * 因此能遵循与真实字体文件完全相同的加载与覆盖路径，而它本身是文本文件，可以纳入版本库。
  */
 import { beforeEach, describe, expect, it } from "vitest";
-import { Font, Label, SystemFont, type Control } from "godot";
+import { Font, Label, SystemFont, Vector2, type Control } from "godot";
 import { CssCode } from "godot-angular/css";
 import { StyleRuntime } from "godot-angular/core";
-import { awaitFrames, newStyleRuntime, captureWarn, expectWarnCode, makeRenderer, resetWarnOnce } from "godot-angular/testing";
+import {
+  Screen,
+  awaitFrames,
+  captureWarn,
+  expectWarnCode,
+  isHeaded,
+  makeRenderer,
+  newStyleRuntime,
+  resetWarnOnce,
+} from "godot-angular/testing";
 
 /** 与真实字体文件走同一条加载路径的夹具 */
 const FIXTURE = "res://fixtures/css-font-fixture.tres";
@@ -188,5 +197,36 @@ describe("字体覆盖不影响其它字体属性", () => {
     const font = label.get_theme_font("font", "Label") as Font;
     expect(font).toBeInstanceOf(Font);
     expect((font as unknown as { resource_path: string }).resource_path).toBe(FIXTURE);
+  });
+});
+
+/**
+ * 字号是否真的改变了画面。
+ *
+ * 其余用例断到 `has_theme_font_size_override("font_size")` 为止。属性写对但画面没变
+ * （字号被其它规则盖掉、写到了引擎不读的 item）只有读像素能发现：同一段文字，
+ * 40px 画出的有色像素明显多于 20px。
+ */
+describe.skipIf(!isHeaded())("字号真的改变画面（有头）", () => {
+  const RED: readonly [number, number, number] = [1, 0, 0];
+
+  it("40px 比 20px 画出更多有色像素", async () => {
+    runtime.addCss(`.big { color: rgb(255, 0, 0); font-size: 40px; }`);
+    runtime.addCss(`.small { color: rgb(255, 0, 0); font-size: 20px; }`);
+
+    const big = make(new Label(), "big");
+    big.text = "TEXT";
+    big.position = new Vector2(40, 40);
+    const small = make(new Label(), "small");
+    small.text = "TEXT";
+    small.position = new Vector2(40, 120);
+    // 控件矩形默认 0x0，给两块同样大的采样面积，两者只差在字号
+    big.size = new Vector2(320, 60);
+    small.size = new Vector2(320, 60);
+
+    const screen = Screen.attach(root);
+    expect(await screen.waitForColor(big, RED)).toBe(true);
+    expect(await screen.waitForColor(small, RED)).toBe(true);
+    expect(screen.countColor(big, RED)).toBeGreaterThan(screen.countColor(small, RED));
   });
 });
