@@ -20,10 +20,11 @@ describe("createElement", () => {
     expect(renderer.createElement("TotallyBogus").get_class()).toBe("VBoxContainer");
   });
 
-  it("是类但不是控件（Node / Color）也降级：渲染器后面全按 Control 用", () => {
+  it("非 Control 但是节点的类（Node / Node3D）照建，值类型（Color）仍降级", () => {
     const { renderer } = makeRenderer();
+    expect(renderer.createElement("Node").get_class()).toBe("Node");
+    expect(renderer.createElement("Node3D").get_class()).toBe("Node3D");
     const { warn } = captureWarn(() => {
-      expect(renderer.createElement("Node").get_class()).toBe("VBoxContainer");
       expect(renderer.createElement("Color").get_class()).toBe("VBoxContainer");
     });
     expectWarned(warn);

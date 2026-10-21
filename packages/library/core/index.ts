@@ -56,11 +56,14 @@ export { GODOT_HEADLESS, GODOT_ROOT, STYLE_RUNTIME } from "./tokens";
 export { resetWarnOnce, setWarnEnabled, warnEnabled } from "./warn";
 // 手动接信号只有一个入口：接不到返回 null，是否抛错由调用方决定（不保留会抛错的兼容包装）。
 export { tryConnectGodotSignal } from "./godot-events";
+// RxJS 桥：需要在组件代码里用操作符组合引擎事件时走这里（模板事件不需要）。
+export { godotSignal$ } from "./rx";
 // forms 走独立入口 godot-angular/forms：在这里 re-export 会把
 // @angular/forms（约 380 kB）装进每个 app 产物，即使项目根本没用到表单。
 export {
   HTML_TAG_ALIASES,
   isControlClass,
+  isNodeClass,
   resolveTag,
   resolveSignalName,
   nodeHasProperty,

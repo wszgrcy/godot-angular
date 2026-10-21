@@ -14,7 +14,7 @@ import type { TrackingClassSet } from "godot-angular/css";
 import { CssCode, CssWarning, PROPERTY_STATE_CLASSES } from "godot-angular/css";
 import { godotClass } from "./godot-host";
 import { reportWarning } from "./warn";
-import { coerceToProperty, hasJsAccessor, isControlClass, nodeHasProperty, resolveTag } from "./registry";
+import { coerceToProperty, hasJsAccessor, isControlClass, isNodeClass, nodeHasProperty, resolveTag } from "./registry";
 import { NOOP, tryConnectGodotSignal } from "./godot-events";
 import { isGodotNode, markCssStructural } from "./godot-node";
 import {
@@ -161,13 +161,15 @@ export class GodotRenderer implements Renderer2 {
     // 而不是 Control：裸 Control 不会跟随子节点调整尺寸（尺寸塌缩为 248x0），VBoxContainer 会
     // 自适应，语义上也最接近 CSS 块级流。
     let Ctor = godotClass(className);
-    if (Ctor !== undefined && !isControlClass(className)) Ctor = undefined;
+    // 大写开头的标签按“作者点名了一个 Godot 类”处理：只要是 Node 子类就照建，
+    // Node3D / Timer / AudioStreamPlayer 这类非 Control 节点也能用模板建与绑定。
+    if (Ctor !== undefined && !isNodeClass(className)) Ctor = undefined;
     if (Ctor === undefined) {
       // 大写开头说明作者本意是某个 Godot 类，值得提醒；小写（div / ui-card）静默降级
       if (/^[A-Z]/.test(tagName)) {
         if (ngDevMode) this.warn(
           CssCode.NodeClassFallback,
-          `<${tagName}> 不是可用的 Godot Control，已降级为 VBoxContainer`,
+          `<${tagName}> 不是可用的 Godot 节点类，已降级为 VBoxContainer`,
           { tag: tagName },
         );
       }
@@ -175,7 +177,9 @@ export class GodotRenderer implements Renderer2 {
     }
     const node = new Ctor();
     node.set_name(tagName);
-    this.enroll(node);
+    // 只有 Control 进 CSS 级联：theme / stylebox 那套写入 API 挂在 Control 上，非 Control 节点
+    // 没有尺寸也没有主题，进级联只会在帧末重算时踩到不存在的 API。
+    if (isControlClass(node.get_class())) this.enroll(node);
     return node;
   }
 
@@ -324,8 +328,17 @@ export class GodotRenderer implements Renderer2 {
       this.revertProperty(target, prop);
       return;
     }
-    // 渲染器创建的节点清一色是 Control 后代（createElement 只放行 Control），因此直接按 Control 用
+    // anchors_preset 只存在于 Control 那一支。渲染器现在也建非 Control 节点（<Node3D> 等），
+    // 它们没这个方法，先查类名，否则写 `[anchors_preset]` 会直接撞不存在的函数。
     if (prop === "anchors_preset") {
+      if (!isControlClass(target.get_class())) {
+        if (ngDevMode) this.warn(
+          CssCode.CssOnNonControl,
+          `${target.get_class()} 不是 Control，anchors_preset 已忽略`,
+          { class: target.get_class() },
+        );
+        return;
+      }
       (target as Control).set_anchors_preset(value as Control.LayoutPreset);
       return;
     }
@@ -402,6 +415,7 @@ export class GodotRenderer implements Renderer2 {
   // 但仍旧当场 apply：Angular 的既有行为是 setStyle 同步生效；改为进入刷新队列会静默地晚一次刷新。
 
   setStyle(el: Control, style: string, value: unknown): void {
+    if (!this.cssTargetable(el)) return;
     const name = toCssName(style);
     const raw = value === null || value === undefined ? "" : String(value);
     if (!raw) {
@@ -413,8 +427,20 @@ export class GodotRenderer implements Renderer2 {
   }
 
   removeStyle(el: Control, style: string): void {
+    if (!this.cssTargetable(el)) return;
     this.runtime.removeInline(el, toCssName(style));
     this.runtime.applyNow(el);
+  }
+
+  /** 非 Control 节点没有 CSS 可写（不进级联、没有 class 集合），遇到就跳过并提醒一次 */
+  private cssTargetable(el: Node): boolean {
+    if (isControlClass(el.get_class())) return true;
+    if (ngDevMode) this.warn(
+      CssCode.CssOnNonControl,
+      `${el.get_class()} 不是 Control，样式（class / [style.*]）已忽略`,
+      { class: el.get_class() },
+    );
+    return false;
   }
 
   /**
@@ -435,12 +461,18 @@ export class GodotRenderer implements Renderer2 {
    * 会直接标记节点并调用一次 `scheduler.request()`——因此下面两个方法里看不到任何“刷新”调用，样式却会更新。
    * 集合由 `Cascade.attach` 在节点入树时安装（全库唯一赋值点）。
    */
-  private classesOf(el: Node): TrackingClassSet {
-    return (el as unknown as { cssClasses: TrackingClassSet }).cssClasses;
+  private classesOf(el: Node): TrackingClassSet | null {
+    const set = (el as unknown as { cssClasses?: TrackingClassSet }).cssClasses;
+    if (set === undefined) {
+      this.cssTargetable(el);
+      return null;
+    }
+    return set;
   }
 
   private mutateClasses(el: Node, name: string, on: boolean): void {
     const set = this.classesOf(el);
+    if (!set) return;
     for (const cls of name.split(/\s+/)) {
       if (!cls) continue;
       if (on) set.add(cls);
@@ -451,6 +483,7 @@ export class GodotRenderer implements Renderer2 {
   /** `class="a b"` 这种整串赋值：以新值为准，旧的全部替换 */
   private setClasses(el: Node, value: unknown): void {
     const set = this.classesOf(el);
+    if (!set) return;
     set.clear();
     for (const cls of String(value ?? "").split(/\s+/)) {
       if (cls) set.add(cls);

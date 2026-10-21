@@ -125,6 +125,8 @@ export enum CssCode {
   FrameClockMissing = 3008,
   /** 写入类方法未经 applyProperty 的作用域门面调用 */
   BackendScopeMissing = 3009,
+  /** 非 Control 节点（Node3D / Timer 这类）没有 CSS 可写，样式相关写入已忽略 */
+  CssOnNonControl = 3010,
 }
 
 /** 诊断码前缀，输出时形如 `CUJ-1001`。`CUJ` 即仓库名 Control UI JS 的缩写。 */

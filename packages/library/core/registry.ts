@@ -47,6 +47,24 @@ export function isControlClass(className: string): boolean {
   return hit;
 }
 
+const nodeCache = new Map<string, boolean>();
+
+/**
+ * 能不能当节点挂进树。`godot` 命名空间里还有 Vector2 / Color / StyleBoxFlat 这类值类型，
+ * 它们也能 `new`，但挂不进节点树，因此建节点前先确认继承自 Node。
+ *
+ * 与 `isControlClass` 的分工：能不能**建**看这里，能不能**写样式**看 `isControlClass`。
+ */
+export function isNodeClass(className: string): boolean {
+  const cached = nodeCache.get(className);
+  if (cached !== undefined) return cached;
+  const hit =
+    className === "Node" ||
+    (className !== "Object" && ClassDB.is_parent_class(className, "Node"));
+  nodeCache.set(className, hit);
+  return hit;
+}
+
 /**
  * 模板标签 → Godot 类名：别名表命中就完全以表为准（表里的键都是 HTML 标签，不会与 Godot
  * 类名撞车），否则原样返回。不做任何大小写变形，也不校验类是否存在——能不能用由创建
@@ -79,7 +97,7 @@ const EVENT_ALIASES: Readonly<Record<string, readonly string[]>> = {
  * Godot 节点没有 output，因此这类名字在此处解析不到。
  * 找不到时返回 null，静默还是报错由调用方决定。
  */
-export function resolveSignalName(node: Node, eventName: string): string | null {
+export function resolveSignalName(node: { get_class(): string }, eventName: string): string | null {
   const className: string = node.get_class();
 
   for (const candidate of EVENT_ALIASES[eventName] ?? []) {
