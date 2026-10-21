@@ -46,18 +46,17 @@ jobs:
       # 的要求：本地强制只用 lavapipe 跑过，引擎输出 `Using Device #0: llvmpipe`，十二项
       # 像素断言全过（渲染耗时约 3 秒）。所以这里不需要改成 opengl3 / gl_compatibility：
       # 那个组合验的是没人发布的渲染器，而颜色断言是在 Forward+ 的 sRGB 转换下校准的。
+      # 四个包各自的来源已用 dpkg -S / dpkg -c 核对：xvfb → Xvfb，x11-xserver-utils → xrandr
+      #（注意不是 x11-utils），mesa-vulkan-drivers → lavapipe 的 ICD，vulkan-tools → vulkaninfo。
+      # Vulkan loader（libvulkan1）由后两个包带进来，不用单独列。
+      # 没列 libX11 / libGL 一类：GodotJS 的二进制是静态链接的（ldd 只有 libc/libm），
+      # 这些库已经在里面，不是运行时动态依赖。
       - name: install-display-and-vulkan
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends
           xvfb
-          x11-utils
+          x11-xserver-utils
           mesa-vulkan-drivers
           vulkan-tools
-          libgl1
-          libxcursor1
-          libxinerama1
-          libxi6
-          libxrandr2
-          libxkbcommon0
 
       - name: start-virtual-display
         run: |
@@ -66,8 +65,11 @@ jobs:
           echo "DISPLAY=:99" >> "$GITHUB_ENV"
 
       # 断言里用了固定坐标（例如把鼠标移到 1200,700），显示比 1280x720 小的话坐标会落到窗口外。
+      # xrandr 来自 x11-xserver-utils（不是 x11-utils），先查它在不在，避免报成
+      # "command not found" 看不出原因。
       - name: check-display-size
         run: |
+          command -v xrandr >/dev/null || { echo "xrandr 不可用：x11-xserver-utils 没装上" >&2; exit 1; }
           xrandr --query | tee /tmp/xrandr.txt
           grep -q "1280x720" /tmp/xrandr.txt
 
@@ -75,6 +77,7 @@ jobs:
       # 看不出是环境缺驱动。这里直接查设备并给出明确结论。
       - name: check-vulkan-device
         run: |
+          command -v vulkaninfo >/dev/null || { echo "vulkaninfo 不可用：vulkan-tools 没装上" >&2; exit 1; }
           vulkaninfo --summary | tee /tmp/vulkaninfo.txt
           grep -q "deviceName" /tmp/vulkaninfo.txt || {
             echo "没有可用的 Vulkan 设备：lavapipe 未生效，无法运行像素级验证" >&2
