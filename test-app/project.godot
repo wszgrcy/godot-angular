@@ -5,4 +5,4 @@ config_version=5
 
 config/name="godot-angular test-app"
 run/main_scene="res://engine_vitest.tscn"
-config/features=PackedStringArray("4.6")
+config/features=PackedStringArray("4.7")

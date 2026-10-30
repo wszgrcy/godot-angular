@@ -11,10 +11,19 @@ import {
 import { join, resolve } from "node:path";
 import { isAbsoluteish } from "./path";
 
-/** 平台键（process.platform + process.arch）→ GodotJS release 资产目录 / 可执行文件名 */
-const BIN_TABLE: Record<string, { dir: string; exe: string }> = {
-  "linux-x64": { dir: "linux-editor-4.6.1-v8", exe: "godot.linuxbsd.editor.x86_64" },
-  "win32-x64": { dir: "windows-editor-4.6.1-v8", exe: "godot.windows.editor.x86_64.exe" },
+/**
+ * 平台键（process.platform + process.arch）→ 引擎目录 / 可执行文件名。
+ *
+ * 目录名只带平台与运行时（v8 / qjs-ng），**不带引擎版本号**：换版本时把新二进制放进同一个目录
+ * 就行，代码不用跟着改。引擎版本由生成物记录（typings 的 banner、`vocabulary.data.ts` 的
+ * `VOCABULARY_META.engine`），不靠目录名去记。
+ *
+ * 全仓库只有这一份：`tools/` 下的脚本（gen:html-data / gen:emmet / dump:vocabulary）
+ * 统一调 `requireGodotBin(仓库根)`，不要再各自写一张表。
+ */
+export const BIN_TABLE: Record<string, { dir: string; exe: string }> = {
+  "linux-x64": { dir: "linux-v8", exe: "godot.linuxbsd.editor.x86_64" },
+  "win32-x64": { dir: "windows-v8", exe: "godot.windows.editor.x86_64.exe" },
 };
 
 export interface BinResolution {
@@ -77,7 +86,9 @@ export function requireGodotBin(workspaceRoot: string, explicit?: string): strin
       return fail(
         `未找到 GodotJS 引擎二进制（官方 Godot 无法执行 .js，必须使用 GodotJS 构建版本）。\n` +
           `工作区根：${workspaceRoot}\n已检索位置（仅检索工作区根目录，不向上级目录搜索）：\n${list}\n\n` +
-          `请从 https://github.com/godotjs/GodotJS/releases 下载 ${found.key} 的编辑器构建并放置到上述路径，` +
+          `请从 GodotJS 的 release 页下载对应平台的编辑器构建` +
+          `（https://github.com/godotjs/GodotJS/releases 或 https://github.com/wszgrcy/GodotJS/releases；` +
+          `资产名形如 linux-editor-<引擎版本>-v8.zip，zip 里只有一个可执行文件，需自己建目录），放到上述路径；` +
           `或通过选项 godotBin / 环境变量 GODOT_BIN 指定任意位置（可指向可执行文件，` +
           `或指向按 bin/<平台目录>/ 布局的目录）。`,
       );

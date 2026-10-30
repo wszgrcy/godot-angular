@@ -10,7 +10,7 @@ import { NgIf } from "@angular/common";
 import { TestBed } from "@angular/core/testing";
 import { beforeEach, describe, expect, it } from "vitest";
 import { CssCode } from "godot-angular/css";
-import { captureWarn, initGodotTestEnvironment, type WarnCapture } from "godot-angular/testing";
+import { captureWarn, initGodotTestEnvironment, resetWarnOnce, type WarnCapture } from "godot-angular/testing";
 
 /** 编译好组件但不创建：创建过程才触发 createElement，告警要包在创建外面抓 */
 async function compile<T>(component: Type<T>): Promise<void> {
@@ -35,7 +35,13 @@ function hasCode(warn: WarnCapture, code: CssCode): boolean {
 }
 
 describe("自定义组件的标签", () => {
-  beforeEach(() => initGodotTestEnvironment());
+  beforeEach(() => {
+    // 控制台告警按「码 + 参数 + 文案」全局去重，而全部 spec 跑在同一个引擎进程里。
+    // renderer.spec.ts 也用 <TotallyBogus> 触发同一条告警，它先跑就会把键消耗掉，
+    // 本文件的「确实告警了」就会误失败，所以每次创建前先清表。
+    resetWarnOnce();
+    initGodotTestEnvironment();
+  });
 
   it("小写选择器的组件宿主是 VBoxContainer，且不告警", async () => {
     @Component({ selector: "ui-card", template: `<Label text="card"></Label>` })

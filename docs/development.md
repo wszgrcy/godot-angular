@@ -605,6 +605,34 @@ worktree 打架，全是脏状态），以及让每个使用方手抄一份场�
 
 结果：引擎 spec 从"含超时 130s+"降到 0.42s（含构建约 9s）。
 
+### 换引擎版本时怎么对比性能
+
+仓库自带的护栏是 `test-app/src/tests/engine/css-perf.spec.ts`：用 `Time.get_ticks_usec()`
+（GodotJS 里没有 `process.hrtime`）做 min-of-N 计时，量 CSS 解析的线性度和级联写入的绝对上限。
+它只回答"有没有慢到超线"，不打印绝对数字，因此**不能拿它直接对比两个引擎**。
+
+要对比引擎版本，用工作区里的 `godot-bin/godotjs-hello/bench/`（`compute` 纯 JS、
+`interop` JS ↔ 引擎边界、`ui` 批量改 Control 属性），同一份脚本在两个二进制上各跑 3 轮取最小值：
+
+```bash
+for bin in <旧引擎> <新引擎>; do
+  for s in compute interop ui; do
+    "$bin" --headless --path <bench 工程副本> res://bench/$s.tscn
+  done
+done
+```
+
+三个必须遵守的前提：
+
+1. **两边的 checksum / ok 必须一致**，否则两边算的不是同一件事，数字没有可比性。
+2. **每个引擎用自己那份 `.godot` 导入缓存**。`.godot` 只属于导入它的那个引擎，来回切版本要
+   先删掉再跑，否则脚本资源读不到，表现为静默 `no tests`（而不是报"找不到引擎"）。
+3. 计时期间不要并发跑其他吃 CPU 的东西；取最小值而不是平均值，一次 GC 停顿就能把比值带偏。
+
+端到端的粗指标可以直接用 `pnpm run test:ci` 日志里 vitest 的 `Duration`（928 个用例的真实负载）。
+注意 `test:ci` 用的是 `dist/` 里**已构建的 builder**：改了 `packages/builder` 的源码必须先
+`pnpm run build:builder`，否则跑的还是旧构建（找不到引擎时报的是构建里那份旧路径）。
+
 ---
 
 ## 7. 覆盖率
@@ -1053,7 +1081,7 @@ Linux 与 Windows 都必须能跑，差异全部集中在 `tools/` 与 `packages
 | | 情况 |
 | --- | --- |
 | Linux x86_64 | 全部在此环境实跑验证（含 `bin/` 自动发现、bootstrap 全流程） |
-| Windows x64 | `bin/windows-editor-4.6.1-v8/godot.windows.editor.x86_64.exe` 已预置映射，工具脚本做了跨平台修正，但**未在真 Windows 上跑过** |
+| Windows x64 | `bin/windows-v8/godot.windows.editor.x86_64.exe` 已预置映射，工具脚本做了跨平台修正，但**未在真 Windows 上跑过** |
 | macOS / 其他 | 未预置映射（未验证过资产名），用 `GODOT_BIN` 指定即可 |
 
 ---
@@ -1062,8 +1090,8 @@ Linux 与 Windows 都必须能跑，差异全部集中在 `tools/` 与 `packages
 
 ```bash
 # 下面用 $GODOT 代指引擎可执行文件
-# （Windows 换成 bin\windows-editor-4.6.1-v8\godot.windows.editor.x86_64.exe）
-GODOT=bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+# （Windows 换成 bin\windows-v8\godot.windows.editor.x86_64.exe）
+GODOT=bin/linux-v8/godot.linuxbsd.editor.x86_64
 
 # 引擎真机 spec：**不要直接跑 res://engine_vitest.tscn**，它要宿主先起 WS server。
 # 正确入口是 pnpm test（它会构建 + 拉引擎 + 跑 + 关闭）

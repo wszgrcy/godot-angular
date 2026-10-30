@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { XMLParser } from "fast-xml-parser";
+import { requireGodotBin } from "../../packages/builder/shared/godot-bin";
 
 /**
  * 引擎事实表：把引擎自己导出的两份东西拼成「Control 系类 → 自有属性 / 信号 / 枚举」。
@@ -26,21 +27,12 @@ import { XMLParser } from "fast-xml-parser";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-const BIN_TABLE: Record<string, { dir: string; exe: string }> = {
-  "linux-x64": { dir: "linux-editor-4.6.1-v8", exe: "godot.linuxbsd.editor.x86_64" },
-  "win32-x64": { dir: "windows-editor-4.6.1-v8", exe: "godot.windows.editor.x86_64.exe" },
-};
-
+/**
+ * 引擎路径只有一份解析逻辑：builder 的 `requireGodotBin`（`GODOT_BIN` 优先，否则取
+ * `<仓库根>/bin/<平台目录>/<可执行文件>`，平台表也只有它那一份）。
+ */
 export function resolveBin(): string {
-  const fromEnv = process.env.GODOT_BIN;
-  if (fromEnv && existsSync(fromEnv)) return fromEnv;
-  const hit = BIN_TABLE[`${process.platform}-${process.arch}`];
-  if (!hit)
-    throw new Error(`未预置 ${process.platform}-${process.arch} 的二进制表项，请通过 GODOT_BIN 指定`);
-  const candidate = join(REPO_ROOT, "bin", hit.dir, hit.exe);
-  if (!existsSync(candidate))
-    throw new Error(`未找到引擎二进制：${candidate}（或通过 GODOT_BIN 指定）`);
-  return candidate;
+  return requireGodotBin(REPO_ROOT);
 }
 
 /* ------------------------------------------------------------------ *

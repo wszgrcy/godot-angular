@@ -17,8 +17,11 @@
 
 本方案只补两条查询时容易踩的项目事实：
 
-- **文档站是 4.7，引擎是 4.6.1**（GodotJS 二进制：`godot-angular/bin/linux-editor-4.6.1-v8/`，跑法见附录 A）。
-  本方案涉及的 API 两边无差异，但**新用的 API 必须引擎实测确认存在** —— 别拿文档当引擎能力。
+- **文档站与引擎同为 4.7**（本地文档站标的是 `Godot Engine 4.7 stable`，引擎是 4.7.2；GodotJS 二进制：
+  `godot-angular/bin/linux-v8/`，跑法见附录 A）。补丁版只修 bug 不加 API，版本差不再是风险点。
+  但**新用的 API 仍须引擎实测确认存在**：文档写的是官方 Godot 的 C++ API，GodotJS 的 JS 绑定不一定
+  照搬（已实测过的缺口：`Engine.get_version_string()` 没编进去、`OS.has_cmdline_arg` 没暴露），
+  别拿文档当引擎能力。
 - **已核对过的页与结论**（省得重复查）：
 
 | 页 | 已核对出的结论 |
@@ -664,7 +667,7 @@ MVP 之后立刻排 Phase 1.5 策略 A（构建期解析成规则集）与 Phase
 12. **`styleUrls` 的两处静默（C15）** —— 文件不存在静默通过、scss 报错 rc=0；用户写了不生效比报错难查得多。Phase 1.5 必须把两者变硬失败（注意：内联本身是好的，别重做）
 13. ~~**构建期插件被用户 `viteConfig` 顶掉**~~ —— 占位符搬到运行时后这条风险自动消失：
     插件负责的是“输入能不能读”，顶掉了最多是少一道前置校验，`%COMP%` 仍会被运行时填对
-14. **文档 4.7 / 引擎 4.6.1 版本差** —— 新用 API 必须实测确认存在
+14. **文档写的是官方 C++ API，GodotJS 的绑定不一定全暴露** —— 文档与引擎已同为 4.7，新用 API 仍须实测确认
 
 ---
 
@@ -685,7 +688,7 @@ MVP 之后立刻排 Phase 1.5 策略 A（构建期解析成规则集）与 Phase
 
 ```bash
 # 探针只需要一个能跑的 Godot 工程：用临时空工程，不往仓库目录里拷文件
-BIN=./bin/linux-editor-4.6.1-v8/godot.linuxbsd.editor.x86_64
+BIN=./bin/linux-v8/godot.linuxbsd.editor.x86_64
 probe_dir=$(mktemp -d)
 cp /workspace/godot-test/tools/css-probes/probe_*.{js,tscn} "$probe_dir/"
 printf '[application]\n\nconfig/name="cuj_probe"\n' > "$probe_dir/project.godot"
