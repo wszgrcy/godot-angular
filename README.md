@@ -222,7 +222,7 @@ godot --headless --path . --import
 
 无法得到可用 `Control` 时降级为 `VBoxContainer`；标签名以大写字母开头时额外输出告警。判定基于 `ClassDB`，引擎新增控件无需额外配置。
 
-自定义组件的选择器建议使用小写且不与 Godot 类名冲突的形式（如 `ui-card`），其宿主元素降级为 `VBoxContainer`。
+自定义组件的宿主元素降级为 `VBoxContainer`（组件选择器本来就不是引擎类，降级是正常路径）。渲染器会读当前模板的组件 / 指令选择器表把两者分开：`<ui-card>`、`<UiCard>` 这种命中选择器的标签不会报「不是可用的 Godot 节点类」，只有两边都对不上的标签（典型是类名拼错）才告警。选择器仍建议用小写且不与 Godot 类名冲突的形式（如 `ui-card`）：标签先按 Godot 类名解析，与引擎类撞名时宿主是那个引擎类而不是容器。
 
 插值表达式 `{{ value }}` 生成 `Label` 节点。富文本与图文混排请直接使用 `RichTextLabel`。文字一律按 `<Label text="…" />` 写：单独插值只是兜底，不是 CSS 的书写面（它不占样式语义，兄弟组合器也不为它做特例）。
 
@@ -1207,6 +1207,7 @@ ng test --reporters=json
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
 | `Xxx.yyy 不是真实属性，赋值已忽略 ` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
+| `<Xxx> 不是可用的 Godot 节点类，已降级为 VBoxContainer` | 标签既不是 Godot 类名，当前模板里也没有叫这个名字的组件或指令，典型是类名拼错。自定义组件的宿主不会走到这条告警，见[标签](#标签) |
 | `Component 'Xxx' is not resolved: - templateUrl: ./xxx.html` | 该组件的模板存在解析错误，构建阶段不报错，运行时才暴露。常见写法：HTML 空元素写了结束标签（`<hr></hr>`）、Godot 标签自闭合（`<Label />`）。核对方法：`grep -c "ɵcmp" dist/main.js`，数量少于组件数即有模板未编译 |
 | `@charset 不支持，已忽略 ` | 样式表含非 ASCII 字符（典型场景：`.scss` 中用 `/* */` 写中文注释，它们会保留到编译产物，sass 因此在开头插入 `@charset`）。改用 `//` 行注释，编译时会被剔除 |
 | ScrollContainer 内的内容把整个界面撑宽 | 横向滚动模式为 `SCROLL_MODE_OFF` 时，子节点的最小宽度会向上传播。保持 `AUTO`，并在 `resized` 中把 `scroller.size.x` 写回内容节点的 `custom_minimum_size.x` |

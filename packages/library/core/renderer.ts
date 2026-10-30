@@ -8,6 +8,7 @@ import {
   RendererFactory2,
   RendererType2,
   inject,
+  ɵɵgetCurrentView,
 } from "@angular/core";
 import { ClassDB, Control, Label, Node, VBoxContainer } from "godot";
 import type { TrackingClassSet } from "godot-angular/css";
@@ -93,6 +94,17 @@ function writeJsKey(node: Node, key: string): void {
  */
 const STATE_PROPERTIES: ReadonlySet<string> = new Set(PROPERTY_STATE_CLASSES.map((entry) => entry.prop));
 
+
+function isComponentTag(tagName: string): boolean {
+  const lView = ɵɵgetCurrentView();
+  if (!lView) return false;
+  // LView 的 1 号槽位是 TView；组件没有任何指令依赖时这张表是 null
+  const registry = (lView as any)[1].directiveRegistry as
+    | readonly { selectors: readonly (readonly string[])[] }[]
+    | null;
+  return registry?.some((item) => item.selectors.some((sel) => sel.length === 1 && sel[0] === tagName)) ?? false;
+}
+
 export class GodotRenderer implements Renderer2 {
   data: Record<string, unknown> = {};
 
@@ -165,11 +177,13 @@ export class GodotRenderer implements Renderer2 {
     // Node3D / Timer / AudioStreamPlayer 这类非 Control 节点也能用模板建与绑定。
     if (Ctor !== undefined && !isNodeClass(className)) Ctor = undefined;
     if (Ctor === undefined) {
-      // 大写开头说明作者本意是某个 Godot 类，值得提醒；小写（div / ui-card）静默降级
-      if (/^[A-Z]/.test(tagName)) {
-        if (ngDevMode) this.warn(
+      // 大写开头说明作者本意是某个 Godot 类，值得提醒；小写（div / ui-card）静默降级。
+      // 自定义组件的宿主（`<UiCard>`）是例外：它的标签本来就不是引擎类，降级是设计而不是写错。
+      if (ngDevMode && /^[A-Z]/.test(tagName) && !isComponentTag(tagName)) {
+        this.warn(
           CssCode.NodeClassFallback,
-          `<${tagName}> 不是可用的 Godot 节点类，已降级为 VBoxContainer`,
+          `<${tagName}> 不是可用的 Godot 节点类，当前模板里也没有叫这个名字的组件或指令，` +
+            `已降级为 VBoxContainer`,
           { tag: tagName },
         );
       }
