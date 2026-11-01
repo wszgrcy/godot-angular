@@ -144,7 +144,7 @@ npm install godot-angular
 
 ### 2. 安装引擎
 
-必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.1**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
+必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.2**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
 
 ```
 bin/
@@ -188,7 +188,7 @@ godot --headless --path . --import
 
 | 项 | 要求 |
 | --- | --- |
-| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.1，V8 12.6），需编辑器构建 |
+| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.2，V8 12.6），需编辑器构建 |
 | Node.js | `^22.22.3 \|\| ^24.15.0 \|\| >=26.0.0` |
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
