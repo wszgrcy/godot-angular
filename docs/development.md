@@ -769,9 +769,10 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
      `core/godot-host.ts` 的 `godotClass()` 里，用**函数内裸 `require("godot")`**。
      库自己的 FESM 里那处 default/namespace 形式由 builder 的 `godot-interop.ts` 在产物层
      改写成裸 require。
-5. 生成的类型有缺口：`Node.name` 运行时存在但 `godot*.gen.d.ts` 里没声明。补丁由
-   `pnpm gen:typings` 写进 `typings/godot.gap-patch.d.ts`（四处共用一份）；上游哪天补了，
-   重跑会变成重复声明报错 —— 那就是删补丁的信号。
+5. `Node.name` 要 GodotJS **1.3.2** 才绑成属性。更早的引擎把 `name` 整体排除在属性绑定之外，
+   `node.name = "x"` 只写 JS 字段而引擎侧不变，生成的 typings 里也没有 `name`。因此
+   `pnpm gen:typings` 会先检查引擎声明里有没有 `get name(): StringName`，没有就直接报错
+   让你升级引擎，而不是到 tsc 阶段报一堆 TS2339。
 6. 信号只能连 `Callable`，直接传 JS 函数报
    `Failed to convert JS variable to Variant. Expected: Callable. Found: function`。
    正确写法（`Callable.create` 的 owner 必须是 Godot 对象，`{}` / `null` 抛 bad object）：

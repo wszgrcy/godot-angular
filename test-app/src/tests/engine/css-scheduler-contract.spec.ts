@@ -73,7 +73,7 @@ beforeEach(() => {
 /** 建一个真 Label，挂进场景树并登记到级联 */
 function makeLabel(runtime: StyleRuntime, name: string, parent?: any): any {
   const node = new Label();
-  node.set_name(name);
+  node.name = name;
   (parent ?? root).add_child(node);
   runtime.attach(node);
   return node;
@@ -82,7 +82,7 @@ function makeLabel(runtime: StyleRuntime, name: string, parent?: any): any {
 /** 建一个真 VBoxContainer 作为父节点（var() 继承需要真实的父子关系） */
 function makeBox(runtime: StyleRuntime, name: string): any {
   const node = new VBoxContainer();
-  node.set_name(name);
+  node.name = name;
   root.add_child(node);
   runtime.attach(node);
   return node;

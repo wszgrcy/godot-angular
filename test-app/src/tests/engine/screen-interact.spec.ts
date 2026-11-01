@@ -19,12 +19,12 @@ describe("Screen 交互工具", () => {
     host = initGodotTestEnvironment({ width: 400, height: 300 });
 
     const title = new Label();
-    title.set_name("title");
+    title.name = "title";
     title.text = "标题";
     host.add_child(title);
 
     button = new Button();
-    button.set_name("btn");
+    button.name = "btn";
     button.text = "按下";
     button.position = new Vector2(10, 10);
     button.size = new Vector2(60, 24);
@@ -35,7 +35,7 @@ describe("Screen 交互工具", () => {
     }));
 
     entry = new LineEdit();
-    entry.set_name("entry");
+    entry.name = "entry";
     entry.position = new Vector2(10, 50);
     entry.size = new Vector2(160, 28);
     host.add_child(entry);

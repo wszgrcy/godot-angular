@@ -44,19 +44,6 @@ export interface GenerateResult {
   fileCount: number;
 }
 
-/**
- * 生成类型的缺口补丁（手写，与生成物放在一起，因为输出目录每次整体重写）。
- * 生成的 `Node` 类未声明运行时真实存在的 `name`，不补充则所有 `node.name = "x"` 报 TS2339。
- * 若引擎声明已包含 `name`，这里会变成重复声明报错。
- */
-const GAP_PATCH = `/** 由 godot-angular 的 typings 生成器写入（手写内容，不是引擎生成的）。勿直接改生成目录。 */
-declare module "godot" {
-  interface Node<Map extends NodePathMap = any> {
-    name: string;
-  }
-}
-`;
-
 /** @types 风格入口所在的子目录名，也是 tsconfig types: [...] 中那个名字 */
 export const ENTRY_DIR = "godot";
 
@@ -77,7 +64,6 @@ function entryFile(files: readonly string[], engine: string): TypingsFile {
     " * 三重斜杠把全套串起来：谁命中本文件，谁就拿到整套引擎声明。",
     " */",
     ...files.map((f) => `/// <reference path="../${f}" />`),
-    `/// <reference path="../godot.gap-patch.d.ts" />`,
     "",
   ];
   return { path: `${ENTRY_DIR}/index.d.ts`, content: lines.join("\n") };
@@ -125,12 +111,24 @@ export function collectGodotTypings(options: CollectOptions): GodotTypingsBundle
     if (files.length === 0)
       throw new Error(`引擎未报错，但 ${src} 中不存在 .d.ts 文件`);
 
+    // `Node.name` 在 GodotJS 1.3.2 才进入属性绑定。旧引擎生成的 typings 里没有它，
+    // 而库代码直接用 `node.name`，到 tsc 阶段只会报 TS2339，看不出是引擎版本问题。
+    // 这里直接拦住，顺便把“引擎至少要多新”写成代码而不是文档。
+    const declaresName = files.some((f) =>
+      readFileSync(join(src, f), "utf8").includes("get name(): StringName"),
+    );
+    if (!declaresName) {
+      throw new Error(
+        `引擎生成的 typings 里没有 Node.name。GodotJS 从 1.3.2 起才把 name 绑成属性，` +
+          `请升级引擎二进制（${bin}）后重试。`,
+      );
+    }
+
     const engine = engineVersion(`${run.stdout ?? ""}\n${run.stderr ?? ""}`);
     return {
       engine,
       files: [
         ...files.map((f) => ({ path: f, content: readFileSync(join(src, f), "utf8") })),
-        { path: "godot.gap-patch.d.ts", content: GAP_PATCH },
         entryFile(files, engine),
       ],
     };

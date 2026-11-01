@@ -190,7 +190,7 @@ export class GodotRenderer implements Renderer2 {
       Ctor = VBoxContainer;
     }
     const node = new Ctor();
-    node.set_name(tagName);
+    node.name = tagName;
     // 只有 Control 进 CSS 级联：theme / stylebox 那套写入 API 挂在 Control 上，非 Control 节点
     // 没有尺寸也没有主题，进级联只会在帧末重算时踩到不存在的 API。
     if (isControlClass(node.get_class())) this.enroll(node);
@@ -199,14 +199,14 @@ export class GodotRenderer implements Renderer2 {
 
   createText(value: string): Node {
     const node = new Label();
-    node.set_name("text");
+    node.name = "text";
     node.text = value
     return node;
   }
 
   createComment(value: string): Node {
     const node = new Node();
-    node.set_name("anchor");
+    node.name = "anchor";
     markCssStructural(node);
     return node;
   }
@@ -303,12 +303,12 @@ export class GodotRenderer implements Renderer2 {
       this.writeProperty(target, "size_flags_vertical", value);
       return;
     }
-    // name 在 ClassDB 里存在，但这个绑定没给 Node.name 生成 JS 访问器（实测整条原型链
-    // Label→Control→CanvasItem→Node→Object 都没有），走通用赋值只会写出一个 JS 自有属性，
-    // 引擎侧静默不变，find_child / get_node 全部查不到。只能显式走 setter。
+    // name 单独处理有两个原因：一是引擎只接受字符串（ClassDB 里它声明为 StringName，
+    // 不是 String，通用转换不会把数字转成字符串）；二是 null 在名字上没有合理语义，
+    // 走通用撤销会把节点改成字面量 "null"，见 removeAttribute。
     if (name === "name") {
-      if (value == null) return;   // 撤名字没有合理语义，见 removeAttribute
-      target.set_name(String(value));
+      if (value == null) return;
+      target.name = String(value);
       return;
     }
     this.writeProperty(target, name, value);
@@ -323,7 +323,7 @@ export class GodotRenderer implements Renderer2 {
       this.setClasses(target, "");
       return;
     }
-    // 名字撤不回：引擎不接受空名（树内 `set_name("")` 被直接忽略），而 ClassDB 给的默认值
+    // 名字撤不回：引擎不接受空名（树内置空名会被直接忽略），而 ClassDB 给的默认值
     // 是 null（写回去会把节点改成字面量 "null"）。“回到未命名”在引擎里没有对应操作，
     // 只能保持现值；要改名只能再绑一个新值。
     if (name === "name") return;
@@ -372,7 +372,7 @@ export class GodotRenderer implements Renderer2 {
       this.warn(
         CssCode.NodePropertyNoAccessor,
         `${target.get_class()}.${prop} 在 ClassDB 里存在，但这个 JS 绑定没为它生成属性访问器，` +
-          `赋值不会进入引擎；请改用对应的 set_xxx() 方法（如 name → set_name()）`,
+          `赋值不会进入引擎；请改用对应的 set_xxx() 方法（如 text_direction → set_text_direction()）`,
         { class: target.get_class(), prop },
       );
     }

@@ -99,7 +99,7 @@ export function initGodotTestEnvironment(options: { width?: number; height?: num
   installNodeGlobal();
 
   const root = new Control();
-  root.set_name("TestBedRoot");
+  root.name = "TestBedRoot";
   const sceneRoot = getEngineSceneRoot();
   if (sceneRoot) sceneRoot.add_child(root);
   // 无头模式下 Control 默认 0x0，容器布局断言会失去意义，因此显式给定尺寸

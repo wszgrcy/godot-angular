@@ -144,7 +144,7 @@ npm install godot-angular
 
 ### 2. 安装引擎
 
-必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.1**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
+必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.2**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
 
 ```
 bin/
@@ -188,7 +188,7 @@ godot --headless --path . --import
 
 | 项 | 要求 |
 | --- | --- |
-| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.1，V8 12.6），需编辑器构建 |
+| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.2，V8 12.6），需编辑器构建 |
 | Node.js | `^22.22.3 \|\| ^24.15.0 \|\| >=26.0.0` |
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
@@ -232,7 +232,7 @@ Godot 的 `@export` 变量对应 Angular 的属性绑定，例如 `[text]`、`[c
 
 - `size_flags` 同时写入 `size_flags_horizontal` 与 `size_flags_vertical`。取值来自引擎枚举，枚举必须通过嵌套形式访问：`Control.SizeFlags.SIZE_EXPAND_FILL`。扁平写法（`Control.SIZE_EXPAND_FILL`）为 `undefined`。
 - `[anchors_preset]` 可用，渲染器将其转换为 `set_anchors_preset()` 调用。
-- `name` 写入的是引擎中的真实节点名。该 JS 绑定未为 `Node.name` 生成属性访问器，通用赋值只会写入一个 JS 字段而引擎侧不变（`find_child` / `get_node` 查不到），因此渲染器为其单独调用 `set_name()`。引擎语义不变：同级重名会被自动改名（自动名形如 `@Button@4`），`. : @ / " %` 会被替换为下划线（`name="a.b"` → `a_b`）。读取节点名使用 `get_name()`，JS 上的 `.name` 不是事实来源。`[attr.name]="null"` 不会清空名字：引擎不接受空名（树内 `set_name("")` 被忽略），而 ClassDB 的默认值是 `null`，“回到未命名”在引擎中没有对应操作，因此只能保持现值，改名需重新绑定新值。
+- `name` 写入的是引擎中的真实节点名。GodotJS 1.3.2 起 `Node.name` 是真属性访问器，`.name` 与 `set_name()` / `get_name()` 读写的是同一个名字（与 GDScript 一致）；渲染器仍对 `name` 单独处理，因为模板里的静态值永远是字符串（引擎只吃 StringName），而 `null` 在名字上没有合理的撤销语义。引擎语义不变：同级重名会被自动改名（自动名形如 `@Button@4`），`. : @ / " %` 会被替换为下划线（`name="a.b"` → `a_b`）。`[attr.name]="null"` 不会清空名字：引擎不接受空名（树内置空被直接忽略），而 ClassDB 的默认值是 `null`，“回到未命名”在引擎中没有对应操作，因此只能保持现值，改名需重新绑定新值。
 - 移除属性：`[attr.x]="null"` 或 `[x]="null"` 将属性还原为该类创建时的默认值。Godot 属性为强类型，不接受 `null`。
 
 自定义组件的宿主元素同时是模板中的一个元素，静态属性与输入属性是两条独立通道。静态字符串属性按节点属性写入宿主，宿主为 `VBoxContainer` 时不存在 `title`，因此输出一条「不是真实属性」告警；输入通道仍会送达该值，显示不受影响。为组件输入传字符串字面量时应写成属性绑定：

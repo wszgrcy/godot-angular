@@ -1,12 +1,13 @@
 /**
  * `name` 属性 → 引擎节点真实名字。
  *
- * `name` 在 ClassDB 里存在，但这个 JS 绑定没有为 `Node.name` 生成属性访问器（整条原型链
- * Label→Control→CanvasItem→Node→Object 都没有），因此通用赋值 `(node)[prop] = v` 只会写出
- * 一个 JS 自有属性：读回来还是那个值，引擎侧却一点没变，`find_child` / `get_node` 全部查不到。
- * 渲染器为此在 setProperty 里单开分支走 `set_name()`。
+ * GodotJS 1.3.2 起 `Node.name` 在 JS 侧是真访问器（装在 `Node.prototype` 上），
+ * `.name` 与 `get_name()` / `set_name()` 读写的是同一个引擎名字。在此之前 `name` 被整体
+ * 排除在属性绑定之外，`node.name = "x"` 只会写出一个 JS 自有属性：读回来还是那个值，
+ * 引擎侧却一点没变，`find_child` / `get_node` 全部查不到。
  *
- * 判据一律用引擎侧的 `get_name()` / `find_child` / `get_node`：JS 侧的 `.name` 已不再是事实来源。
+ * 本文件的判据一律用 `get_name()` / `find_child` / `get_node`，不用 `.name`：
+ * 万一属性绑定哪天退回去，`.name` 读的会是 JS 缓存，两边“一致地错”而测不出问题。
  */
 import { Component, provideZonelessChangeDetection, signal, type Type } from "@angular/core";
 import { ComponentFixture, ComponentFixtureAutoDetect, TestBed } from "@angular/core/testing";
@@ -126,13 +127,13 @@ describe("name → 引擎节点名字", () => {
     root.add_child(node);
 
     // 已命名的节点无法取消名字：空串被引擎直接忽略
-    node.set_name("real");
-    node.set_name("");
+    node.name = "real";
+    node.name = "";
     expect(node.get_name()).toBe("real");
 
     // 移出树也置不空：空名只存在于“从未命名过”的节点上
     root.remove_child(node);
-    node.set_name("");
+    node.name = "";
     expect(node.get_name()).toBe("real");
     expect(new Label().get_name()).toBe("");
 
@@ -171,10 +172,10 @@ describe("name → 引擎节点名字", () => {
     expect(second.get_name().startsWith("@")).toBe(true);
   });
 
-  it("访问器缺口的实际范围：只有 name", () => {
+  it("访问器已覆盖全部 ClassDB 属性（name 在 1.3.2 已补上）", () => {
     const node = new Label();
     expect(hasJsAccessor(node as never, "text")).toBe(true);
-    expect(hasJsAccessor(node as never, "name")).toBe(false);
+    expect(hasJsAccessor(node as never, "name")).toBe(true);
 
     // 把 Label 继承链上的 ClassDB 属性全扫一遍。属性表里混着编辑器分组项（如 “Layout”、
     // “BiDi”、“Theme”），它们的 type 是 NIL(0)，不是可写属性，先排除。
@@ -190,9 +191,9 @@ describe("name → 引擎节点名字", () => {
       cls = ClassDB.get_parent_class(cls) ?? null;
     }
     const missing = [...props.keys()].filter((p) => !hasJsAccessor(node as never, p));
-    // 绑定目前只漏了 name（已由 setProperty 的专用分支走 set_name）。再出现新的缺口，
-    // 开发期会命中 writeProperty 里的访问器告警，这里也会先红。
-    expect(missing).toEqual(["name"]);
+    // 历史上这里只漏 `name`（渲染器靠 setProperty 的专用分支走 set_name 绕过）。
+    // 再出现新的缺口，开发期会命中 writeProperty 里的访问器告警，这里也会先红。
+    expect(missing).toEqual([]);
   });
 
   it("锚点拿到真实名字，且不影响兄弟组合器", async () => {
@@ -210,7 +211,7 @@ describe("name → 引擎节点名字", () => {
 
     const fixture = await render(Comp);
     const box = findByName(fixture.nativeElement, "box") as Control;
-    // 锚点在引擎里叫 anchor（此前只存在于 JS 字段，引擎侧是 @Node@N）
+    // 锚点在引擎里叫 anchor（此前引擎侧是 @Node@N，只有 JS 字段里有名字）
     expect(box.get_child(0).get_name()).toBe("anchor");
     // 名字变真不影响 CSS：锚点仍不占兄弟位
     const btn = findByName(fixture.nativeElement, "b") as Control;

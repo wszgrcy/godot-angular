@@ -34,7 +34,7 @@ describe("godotSignal$", () => {
   beforeEach(() => {
     initGodotTestEnvironment();
     root = new Node();
-    root.set_name("RxRoot");
+    root.name = "RxRoot";
     getEngineSceneRoot()!.add_child(root);
   });
 
@@ -85,7 +85,7 @@ describe("godotSignal$", () => {
     const sub = godotSignal$<[Node]>(tree, "node_added").subscribe((args) => seen.push(args));
 
     const child = new Node();
-    child.set_name("RxChildArgs");
+    child.name = "RxChildArgs";
     root.add_child(child);
 
     expect(seen.some((args) => args.length === 1 && args[0] === child)).toBe(true);
@@ -94,7 +94,7 @@ describe("godotSignal$", () => {
 
   it("事件名可以写 DOM 风格：Button 的 click 解析为 pressed", async () => {
     const button = new Button();
-    button.set_name("RxButton");
+    button.name = "RxButton";
     root.add_child(button);
 
     const pending = godotSignal$(button, "click").pipe(first()).toPromise();

@@ -117,7 +117,7 @@ export class Screen {
   }
 
   findName(name: string): Node | null {
-    return walkNodes(this.host).find((n) => n.get_name() === name) ?? null;
+    return walkNodes(this.host).find((n) => n.name === name) ?? null;
   }
 
   /** 按 `text` 属性精确匹配（Label / Button 那一支才有 text） */
@@ -144,7 +144,7 @@ export class Screen {
   /** 节点中心点在窗口里的坐标 */
   centerOf(target: Node): Vector2 {
     const r = rectOf(target);
-    if (!r) throw new Error(`${target.get_name()} 不是 Control，没有画面位置`);
+    if (!r) throw new Error(`${target.name} 不是 Control，没有画面位置`);
     return new Vector2(r.x + r.w / 2, r.y + r.h / 2);
   }
 
@@ -245,7 +245,7 @@ export class Screen {
    */
   countColor(target: Node, color: Rgb, tolerance = 0.1): number {
     const rect = rectOf(target);
-    if (!rect) throw new Error(`${target.get_name()} 不是 Control，没有画面区域`);
+    if (!rect) throw new Error(`${target.name} 不是 Control，没有画面区域`);
     const image = this.screenshot();
     const [r, g, b] = color;
     let hits = 0;

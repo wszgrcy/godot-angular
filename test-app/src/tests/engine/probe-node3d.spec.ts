@@ -154,7 +154,7 @@ describe("非 Control 节点", () => {
 
   it("Godot 信号可以包成 RxJS 流", async () => {
     const root = new Node();
-    root.set_name("ProbeRoot");
+    root.name = "ProbeRoot";
     getEngineSceneRoot()!.add_child(root);
     const timer = new Timer();
     timer.wait_time = 0.05;
