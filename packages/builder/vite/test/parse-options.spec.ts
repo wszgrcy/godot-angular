@@ -76,7 +76,7 @@ describe("parseOptions", () => {
 
   it("必填缺失时报错带字段名，不是 [object Object]", () => {
     const bad = { ...minimal };
-    delete (bad as Record<string, unknown>).resRoot;
+    delete (bad as Record<string, unknown>).outputPath;
     let msg = "";
     try {
       parseOptions(applicationOptionsSchema, bad, "application");
@@ -84,8 +84,13 @@ describe("parseOptions", () => {
       msg = e instanceof Error ? e.message : String(e);
     }
     expect(msg).toContain("application 选项校验失败");
-    expect(msg).toContain("at resRoot");
+    expect(msg).toContain("at outputPath");
     expect(msg).not.toContain("[object Object]");
+  });
+
+  it("resRoot 不再是选项：写了也会被洗掉（它恒等于 res:// 拼 outputPath）", () => {
+    const o = parseOptions(applicationOptionsSchema, minimal, "application") as Record<string, unknown>;
+    expect(o.resRoot).toBeUndefined();
   });
 
   it("嵌套数组里的错能定位到下标", () => {

@@ -27,7 +27,16 @@ export const MANDATORY_POLYFILL_SPECIFIER = "godot-angular/builder/vite/polyfill
  * 输出侧提前跑无影响：godotRequirePlugin 在 renderChunk 阶段（早于所有 generateBundle），
  * budgets 插件排在其后，量到的是注入后的尺寸。
  */
-export function polyfillPlugin(options: { resRoot: string; extras: string[] }): Plugin {
+export function polyfillPlugin(options: {
+  resRoot: string;
+  extras: string[];
+  /**
+   * 不需要补丁的入口名（脚本类）。补丁入口的作用是抢在 Angular 之前把全局补好，
+   * 而脚本类是引擎按需 `require` 的独立模块，它可能先于主入口被加载，也可能根本不跑
+   * Angular；给它注入 `require(补丁)` 只会多一层无意义的启动依赖。
+   */
+  skipEntryNames?: Set<string>;
+}): Plugin {
   return {
     name: "godot-angular-polyfill",
     enforce: "pre",
@@ -62,6 +71,7 @@ export function polyfillPlugin(options: { resRoot: string; extras: string[] }): 
       for (const item of Object.values(bundle)) {
         if (item.type !== "chunk" || !item.isEntry) continue;
         if (item.name === POLYFILL_ENTRY_NAME) continue; // 补丁自己不用注入
+        if (options.skipEntryNames?.has(item.name)) continue; // 脚本类不吃补丁
         const s = new MagicString(item.code);
         s.prepend(line);
         item.code = s.toString();

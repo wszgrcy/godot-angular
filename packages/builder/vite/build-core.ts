@@ -1,8 +1,7 @@
 import type { BuilderContext } from "@angular-devkit/architect";
 import angular from "@analogjs/vite-plugin-angular";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { globSync } from "tinyglobby";
 import { ReplaySubject } from "rxjs";
 import { bufferedValuesFrom } from "rxjs-for-await";
 import { toPosix, withoutQuery } from "../shared/path";
@@ -26,6 +25,13 @@ import { icuDowngradePlugin } from "./icu-downgrade";
 import { cssPlugins, GLOBAL_CSS_VIRTUAL } from "./css-plugin";
 import { godotInteropPlugin } from "./godot-interop";
 import { isExternalDependency, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
+import {
+  GODOTJS_OUT_DIR,
+  SC_STAGING_DIR,
+  GODOTJS_OUT_RES_ROOT,
+  scriptClassEntryName,
+} from "./script-class-path";
+import { globInputFiles, globInputPaths } from "./glob-input";
 import {
   applicationOptionsSchema,
   normalizeOptimization,
@@ -55,12 +61,7 @@ export function resolveEntries(
   const taken = new Map<string, string>();
   for (const p of list) {
     const inputRoot = resolve(workspaceRoot, p.input);
-    const found = globSync([p.glob], {
-      cwd: inputRoot,
-      ignore: p.ignore,
-      expandDirectories: false,
-      onlyFiles: true,
-    }).sort();
+    const found = globInputFiles(workspaceRoot, { glob: p.glob, input: p.input, ignore: p.ignore });
     if (found.length === 0) {
       // 路径转 posix：报错要能直接复制去命令行，也不能同一条消息里两种分隔符混着
       const shown = toPosix(p.input === "" ? workspaceRoot : inputRoot);
@@ -104,6 +105,30 @@ export function godotRequirePlugin(resRoot: string): Plugin {
             `require(${JSON.stringify(`${resRoot}/${toPosix(join(base, spec))}`)})`,
         );
       }
+    },
+  };
+}
+
+/**
+ * 把脚本类产物从 outDir 里的临时目录搬到引擎约定目录（rename，不改内容）。
+ * 需要临时目录是因为 rollup 的 entryFileNames 不允许 `../`，产物写不到 outDir 外面。
+ */
+export function scriptClassMovePlugin(opts: {
+  outDirAbs: string;
+  targets: Map<string, string>;
+}): Plugin {
+  return {
+    name: "godot-angular-script-class-move",
+    enforce: "post",
+    writeBundle() {
+      for (const [staged, dest] of opts.targets) {
+        const from = resolve(opts.outDirAbs, staged);
+        if (!existsSync(from)) continue;
+        mkdirSync(dirname(dest), { recursive: true });
+        rmSync(dest, { force: true });
+        renameSync(from, dest);
+      }
+      rmSync(resolve(opts.outDirAbs, SC_STAGING_DIR), { recursive: true, force: true });
     },
   };
 }
@@ -162,14 +187,50 @@ export type GodotViteBuildOptions = Omit<ApplicationOptions, "styles"> &
   Partial<Pick<ApplicationOptions, "styles">> &
   GodotViteBuildInternals;
 
+/**
+ * 解析 `scriptClassEntries`：glob 出文件，算出引擎要求的入口名（源码相对路径去掉 `.ts`）。
+ *
+ * 这些入口与主入口走**同一次 vite 构建**，只是产物落到引擎硬编码的 `.godot/GodotJS/` 下：
+ * 引擎拿“产物路径去掉该目录前缀”反推 `.ts` 源码，名字对不上就白搭。不这么做时，运行时
+ * `new` 这些类会让引擎直接崩溃。
+ *
+ * 返回名字 → 绝对源路径；名字集合同时用于“不吃 polyfill 注入”与“输出路由”两处判定。
+ */
+function resolveScriptClassEntries(
+  patterns: EntryPattern[],
+  workspaceRoot: string,
+  context: BuilderContext,
+): Map<string, { file: string; outDir: string }> {
+  const out = new Map<string, { file: string; outDir: string }>();
+  if (!patterns.length) return out;
+
+  let total = 0;
+  for (const raw of normalizeEntries(patterns)) {
+    const outDir = raw.output || GODOTJS_OUT_DIR;
+    if (outDir !== GODOTJS_OUT_DIR && !outDir.startsWith(`${GODOTJS_OUT_DIR}/`)) {
+      throw new Error(
+        `scriptClassEntries 的 output 只能是 ${GODOTJS_OUT_DIR} 或它的子目录，收到 “${outDir}”：` +
+          "引擎只认这个前缀，写到外面运行时 new 这些类会直接崩溃。",
+      );
+    }
+    const found = globInputPaths(workspaceRoot, { glob: raw.glob, input: raw.input, ignore: raw.ignore });
+    for (const { abs } of found) {
+      // 名字按相对工程根算，不按相对 input：引擎靠这个反推 .ts 源码
+      out.set(scriptClassEntryName(relative(workspaceRoot, abs)), { file: abs, outDir });
+    }
+    total += found.length;
+  }
+  if (!total) context.logger.warn(`scriptClassEntries 未匹配到任何文件`);
+  return out;
+}
+
 export async function runGodotViteBuild(
   options: GodotViteBuildOptions,
   context: BuilderContext,
 ): Promise<{ success: boolean }> {
   const prepared = await prepareConfig(options, context);
   if (!prepared) return { success: false };
-  const { config, entryCount } = prepared;
-
+  const { config, entryCount, scriptClassCount } = prepared;
   try {
     await build(config);
   } catch (err) {
@@ -177,7 +238,8 @@ export async function runGodotViteBuild(
     return { success: false };
   }
   context.logger.info(
-    `已生成 ${entryCount} 个入口 → ${relative(context.workspaceRoot, resolve(context.workspaceRoot, options.outputPath))}`,
+    `已生成 ${entryCount} 个入口 → ${relative(context.workspaceRoot, resolve(context.workspaceRoot, options.outputPath))}` +
+      (scriptClassCount ? `，脚本类 ${scriptClassCount} 个 → ${GODOTJS_OUT_DIR}（引擎约定目录）` : ""),
   );
   return { success: true };
 }
@@ -254,12 +316,11 @@ export async function* runGodotViteWatch(
 async function prepareConfig(
   options: GodotViteBuildOptions,
   context: BuilderContext,
-): Promise<{ config: InlineConfig; entryCount: number } | null> {
+): Promise<{ config: InlineConfig; entryCount: number; scriptClassCount: number } | null> {
   const {
     entries,
     tsConfig,
     outputPath,
-    resRoot,
     polyfills,
     optimization,
     sourceMap,
@@ -281,6 +342,8 @@ async function prepareConfig(
   } = options;
 
   const outDir = resolve(context.workspaceRoot, outputPath);
+  const outRel = toPosix(outputPath);
+  const outResRoot = `res://${outRel.replace(/\/+$/, "")}`;
 
   // 布尔与对象两种书写在此处归一，下游仅读取 `.scripts`
   const optimize = normalizeOptimization(optimization);
@@ -302,6 +365,23 @@ async function prepareConfig(
     }
   }
   const entryCount = Object.keys(input).length;
+
+  let scriptClasses: Map<string, { file: string; outDir: string }>;
+  try {
+    scriptClasses = resolveScriptClassEntries(options.scriptClassEntries, context.workspaceRoot, context);
+  } catch (err) {
+    context.logger.error(err instanceof Error ? err.message : String(err));
+    return null;
+  }
+  for (const [name, e] of scriptClasses) {
+    input[name] = e.file;
+  }
+  const scNames = new Set(scriptClasses.keys());
+  // 脚本类先落到 outDir 里的临时目录（entryFileNames 不允许 `../`），构建完再搬到引擎约定目录
+  const scTargets = new Map<string, string>();
+  for (const [name, e] of scriptClasses) {
+    scTargets.set(`${SC_STAGING_DIR}/${name}.js`, resolve(context.workspaceRoot, e.outDir, `${name}.js`));
+  }
   // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
   // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
   // 且不会被摇树，随后由 polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）
@@ -346,7 +426,7 @@ async function prepareConfig(
       ...loaderPlugin(loader),
       // polyfill 由一个插件同时管理两头（虚拟入口 + 产物层注入 require）。必须在最前面：
       // 它的 resolveId 要抢在 vite 核心解析之前
-      polyfillPlugin({ resRoot, extras }),
+      polyfillPlugin({ resRoot: outResRoot, extras, skipEntryNames: scNames }),
       ...angularPlugins(tsConfig, fileReplacements, context),
       icuDowngradePlugin((m) => context.logger.info(m)),
       // CSS 通道（源码层 styleUrls 守卫 + 全局样式虚拟模块）。数组位置只决定同阶段的先后，
@@ -359,14 +439,15 @@ async function prepareConfig(
       // 必须在 godotRequirePlugin 之前：它改的是**模块源码**里的 import，而
       // godotRequirePlugin 改的是**产物**里的 require，两者不在一个阶段。
       godotInteropPlugin((m) => context.logger.info(m)),
-      godotRequirePlugin(resRoot),
+      godotRequirePlugin(outResRoot),
+      scriptClassMovePlugin({ outDirAbs: outDir, targets: scTargets }),
       assetsPlugin(normalizeAssets(assets), context.workspaceRoot),
       budgetsPlugin({ budgets, statsJson, log }),
       ...(options.extraPlugins ?? []),
     ],
     build: {
       outDir,
-      emptyOutDir: deleteOutputPath,
+      emptyOutDir: options.deleteOutputPath,
       sourcemap: sourceMap,
       minify: optimize.scripts ? "esbuild" : false,
       target: "es2022",
@@ -387,7 +468,8 @@ async function prepareConfig(
         preserveEntrySignatures: "strict",
         output: {
           format: "cjs",
-          entryFileNames: "[name].js",
+          entryFileNames: (chunk) =>
+            scriptClasses.has(chunk.name) ? `${SC_STAGING_DIR}/${chunk.name}.js` : "[name].js",
           chunkFileNames: `chunks/[name]${hashed}.js`,
           // 用 named 不用 auto：auto 在只有一个 default 导出时会发
           // `module.exports = Main`，而 GodotJS 从 `exports.default` 取脚本类。
@@ -400,9 +482,9 @@ async function prepareConfig(
   if (options.viteConfig) {
     const merged = await mergeUserViteConfig(config, options.viteConfig, context);
     if (!merged) return null;
-    return { config: merged, entryCount };
+    return { config: merged, entryCount, scriptClassCount: scNames.size };
   }
-  return { config, entryCount };
+  return { config, entryCount, scriptClassCount: scNames.size };
 }
 
 function angularPlugins(

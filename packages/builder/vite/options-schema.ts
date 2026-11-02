@@ -1,5 +1,6 @@
 import * as v from "valibot";
 import { DEFAULT_ENGINE_PORT } from "../shared/engine-port";
+import { GODOTJS_OUT_DIR } from "./script-class-path";
 
 /* ------------------------------------------------------------------ *
  * 子形状
@@ -279,12 +280,20 @@ export const sharedOptionFields = {
         + "名称不再从“匹配文件的公共目录”反推（该结果会随匹配情况变化）；未提供 input / output 时以根目录为准。",
     ),
   ),
-  resRoot: v.pipe(
-    v.string(),
-    v.description(
-      "outputPath 对应的 res:// 前缀，例如工程根下 outputPath=dist 时填 res://dist。" +
-        'chunk 之间的 require 会据此改写为绝对路径（GodotJS 的 require("./x") 不可用）。',
+  // 这里故意没有 resRoot：outputPath 就是相对工程根（= res://）的，res 前缀恒等于
+  // res:// 拼 outputPath，推出来就行。老配置里写了 resRoot 的会被 v.object 洗掉，不报错。
+  scriptClassEntries: v.optional(
+    v.pipe(
+      v.array(entryPatternSchema),
+      v.description(
+        "脚本类入口（`export default class X extends 引擎类`），形状与 `entries` 一致，字符串简写也可用。" +
+          "与 `entries` 的区别只有两处：① 产物名固定为文件相对 workspaceRoot 的路径（去掉 .ts），" +
+          "不受 `input` 影响——引擎是拿“产物路径去掉 .godot/GodotJS 前缀”反推 .ts 源码的，" +
+          "名字对不上时运行时 `new` 这些类会让引擎直接崩溃；② `output` 默认 .godot/GodotJS（引擎写死的" +
+          "约定目录），只能往更深处写（如 .godot/GodotJS/v2），写不到它外面。普通入口不受此约束，不要放进这里。",
+      ),
     ),
+    [],
   ),
   viteConfig: v.optional(
     v.pipe(
@@ -301,7 +310,8 @@ export const sharedOptionFields = {
   outputPath: v.pipe(
     v.string(),
     v.description(
-      "产物目录（相对 workspaceRoot）。必须位于 Godot 工程内，res:// 以工程根为基准。",
+      "产物目录（相对 workspaceRoot），chunk 与补丁也在这里。entry 的 output 字段是它的子目录。"
+        + "脚本类不受它管，固定落 " + GODOTJS_OUT_DIR + "（引擎写死的约定目录）。",
     ),
   ),
   polyfills: v.optional(

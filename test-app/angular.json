@@ -12,7 +12,16 @@
           "options": {
             "tsConfig": "tsconfig.json",
             "outputPath": "dist-engine-test",
-            "resRoot": "res://dist-engine-test",
+            "scriptClassEntries": [
+              {
+                "input": "src/fixtures",
+                "glob": "**/*.ts"
+              },
+              {
+                "input": "src/more",
+                "glob": "**/*.ts"
+              }
+            ],
             "optimization": false,
             "sourceMap": false,
             "specInclude": [
