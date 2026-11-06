@@ -741,7 +741,15 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
    自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
    `jsb_native_esm=yes` 决定，GodotJS **1.3.4** 起官方 release 包已编进去。本仓库产物全部
-   `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
+   `.mjs`，入口因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
+   **但脚本类产物（`scriptClassEntries`）例外，它只能是 `.js`**：引擎的
+   `PathUtil::convert_typescript_path` 把 `.ts` 硬拼成 `.js`（没有 `.mjs` 分支），产物只有 `.mjs` 时
+   类能注册上、但 `new` 会让引擎 `FATAL: Condition "!(script_instance)" is true` 直接崩溃（不是
+   可捕获异常）。而 `.js` 走 CJS 通道，所以脚本类产物必须是 CJS 形状，不能跟 bundle 共用一趟
+   输出（一个 rollup output 只能一种 format）。因此构建器跑**两趟**：应用入口一趟 ESM `.mjs`，
+   脚本类入口一趟 CJS `.js`（带 `exports: "named"`，产物是 `exports.default = 类`，引擎与测试
+   都按 `require(...).default` 取）。代价：脚本类不再与应用共享 chunk，它 import 的代码会在
+   两边各存一份。
 2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
    CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；
    仍要记住 `res://` 绝对路径在 Windows 上也必须正斜杠。
@@ -880,11 +888,13 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     只有 `.mjs` 走 V8 的模块机制，`.js` / `.cjs` / `.json` 照旧 CommonJS；而
     `DefaultModuleResolver::check_implicit_source_path` 试扩展名的顺序是 `.js` → `.cjs` → `.mjs` →
     `.json`，`NativeESMModuleResolver::get_source_info` 又只接受落在 `.mjs` 上的结果，所以
-    **产物必须全量 `.mjs`**，rollup 默认发出的 `./chunk.js` 会被判给 CJS 通道。
+    **应用产物必须全量 `.mjs`**，rollup 默认发出的 `./chunk.js` 会被判给 CJS 通道（脚本类除外，
+    它只能 `.js`，见本节第 1 条）。
 
     本仓库为此动了五处（全在 `packages/builder`）：
-    ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` /
-    脚本类入口全量 `.mjs`（引擎的 `convert_javascript_path` 认 `.mjs`）；
+    ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` 全量 `.mjs`；
+    脚本类入口不能跟着改（引擎把 `.ts` 硬拼成 `.js`，见本节第 1 条），所以 `prepareConfig` 按
+    `variant` 分应两趟：`"app"` 走 ESM，`"scriptClass"` 走 CJS `.js`；
     ② `vite/godot-interop.ts` 连**具名** `from "godot"` 一起改写（见本节第 3 条）；
     ③ `vite/polyfill.ts` 的注入由前置 `require(…)` 改成静态 `import "res://…"`（ESM 里静态
     import 先于模块体求值，前置 `require` 反而晚于所有 chunk 执行）；

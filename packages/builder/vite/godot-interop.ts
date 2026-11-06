@@ -44,19 +44,26 @@ function importedAccessor(p: LooseImportedName, code: string): string {
 }
 
 /**
- * 把 `godot` 模块的 import 统一改写成“先整体取模块，再点属性”。
+ * `godot` 模块的 import 归一化。引擎侧的 `godot` 是一个 Proxy，列不出自有属性，所以两种产物
+ * 格式各有各的坑，改写方式也不同。
  *
- * 引擎侧的 `godot` 模块是一个 Proxy，列不出自有属性，因此 ESM 链接阶段无法为它生成具名导出
- * （上游用例 `tests/project/tests/esm/godot_named.mjs` 断言的就是这件事）。能用的写法只有
- * 默认导入：`import gd from "godot"; gd.Node`。
- *
- * 于是源码里三种写法都归一到同一种：
+ * **ESM 产物（`mode: "es"`）**：ESM 链接阶段要为模块列出具名导出，Proxy 列不出来，于是
+ * `import { Node } from "godot"` 在链接期就失败（上游用例 `tests/project/tests/esm/godot_named.mjs`
+ * 断言的就是这件事）；`import * as gd` 拿到的命名空间上只有 `default`。能用的写法只有默认导入，
+ * 所以三种写法全部归一到“整体取模块 + 点属性”：
  *   import gd from "godot"        →  import __gd$0 from "godot"; const gd = __gd$0;
- *   import * as gd from "godot"   →  同上（命名空间对象上只有 default，不能直接点类名）
+ *   import * as gd from "godot"   →  同上
  *   import { Node } from "godot"  →  import __gd$0 from "godot"; const Node = __gd$0.Node;
+ *
+ * **CJS 产物（`mode: "cjs"`，脚本类那一趟用）**：具名导入本来就是安全的（产物是
+ * `require("godot").Node`），会出事的是 default / namespace——打包器为它们合成 ESM 语义时插入
+ * `__toESM(godot, 1)`，而那个 interop 靠 `Object.keys(Proxy)` 拷键，结果具名全变 undefined。
+ * 所以只把 default / namespace 换成裸 `require`，具名一个字节都不碰：
+ *   import gd, { Node } from "godot"  →  import { Node } from "godot"; const gd = require("godot");
  */
 export function godotInteropPlugin(
   log: (msg: string) => void,
+  mode: "es" | "cjs" = "es",
 ): Plugin {
   return {
     name: "godot-angular-godot-interop",
@@ -92,6 +99,36 @@ export function godotInteropPlugin(
 
         const s = new MagicString(code);
         let rewritten = 0;
+
+        if (mode === "cjs") {
+          for (const decl of targets) {
+            // 只有 default / namespace 会被合成 interop 包装，具名保持原样
+            const wrapped = decl.specifiers.filter(
+              (sp) => sp.type === "ImportDefaultSpecifier" || sp.type === "ImportNamespaceSpecifier",
+            );
+            if (wrapped.length === 0) continue;
+
+            const named = decl.specifiers.filter((sp) => sp.type === "ImportSpecifier");
+            const sourceText = code.slice(decl.source.start!, decl.source.end!);
+            const consts = wrapped
+              .map((sp) => `const ${sp.local!.name} = require(${sourceText});`)
+              .join("\n");
+
+            // 重写整条语句而不是逐个删说明符：后者要自行处理逗号位置与非法形状，分支多且易错。
+            const replacement = named.length
+              ? `import { ${named.map((sp) => code.slice(sp.start!, sp.end!)).join(", ")} } from ${sourceText};\n${consts}`
+              : consts;
+            s.overwrite(decl.start!, decl.end!, replacement);
+            rewritten += wrapped.length;
+          }
+          if (rewritten === 0) return null;
+          log(
+            `godot interop：${id.split("/").slice(-2).join("/")} 改写 ${rewritten} 处 ` +
+              `default/namespace 导入为裸 require`,
+          );
+          return { code: s.toString(), map: s.generateMap({ hires: true }).toString() };
+        }
+
         // 同一条说明符只引入一个默认绑定；重复出现的声明只补属性，不再重复 import
         const bindings = new Map<string, string>();
 

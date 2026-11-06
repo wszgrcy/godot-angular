@@ -259,7 +259,7 @@ export async function runGodotViteBuild(
   options: GodotViteBuildOptions,
   context: BuilderContext,
 ): Promise<{ success: boolean }> {
-  const prepared = await prepareConfig(options, context);
+  const prepared = await prepareConfig(options, context, "app");
   if (!prepared) return { success: false };
   const { config, entryCount, scriptClassCount } = prepared;
   try {
@@ -268,9 +268,20 @@ export async function runGodotViteBuild(
     context.logger.error(formatBuildError(err));
     return { success: false };
   }
+  // 脚本类单独一趟 CJS（产物必须是 `.js`，与 ESM bundle 不能共用一个 output）
+  if (scriptClassCount) {
+    const sc = await prepareConfig(options, context, "scriptClass");
+    if (!sc) return { success: false };
+    try {
+      await build(sc.config);
+    } catch (err) {
+      context.logger.error(formatBuildError(err));
+      return { success: false };
+    }
+  }
   context.logger.info(
     `已生成 ${entryCount} 个入口 → ${relative(context.workspaceRoot, resolve(context.workspaceRoot, options.outputPath))}` +
-      (scriptClassCount ? `，脚本类 ${scriptClassCount} 个 → ${GODOTJS_OUT_DIR}（引擎约定目录）` : ""),
+      (scriptClassCount ? `，脚本类 ${scriptClassCount} 个 → ${GODOTJS_OUT_DIR}（引擎约定目录，CJS \`.js\`）` : ""),
   );
   return { success: true };
 }
@@ -301,6 +312,7 @@ export async function* runGodotViteWatch(
       extraPlugins: [...(options.extraPlugins ?? []), observer],
     },
     context,
+    "app",
   );
   if (!prepared) {
     yield { success: false };
@@ -314,6 +326,19 @@ export async function* runGodotViteWatch(
     context.logger.error(formatBuildError(err));
     cycles.next(false);
   });
+
+  // 脚本类另起一个 watcher。它不带 observer：一轮两个 buildEnd 会让周期计数翻倍。
+  // 失败只记日志，不让整个 watch 结束（与下面“出错后继续监听”的语义一致）。
+  if (prepared.scriptClassCount) {
+    const sc = await prepareConfig(
+      { ...options, watch: true },
+      context,
+      "scriptClass",
+    );
+    if (sc) {
+      build(sc.config).catch((err: unknown) => context.logger.error(formatBuildError(err)));
+    }
+  }
 
   // 此处故意不注册 SIGINT 监听：Node 的规则是“有监听器就接管”，而 complete() 只能结束
   // 本构建器的循环，支撑事件循环的是 rolldown watcher 的句柄（无法获取、无法关闭）。注册监听后
@@ -343,10 +368,20 @@ export async function* runGodotViteWatch(
   }
 }
 
-/** 组装 vite 配置。返回 null 表示选项本身不合法，已输出日志。 */
+/**
+ * 组装 vite 配置。返回 null 表示选项本身不合法，已输出日志。
+ *
+ * `variant` 决定这一趟编什么：
+ * - `"app"`：应用入口，ESM 产物 `.mjs`（引擎把 `.mjs` 交给 V8 的模块机制）。
+ * - `"scriptClass"`：脚本类入口，CJS 产物 `.js`。两者必须分开：引擎的
+ *   `PathUtil::convert_typescript_path` 把 `.ts` 源路径硬拼成 `.js`（没有 `.mjs` 分支），
+ *   脚本类只有 `.mjs` 时类能注册上、但 `new` 会让引擎 FATAL 崩溃；而 `.js` 走 CJS 通道，
+ *   一个 rollup output 只能一种 format，所以只能分两趟。
+ */
 async function prepareConfig(
   options: GodotViteBuildOptions,
   context: BuilderContext,
+  variant: "app" | "scriptClass" = "app",
 ): Promise<{ config: InlineConfig; entryCount: number; scriptClassCount: number } | null> {
   const {
     entries,
@@ -404,20 +439,24 @@ async function prepareConfig(
     context.logger.error(err instanceof Error ? err.message : String(err));
     return null;
   }
-  for (const [name, e] of scriptClasses) {
-    input[name] = e.file;
-  }
   const scNames = new Set(scriptClasses.keys());
+  // 脚本类产物的扩展名由引擎定死（见 prepareConfig 注释），CJS 通道只认 `.js`
+  const scExt = "js";
+  /** 脚本类入口名 → 源文件；app 那趟不参与构建它们 */
+  const scInput: Record<string, string> = {};
+  for (const [name, e] of scriptClasses) {
+    scInput[name] = e.file;
+  }
   // 脚本类先落到 outDir 里的临时目录（entryFileNames 不允许 `../`），构建完再搬到引擎约定目录
   const scTargets = new Map<string, string>();
   for (const [name, e] of scriptClasses) {
-    scTargets.set(`${SC_STAGING_DIR}/${name}.mjs`, resolve(context.workspaceRoot, e.outDir, `${name}.mjs`));
+    scTargets.set(`${SC_STAGING_DIR}/${name}.${scExt}`, resolve(context.workspaceRoot, e.outDir, `${name}.${scExt}`));
   }
   // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
   // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
   // 且不会被摇树，随后由 polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）
   // 同样适用。
-  const extras = [...polyfills];
+  const extras = variant === "scriptClass" ? [] : [...polyfills];
   // 全局样式表挂在补丁入口后面：那个入口的存在就是为了抢在 Angular 之前求值，
   // 而全局 CSS 必须在第一个组件创建前就已存在（application 层样式表）。
   const globalStyles = normalizeGlobalStyles(styles, context.workspaceRoot);
@@ -456,30 +495,37 @@ async function prepareConfig(
     plugins: [
       preloadHelperStubPlugin(),
       ...loaderPlugin(loader),
-      // polyfill 由一个插件同时管理两头（虚拟入口 + 产物层注入 require）。必须在最前面：
-      // 它的 resolveId 要抢在 vite 核心解析之前
-      polyfillPlugin({ resRoot: outResRoot, extras, skipEntryNames: scNames }),
+      // polyfill 由一个插件同时管理两头（虚拟入口 + 产物层注入 import）。必须在最前面：
+      // 它的 resolveId 要抢在 vite 核心解析之前。脚本类那趟没有补丁入口（引擎按需加载它们，
+      // 可能先于主入口求值），整个插件不参与。
+      ...(variant === "scriptClass" ? [] : [polyfillPlugin({ resRoot: outResRoot, extras, skipEntryNames: scNames })]),
       ...angularPlugins(tsConfig, fileReplacements, context),
       icuDowngradePlugin((m) => context.logger.info(m)),
       // CSS 通道（源码层 styleUrls 守卫 + 全局样式虚拟模块）。数组位置只决定同阶段的先后，
       // 真正的顺序由 enforce 决定（源码层必须抢在 analog 之前）。
       ...cssPlugins({
-        globalStyles,
+        // 全局样式挂在补丁入口上，脚本类那趟没有补丁入口，也不重复输出全局 CSS
+        globalStyles: variant === "scriptClass" ? [] : globalStyles,
         workspaceRoot: context.workspaceRoot,
         log: (m) => context.logger.info(m),
       }),
       // 必须在 godotRequirePlugin 之前：它改的是**模块源码**里的 import，而
       // godotRequirePlugin 改的是**产物**里的 require，两者不在一个阶段。
-      godotInteropPlugin((m) => context.logger.info(m)),
+      godotInteropPlugin((m) => context.logger.info(m), variant === "scriptClass" ? "cjs" : "es"),
       godotRequirePlugin(outResRoot),
-      scriptClassMovePlugin({ outDirAbs: outDir, targets: scTargets }),
-      assetsPlugin(normalizeAssets(assets), context.workspaceRoot),
-      budgetsPlugin({ budgets, statsJson, log }),
+      ...(variant === "scriptClass" && scTargets.size
+        ? [scriptClassMovePlugin({ outDirAbs: outDir, targets: scTargets })]
+        : []),
+      // 资源拷贝与预算统计只属于应用那趟：脚本类那趟重复执行会把资源再扫一遍、把 stats.json 覆掉
+      ...(variant === "scriptClass"
+        ? []
+        : [assetsPlugin(normalizeAssets(assets), context.workspaceRoot), budgetsPlugin({ budgets, statsJson, log })]),
       ...(options.extraPlugins ?? []),
     ],
     build: {
       outDir,
-      emptyOutDir: options.deleteOutputPath,
+      // 脚本类那趟写同一目录，绝不能清空（会把应用产物删掉）
+      emptyOutDir: variant === "scriptClass" ? false : options.deleteOutputPath,
       sourcemap: sourceMap,
       // ESM 分包下 Vite 会给动态 import 包一层 preload-helper，靠 `document.getElementsByTagName`
       // 往页面插 `<link rel=modulepreload>`。GodotJS 没有真 DOM（引擎自己按 res:// 加载 chunk），
@@ -499,16 +545,24 @@ async function prepareConfig(
         // GodotJS 内建模块 + externalDependencies，产物里原样保留 require(...)
         external: (id: string) =>
           id === "godot" || id.startsWith("godot/") || isExternalDependency(id, externalDependencies),
-        input: { ...input, [POLYFILL_ENTRY_NAME]: POLYFILL_ENTRY_SPECIFIER },
+        input:
+          variant === "scriptClass"
+            ? scInput
+            : { ...input, [POLYFILL_ENTRY_NAME]: POLYFILL_ENTRY_SPECIFIER },
         // 不设这个，入口的具名导出会被摇掉且**不报错**（整个 App 组件会跟着一起消失）
         preserveEntrySignatures: "strict",
         output: {
           // 引擎按扩展名分流：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给
-          // V8 自己的模块机制。产物全部用 `.mjs`，`import` / `export` / `import.meta`
-          // 才是标准语义（代价：产物里的相对路径必须带扩展名，rollup 本来就会写全）。
-          format: "es",
+          // V8 自己的模块机制。应用产物走 `.mjs`（`import` / `export` / `import.meta` 才是
+          // 标准语义）；脚本类只能走 `.js` + CJS，原因见 prepareConfig 注释。
+          format: variant === "scriptClass" ? "cjs" : "es",
+          // CJS 默认会把 `export default` 直接写成 `module.exports = 类`，而引擎与测试都是按
+          // `require(...).default` 取脚本类的，必须显式要求具名导出形式。
+          ...(variant === "scriptClass" ? { exports: "named" as const } : {}),
           entryFileNames: (chunk) =>
-            scriptClasses.has(chunk.name) ? `${SC_STAGING_DIR}/${chunk.name}.mjs` : "[name].mjs",
+            variant === "scriptClass"
+              ? `${SC_STAGING_DIR}/${chunk.name}.${scExt}`
+              : "[name].mjs",
           chunkFileNames: `chunks/[name]${hashed}.mjs`,
         },
       },
