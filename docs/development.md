@@ -867,6 +867,13 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     会装（`@nberlette/utf8`，vitest 消息编解码要用），但库自己不再需要它们，所以没进
     `polyfills` —— 没有真实消费者的补丁不补。
 
+21. **JS 定时器的时钟在 1.3.3 才修好**：引擎每帧把「这一帧过了多久」喂给 JS 定时器轮，1.3.2 及更早
+    把「引擎从启动到第一帧的总时长」一次性灌进去，且不足 1ms 的余数直接丢。实测同一个探针
+    （`_ready` 里 `setTimeout(50)`）：1.3.2 在墙上时间 **1ms** 就触发，1.3.3 是 **56ms**。
+    后果是旧引擎上「刚注册的定时器当场触发」，而固定步长（`physics_ticks_per_second` 非 0 的
+    `--fixed-fps` 场景）下每帧增量恒为 0，`setTimeout` / `setInterval` / RxJS `asyncScheduler`
+    会不报错地永久停摆 —— 见 `engine.fixedFps` 选项的说明。
+
 ---
 
 ## 9. 构建与 Angular 侧的已证实行为

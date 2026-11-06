@@ -258,6 +258,29 @@ export const engineOptionsSchema = v.object({
     ),
     true,
   ),
+  fixedFps: v.optional(
+    v.pipe(
+      v.number(),
+      v.description(
+        "启动引擎时附加 `--fixed-fps <值>`（0 或不填 = 不加）。默认 0。\n"
+        + "⚠ **先不要填非 0**：GodotJS 的 `frame()` 用整数毫秒把帧间隔交给 JS 定时器轮，"
+        + "且丢掉不足 1ms 的余数。固定步长下引擎不节流、一秒跑几万帧，每帧增量恒为 0，"
+        + "所有 `setTimeout` / `setInterval` / RxJS `asyncScheduler` **不报错地永久停摆**。"
+        + "根因与修法见 GodotJS 的 `weaver/jsb_script_language.cpp`（`frame()`）"
+        + "与回归用例 `tests/project/tests/timer/test-timer-clock.ts`。"
+        + "只有纯物理、不碰 JS 定时器的场景（如逐帧确定性比对）才能用。\n"
+        + "平时每一帧的时长是从真实时钟量出来的，物理因此被钉在“每秒跑 `physics_ticks_per_second` 步”，"
+        + "等 240 个物理帧就是实打实的 4 秒。开了它之后每帧的时长改为直接**声明**为 1/值（不看真实耗时），"
+        + "引擎就能按 CPU 能跑多快跑多快，而传给 `_physics_process` 的 `delta` 与不实时同步时完全一样，"
+        + "因此物理结果逐位不变。实测 240 个物理帧：不加 4002ms，加 `--fixed-fps 60` 为 1ms。\n"
+        + "填 60 时与默认的 `physics_ticks_per_second=60` 对齐，即每帧恰好一个物理步。\n"
+        + "另外两个代价：① 主循环不再睡，会占满一个核；② 任何拿墙上时间做判据的断言（比如“每帧装配预算 8ms”"
+        + "“100 chunk 必须在 2000ms 内”）量到的不再是真实节奏，这类门禁要么改成按帧数计，"
+        + "要么别开这个开关。",
+      ),
+    ),
+    0,
+  ),
 });
 
 /* ------------------------------------------------------------------ *

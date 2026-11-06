@@ -111,6 +111,14 @@ async function launchEngine(
   ensureImported(projectDir, bin);
   // 有头模式用于截图取像素；默认无头。见 `engineOptionsSchema.headless` 的说明。
   const launchArgs = options.headless === false ? [] : ["--headless"];
+  /*
+   * `--fixed-fps` 把每帧时长从“量真实时钟”改成“直接声明为 1/N 秒”，物理因此不再被钉在
+   * 每秒 N 步上，可以按 CPU 速度跑完，而 `delta` 与实时同步时一致。等物理帧的用例由此
+   * 从“等墙上时间”变成“等计算”，实测 240 帧 4002ms → 1ms。详见 schema 里的 `fixedFps`。
+   */
+  if (options.fixedFps && options.fixedFps > 0) {
+    launchArgs.push("--fixed-fps", String(options.fixedFps));
+  }
   const proc = spawn(bin, [...launchArgs, "--path", projectDir, options.scene], {
     env: { ...process.env, CUJ_WS_PORT: String(port) },
   });

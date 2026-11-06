@@ -217,6 +217,7 @@ async function runVitest(
           godotBin: engine.godotBin,
           noLaunch: engine.noLaunch,
           headless: engine.headless,
+          fixedFps: engine.fixedFps,
           // glob 的唯一来源就是 angular.json 的 specInclude。同进程，直接传参，不经磁盘。
           specInclude: options.specInclude,
         }),
