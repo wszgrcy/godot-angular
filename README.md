@@ -10,8 +10,8 @@
 Angular 模板（一个或多个入口）
    │  ng build → godot-angular:application
    ▼
-dist/main.js + dist/chunks/*.js        CommonJS，多入口共享 chunk
-   │  require() 载入 GodotJS 的 V8
+dist/main.mjs + dist/chunks/*.mjs      ESM，多入口共享 chunk
+   │  引擎按 `res://` 加载（V8 自己的模块机制）
    ▼
 GodotRenderer（Renderer2 实现）
    ▼
@@ -50,7 +50,7 @@ Label / Button / VBoxContainer …       真实 Godot 节点
 ```
 my-app/
 ├── project.godot        # run/main_scene = res://main.tscn
-├── main.tscn            # 根节点脚本 = res://dist/main.js
+├── main.tscn            # 根节点脚本 = res://dist/main.mjs
 ├── angular.json         # godot-angular:application 的 target
 ├── tsconfig.json        # typeRoots 指向生成的 typings 目录
 ├── package.json         # 依赖 godot-angular 与 Angular
@@ -75,7 +75,7 @@ config/features=PackedStringArray("4.7")
 ```ini
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://dist/main.js" id="1_root"]
+[ext_resource type="Script" path="res://dist/main.mjs" id="1_root"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_root")
@@ -144,7 +144,7 @@ npm install godot-angular
 
 ### 2. 安装引擎
 
-必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.js` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.2**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
+必须使用 GodotJS 提供的引擎构建，官方 Godot 无法加载 `.mjs` 脚本。release 页两个地址都行（同一个项目，资产名规则一致）：[godotjs/GodotJS](https://github.com/godotjs/GodotJS/releases)（上游）与 [wszgrcy/GodotJS](https://github.com/wszgrcy/GodotJS/releases)（本项目维护者维护的那份）。本项目对齐 **1.3.4**（Godot 4.7.2 + V8 12.6，目前只在后者有）。下载对应平台的**编辑器构建**，解压后放入工程目录下的 `bin/`（zip 里只有一个可执行文件，需自己建目录）。目录名只区分平台与运行时，**不带引擎版本号**，升级时直接覆盖同一个文件即可：
 
 ```
 bin/
@@ -172,13 +172,13 @@ npx godot-typings --out typings
 ### 4. 构建并运行
 
 ```bash
-npm run build      # = ng build app，产出 dist/main.js
+npm run build      # = ng build app，产出 dist/main.mjs
 godot --path .     # 或使用 Godot 编辑器打开该目录并按 F5
 ```
 
-`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://dist/main.js`。
+`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://dist/main.mjs`。
 
-修改 `dist/*.js` 后引擎无输出时，说明脚本资源缓存未刷新，请重启引擎或执行：
+修改 `dist/*.mjs` 后引擎无输出时，说明脚本资源缓存未刷新，请重启引擎或执行：
 
 ```bash
 godot --headless --path . --import
@@ -188,12 +188,12 @@ godot --headless --path . --import
 
 | 项 | 要求 |
 | --- | --- |
-| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.2，V8 12.6），需编辑器构建 |
+| 引擎 | GodotJS 构建的 Godot，版本 4.7.2（GodotJS 1.3.4，V8 12.6），需编辑器构建 |
 | Node.js | `^22.22.3 \|\| ^24.15.0 \|\| >=26.0.0` |
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
 
-官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://dist/main.js (expected type: Script)`。
+官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://dist/main.mjs (expected type: Script)`。
 
 ## 模板语法
 
@@ -1038,11 +1038,11 @@ this.router.events
 
 | 写法 | 产物 |
 | --- | --- |
-| `"src/main.ts"` | `dist/main.js` |
-| `"src/pages/**/*.ts"` | `dist/hello.js`、`dist/counter.js` |
+| `"src/main.ts"` | `dist/main.mjs` |
+| `"src/pages/**/*.ts"` | `dist/hello.mjs`、`dist/counter.mjs` |
 | `{ glob: "**/*.ts", input: "src/pages" }` | 同上 |
-| `{ glob: "*.ts", input: "src/pages", output: "pages" }` | `dist/pages/hello.js` |
-| `{ glob: "**/*.ts", input: "src", ignore: ["**/tests/**"] }` | `dist/app.js`、`dist/main.js`、`dist/pages/hello.js` |
+| `{ glob: "*.ts", input: "src/pages", output: "pages" }` | `dist/pages/hello.mjs` |
+| `{ glob: "**/*.ts", input: "src", ignore: ["**/tests/**"] }` | `dist/app.mjs`、`dist/main.mjs`、`dist/pages/hello.mjs` |
 
 两种配置产生同名产物时构建报错。入口名称必须保持稳定，场景文件按名称引用脚本。
 
@@ -1189,7 +1189,7 @@ ng test --reporters=json
 ## 限制
 
 - 仅支持 zoneless 变更检测。`tick()` 是变更检测的驱动点。
-- 不支持运行时懒加载（路由 `loadComponent` 等）。运行环境的动态 `import()` 不受支持。构建期静态分包可用，运行时按需载入模块不可用。
+- 不支持运行时懒加载（路由 `loadComponent` 等）。所有模块必须在构建期产出：动态 `import()` 能加载已产出的 chunk（GodotJS 1.3.4 起 `.mjs` 走 V8 的模块机制），但不存在运行时编译。
 - 不支持 `RouterLink` / `RouterLinkActive`：它们的 host listener 要读 `$event.button`，而 `Button.pressed()` 零参数。路由本身可用，跳转写 `router.navigate()`，见[路由](#路由)。
 - 不依赖 `document` 与 DOM API。`document` 仅为占位实现，不具备真实 DOM 语义。`navigator`、`location`、`fetch`、`structuredClone`、`MutationObserver` 等浏览器全局未提供。`@angular/platform-browser` 的 `Browser` / `BrowserModule` 因此不可用；路由不依赖它们，见[路由](#路由)。
 - 构建过程不执行类型检查。TypeScript 类型错误、模板中的未知属性、`strictTemplates` 均不会导致 `ng build` 失败。类型检查需通过 `tsc --noEmit` 或编辑器完成。
@@ -1203,12 +1203,12 @@ ng test --reporters=json
 
 | 现象 | 原因 |
 | --- | --- |
-| `No loader found for resource: res://dist/main.js (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
+| `No loader found for resource: res://dist/main.mjs (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
 | `Xxx.yyy 不是真实属性，赋值已忽略 ` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
 | `<Xxx> 不是可用的 Godot 节点类，已降级为 VBoxContainer` | 标签既不是 Godot 类名，当前模板里也没有叫这个名字的组件或指令，典型是类名拼错。自定义组件的宿主不会走到这条告警，见[标签](#标签) |
-| `Component 'Xxx' is not resolved: - templateUrl: ./xxx.html` | 该组件的模板存在解析错误，构建阶段不报错，运行时才暴露。常见写法：HTML 空元素写了结束标签（`<hr></hr>`）、Godot 标签自闭合（`<Label />`）。核对方法：`grep -c "ɵcmp" dist/main.js`，数量少于组件数即有模板未编译 |
+| `Component 'Xxx' is not resolved: - templateUrl: ./xxx.html` | 该组件的模板存在解析错误，构建阶段不报错，运行时才暴露。常见写法：HTML 空元素写了结束标签（`<hr></hr>`）、Godot 标签自闭合（`<Label />`）。核对方法：`grep -c "ɵcmp" dist/main.mjs`，数量少于组件数即有模板未编译 |
 | `@charset 不支持，已忽略 ` | 样式表含非 ASCII 字符（典型场景：`.scss` 中用 `/* */` 写中文注释，它们会保留到编译产物，sass 因此在开头插入 `@charset`）。改用 `//` 行注释，编译时会被剔除 |
 | ScrollContainer 内的内容把整个界面撑宽 | 横向滚动模式为 `SCROLL_MODE_OFF` 时，子节点的最小宽度会向上传播。保持 `AUTO`，并在 `resized` 中把 `scroller.size.x` 写回内容节点的 `custom_minimum_size.x` |
 | `(size_changed)="..."` 不报错也从不触发 | `size_changed` 是 `Window` 的信号，`Control` 上对应的信号是 `resized`。无法解析的事件名被静默忽略，见[事件](#事件)。核对方法：`ClassDB.class_has_signal(node.get_class(), "信号名")` |
@@ -1216,7 +1216,7 @@ ng test --reporters=json
 | `Unable to convert JS string to Godot float` | 静态属性为字符串且无法转换，改用属性绑定：`[min_value]="0"` |
 | `Unable to convert JS null to Godot String` | 向强类型属性写入 `null`。自定义 `ControlValueAccessor` 的 `writeValue` 需处理空值 |
 | `Failed to convert JS variable to Variant. Expected: Callable` | 信号只能连接 `Callable`，应使用 `tryConnectGodotSignal()` |
-| 修改 `dist/*.js` 后引擎无输出 | 脚本资源缓存未刷新，重启引擎或执行 `godot --headless --path . --import` |
+| 修改 `dist/*.mjs` 后引擎无输出 | 脚本资源缓存未刷新，重启引擎或执行 `godot --headless --path . --import` |
 | 界面不更新 | `_process` 中未调用 `tick()`，或模板读取的状态不是 signal |
 | `NG0201` / `NG0402` 无详细信息 | 生产构建移除开发期错误说明，使用 development 配置重建 |
 | 表单可显示但无法回写，且无报错 | 缺少 `NG_VALUE_ACCESSOR` provider，或缺少 `[ngModelOptions]="{standalone: true}"` |

@@ -105,10 +105,10 @@ export function requireGodotBin(workspaceRoot: string, explicit?: string): strin
   return found.bin;
 }
 
-/** 仅记录入口脚本的戳（bundle 由 require 读取，不走资源缓存） */
+/** 仅记录入口脚本的戳（bundle 由引擎的模块解析器读取，不走资源缓存） */
 function entryHash(projectDir: string): string {
   const hash = createHash("sha256");
-  for (const ext of [".js", ".tscn"]) {
+  for (const ext of [".js", ".mjs", ".tscn"]) {
     for (const file of readdirSync(projectDir).filter((f) => f.endsWith(ext)).sort()) {
       hash.update(file).update("\0").update(readFileSync(join(projectDir, file))).update("\0");
     }

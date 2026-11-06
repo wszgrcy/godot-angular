@@ -20,7 +20,7 @@ export const MANDATORY_POLYFILL_SPECIFIER = "godot-angular/builder/vite/polyfill
 /**
  * polyfill 的**一个**插件，管两头：
  *   输入侧 resolveId + load → 产出虚拟入口，首行固定引入构建器的补丁模块；
- *   输出侧 generateBundle → 把 require 写回每个入口顶部。
+ *   输出侧 generateBundle → 把 `import "res://..."` 写回每个入口顶部。
  *
  * enforce 只能给一个值，取 "pre"：resolveId 必须抢在 vite 核心解析之前。id 不加 `\0`
  * 前缀（裸说明符就够：只被 rollupOptions.input 引用，没人 import 它）。
@@ -33,7 +33,7 @@ export function polyfillPlugin(options: {
   /**
    * 不需要补丁的入口名（脚本类）。补丁入口的作用是抢在 Angular 之前把全局补好，
    * 而脚本类是引擎按需 `require` 的独立模块，它可能先于主入口被加载，也可能根本不跑
-   * Angular；给它注入 `require(补丁)` 只会多一层无意义的启动依赖。
+   * Angular；给它注入 `import(补丁)` 只会多一层无意义的启动依赖。
    */
   skipEntryNames?: Set<string>;
 }): Plugin {
@@ -66,7 +66,7 @@ export function polyfillPlugin(options: {
         );
         return;
       }
-      const line = `require(${JSON.stringify(`${options.resRoot}/${hit[0]}`)});\n`;
+      const line = `import ${JSON.stringify(`${options.resRoot}/${hit[0]}`)};\n`;
 
       for (const item of Object.values(bundle)) {
         if (item.type !== "chunk" || !item.isEntry) continue;

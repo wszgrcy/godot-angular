@@ -9,11 +9,19 @@ const isGodotSpecifier = (source: string): boolean =>
 const GODOT_GATE = ['"godot"', "'godot'"];
 
 /** babel 的 AST 节点，此处仅用到极少的字段，不引入 @babel/types 依赖 */
+interface LooseImportedName {
+  type: string;
+  name?: string;
+  value?: string;
+  start: number | null;
+  end: number | null;
+}
 interface LooseSpecifier {
   type: string;
   start: number | null;
   end: number | null;
   local?: { name: string };
+  imported?: LooseImportedName;
 }
 interface LooseImport {
   type: string;
@@ -29,6 +37,24 @@ async function loadBabel(): Promise<{ parseSync: typeof import("@babel/core").pa
   return { parseSync: babel.parseSync };
 }
 
+/** `import { "a-b" as x }` 里的导入名是字符串字面量，取值方式与标识符不同 */
+function importedAccessor(p: LooseImportedName, code: string): string {
+  if (p.type === "StringLiteral") return `[${JSON.stringify(p.value)}]`;
+  return `.${p.name ?? code.slice(p.start!, p.end!)}`;
+}
+
+/**
+ * 把 `godot` 模块的 import 统一改写成“先整体取模块，再点属性”。
+ *
+ * 引擎侧的 `godot` 模块是一个 Proxy，列不出自有属性，因此 ESM 链接阶段无法为它生成具名导出
+ * （上游用例 `tests/project/tests/esm/godot_named.mjs` 断言的就是这件事）。能用的写法只有
+ * 默认导入：`import gd from "godot"; gd.Node`。
+ *
+ * 于是源码里三种写法都归一到同一种：
+ *   import gd from "godot"        →  import __gd$0 from "godot"; const gd = __gd$0;
+ *   import * as gd from "godot"   →  同上（命名空间对象上只有 default，不能直接点类名）
+ *   import { Node } from "godot"  →  import __gd$0 from "godot"; const Node = __gd$0.Node;
+ */
 export function godotInteropPlugin(
   log: (msg: string) => void,
 ): Plugin {
@@ -66,34 +92,40 @@ export function godotInteropPlugin(
 
         const s = new MagicString(code);
         let rewritten = 0;
+        // 同一条说明符只引入一个默认绑定；重复出现的声明只补属性，不再重复 import
+        const bindings = new Map<string, string>();
 
         for (const decl of targets) {
-          // default / namespace：这两个才产生 interop 包装
-          const wrapped = decl.specifiers.filter(
-            (sp) => sp.type === "ImportDefaultSpecifier" || sp.type === "ImportNamespaceSpecifier",
-          );
-          if (wrapped.length === 0) continue;
-
-          const named = decl.specifiers.filter((sp) => sp.type === "ImportSpecifier");
+          if (decl.specifiers.length === 0) continue; // 纯副作用 import 原样保留
           const sourceText = code.slice(decl.source.start!, decl.source.end!);
-          const consts = wrapped
-            .map((sp) => `const ${sp.local!.name} = require(${sourceText});`)
-            .join("\n");
+          let ns = bindings.get(sourceText);
+          const first = ns === undefined;
+          if (first) {
+            ns = `__gd$${bindings.size}`;
+            bindings.set(sourceText, ns);
+          }
 
-          // 重写整条语句，不逐个删除说明符：后者需要自行处理逗号位置与非法形状，分支多且容易出错。
-          // 统一替换为“一条纯具名 import（可能没有）+ 几个 const”，对任意形状都成立。
-          const replacement = named.length
-            ? `import { ${named.map((sp) => code.slice(sp.start!, sp.end!)).join(", ")} } from ${sourceText};\n${consts}`
-            : consts;
-          s.overwrite(decl.start!, decl.end!, replacement);
-          rewritten += wrapped.length;
+          const lines: string[] = [];
+          for (const sp of decl.specifiers) {
+            const local = sp.local!.name;
+            if (sp.type === "ImportSpecifier" && sp.imported) {
+              lines.push(`const ${local} = ${ns}${importedAccessor(sp.imported, code)};`);
+            } else {
+              // default 与 namespace 都直接等于模块本身
+              lines.push(`const ${local} = ${ns};`);
+            }
+            rewritten++;
+          }
+
+          const head = first ? `import ${ns} from ${sourceText};\n` : "";
+          s.overwrite(decl.start!, decl.end!, head + lines.join("\n"));
         }
 
         if (rewritten === 0) return null;
 
         log(
           `godot interop：${id.split("/").slice(-2).join("/")} 改写 ${rewritten} 处 ` +
-            `default/namespace 导入为裸 require`,
+            `godot 导入为“整体取模块 + 点属性”`,
         );
         return { code: s.toString(), map: s.generateMap({ hires: true }).toString() };
       },

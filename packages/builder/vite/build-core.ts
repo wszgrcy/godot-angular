@@ -4,6 +4,7 @@ import { readFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs
 import { dirname, join, relative, resolve } from "node:path";
 import { ReplaySubject } from "rxjs";
 import { bufferedValuesFrom } from "rxjs-for-await";
+import { exactRegex } from "@rolldown/pluginutils";
 import { toPosix, withoutQuery } from "../shared/path";
 import { idEndingWith } from "../shared/hook-filter";
 import {
@@ -83,6 +84,36 @@ export function resolveEntries(
     }
   }
   return out;
+}
+
+/**
+ * 把 Vite 的 preload helper 换成直通实现。
+ *
+ * ESM 分包下每个动态 `import()` 都会被包一层 `__vitePreload(factory, deps)`，它靠往页面插
+ * `<link rel=modulepreload>` 预热依赖。GodotJS 没有真 DOM，chunk 由引擎按 `res://` 自己加载，
+ * 这层包装只剩副作用：helper 模块顶层就会跑 `document.createElement("link")` 探测支持度。
+ * `build.modulePreload: false` 只能清空依赖列表，探测试探那一段仍然会生成，所以直接替掉它。
+ */
+const PRELOAD_HELPER_ID = "\0vite/preload-helper.js";
+
+export function preloadHelperStubPlugin(): Plugin {
+  return {
+    name: "godot-angular-preload-helper-stub",
+    enforce: "pre",
+    resolveId: {
+      filter: { id: exactRegex(PRELOAD_HELPER_ID) },
+      handler() {
+        return PRELOAD_HELPER_ID;
+      },
+    },
+    load: {
+      filter: { id: exactRegex(PRELOAD_HELPER_ID) },
+      handler() {
+        // 参数比 Vite 的实现少也没关系：多传的参数会被忽略，返回值就是 import() 的 Promise
+        return "export function __vitePreload(baseModule) { return baseModule(); }";
+      },
+    },
+  };
 }
 
 /**
@@ -380,7 +411,7 @@ async function prepareConfig(
   // 脚本类先落到 outDir 里的临时目录（entryFileNames 不允许 `../`），构建完再搬到引擎约定目录
   const scTargets = new Map<string, string>();
   for (const [name, e] of scriptClasses) {
-    scTargets.set(`${SC_STAGING_DIR}/${name}.js`, resolve(context.workspaceRoot, e.outDir, `${name}.js`));
+    scTargets.set(`${SC_STAGING_DIR}/${name}.mjs`, resolve(context.workspaceRoot, e.outDir, `${name}.mjs`));
   }
   // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
   // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
@@ -423,6 +454,7 @@ async function prepareConfig(
       ...(conditions?.length ? { conditions } : {}),
     },
     plugins: [
+      preloadHelperStubPlugin(),
       ...loaderPlugin(loader),
       // polyfill 由一个插件同时管理两头（虚拟入口 + 产物层注入 require）。必须在最前面：
       // 它的 resolveId 要抢在 vite 核心解析之前
@@ -449,6 +481,10 @@ async function prepareConfig(
       outDir,
       emptyOutDir: options.deleteOutputPath,
       sourcemap: sourceMap,
+      // ESM 分包下 Vite 会给动态 import 包一层 preload-helper，靠 `document.getElementsByTagName`
+      // 往页面插 `<link rel=modulepreload>`。GodotJS 没有真 DOM（引擎自己按 res:// 加载 chunk），
+      // 这层只会把测试环境弄坏，整块关掉。
+      modulePreload: false,
       minify: optimize.scripts ? "esbuild" : false,
       target: "es2022",
       ...(watch
@@ -467,13 +503,13 @@ async function prepareConfig(
         // 不设这个，入口的具名导出会被摇掉且**不报错**（整个 App 组件会跟着一起消失）
         preserveEntrySignatures: "strict",
         output: {
-          format: "cjs",
+          // 引擎按扩展名分流：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给
+          // V8 自己的模块机制。产物全部用 `.mjs`，`import` / `export` / `import.meta`
+          // 才是标准语义（代价：产物里的相对路径必须带扩展名，rollup 本来就会写全）。
+          format: "es",
           entryFileNames: (chunk) =>
-            scriptClasses.has(chunk.name) ? `${SC_STAGING_DIR}/${chunk.name}.js` : "[name].js",
-          chunkFileNames: `chunks/[name]${hashed}.js`,
-          // 用 named 不用 auto：auto 在只有一个 default 导出时会发
-          // `module.exports = Main`，而 GodotJS 从 `exports.default` 取脚本类。
-          exports: "named",
+            scriptClasses.has(chunk.name) ? `${SC_STAGING_DIR}/${chunk.name}.mjs` : "[name].mjs",
+          chunkFileNames: `chunks/[name]${hashed}.mjs`,
         },
       },
     },

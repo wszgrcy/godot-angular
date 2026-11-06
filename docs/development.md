@@ -200,6 +200,10 @@ pnpm --filter test-app test  # 此时 builder 才能按包名解析到（消费�
 `^22.22.3 || ^24.15.0 || >=26.0.0`——全部 ≥ 22.12，所以只要 CLI 能跑，这能力就在。
 已实测：把 builder 整体改成 `.mjs` 后，`ng run` 能正常加载并跑完整 AOT 构建。
 
+而第一行那个"必 CJS"不是风格选择：官方 release 引擎把每个脚本都包成 CJS 函数执行，
+产物里出现真的 `import` / `export` 就是语法错（第 8 节第 20 条，含改成 `format: "es"` 的实测结果
+与要跑通还缺什么）。
+
 ⚠ 两个约：① `require(esm)` 遇到依赖图里任何 **top-level await** 会直接
 `ERR_REQUIRE_ASYNC_MODULE`，升级 vite / @angular/build 时要留意；
 ② `builders.json` 的 implementation **必须写全扩展名** `.mjs`——`require` 的
@@ -734,41 +738,40 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 写库代码时的依据，全部来自引擎实测而非文档推断。使用者需要遵守的那部分已提炼进 README
 的「限制」与「排错」。
 
-1. `.js` 脚本按 CommonJS 执行，脚本类要在 `exports.default` 上（vite 的
-   `exports: "named"` 输出自动满足）。
-2. `require("./x")` 是坏的，会拼成 `res:/x`；**只能用 `res://` 绝对路径**。
-   `require("res:\\x")` 也失败——`res://` 即使在 Windows 上也必须正斜杠。
-3. `require("sub/dep")`（裸名）**能用**，所以分包可行，前提是把相对说明符全量改写成绝对形式。
-4. `godot` 模块是 Proxy，取未知键抛异常（`Error: godot class not found 'xxx'`）。由此：
-   - `import { Label, ClassDB } from "godot"` —— 只用这种。产物是 `require("godot")` +
-     逐处 `godot.Label()`，惰性取属性，不经 interop 包装，**没有任何前提条件**。
-   - `import godot from "godot"` —— 类型上没问题（synthetic default 生效），但带两个前提：
-     ① 产物里会多出 `godot = __toESM(godot, <flag>)`，这个 flag 决定它会不会去读
-     `godot.__esModule`（Proxy 读到未知键直接抛 → 模块加载即失败）。flag 由"导入方是否被
-     当作 ESM"决定，隔离实验实测：
+1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
+   自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
+   `jsb_native_esm=yes` 决定，GodotJS **1.3.4** 起官方 release 包已编进去。本仓库产物全部
+   `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
+2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
+   CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；
+   仍要记住 `res://` 绝对路径在 Windows 上也必须正斜杠。
+3. `godot` 模块是 Proxy：类名靠 get 陷阱动态提供，**列不出自有属性**（`ownKeys` 为空），
+   取不存在的键直接抛 `godot class not found 'xxx'`。ESM 链接阶段要为模块列出具名导出，于是：
+   - `import { Label } from "godot"` —— **链接期就失败**，不是运行期拿到 undefined（上游用例
+     `tests/project/tests/esm/godot_named.mjs` 断言的就是这件事）。
+   - `import gd from "godot"` —— 唯一可用形式，`gd.Label` 惰性取属性。
+   - `import * as gd from "godot"` —— 命名空间对象上只有 `default`，`gd.Label` 是 undefined。
+   - `import type * as Godot from "godot"` —— 只要类型不要值时用这个：编译后完全消失。
 
-     | 导入方 package.json `type` | 入口扩展名 | flag | 结果 |
-     |---|---|---|---|
-     | 无 | `.ts` | 省略 | ❌ `godot class not found '__esModule'` |
-     | `commonjs` | `.ts` | 省略 | ❌ 同上 |
-     | `module` | `.ts` | `1` | ✅ |
-     | 无 / `commonjs` | **`.mts` / `.mjs`** | `1` | ✅ |
+   源码里三种写法都能用，因为 builder 会把它们统一改写成“整体取模块 + 点属性”
+   （`vite/godot-interop.ts`）。按运行时字符串取类（`ns[className]`）具名形式表达不了，
+   本库收敛在 `core/godot-host.ts` 的 `godotClass()` 里。
+4. Vite 在 ESM 分包下会给每个动态 `import()` 包一层 preload helper（虚拟模块
+   `\0vite/preload-helper.js`）。它碰 DOM 有两处，受不同配置控制（Vite 8.3 实测）：
+   - **函数体内**：`__vitePreload(fn, deps)` 在 `deps.length > 0` 时读
+     `document.getElementsByTagName("link")`。`build.modulePreload: false` 只管这里——
+     依赖列表被清空，那段不再执行。
+   - **模块顶层**：`scriptRel = modulePreload?.polyfill ? "'modulepreload'" : detectScriptRel()`，
+     而 `detectScriptRel()` 里是 `document.createElement("link")`。默认（不关）走写死的字符串，
+     **关掉 `modulePreload` 反而生成这段顶层调用**。所以 `modulePreload: false` 不是“关掉 helper”，
+     只是把 DOM 访问从函数体挑到顶层。
 
-     即：`.mjs`/`.mts` 扩展名 **或** `type: "module"` 才给 flag。同一个 bundle 里它和具名
-     import 不能共存：共享绑定被改写成 interop 包装后，具名用法全变 undefined。
-   - **想让 `__toESM` 不出现，没有开关可调**（均实测）：tsconfig 的
-     `esModuleInterop` / `allowSyntheticDefaultImports` / `verbatimModuleSyntax` / `module` /
-     `moduleResolution` 六种组合产物完全一致；vite 侧 `output.interop` / `output.esmExternals`
-     被直接拒绝（`Invalid key: Expected never`）。唯一办法是**不制造 default-import-external
-     边界**。
-   - `import * as godot from "godot"` —— 不可用。interop 对模块做求值期属性拷贝，拷不到
-     惰性暴露的类 → `class Main extends godot.Node` 报 `Class extends value undefined`。
-   - `import type * as Godot from "godot"` —— 只要类型不要值时用这个：编译后完全消失，
-     不产生任何 interop。
-   - 按运行时字符串取类（`ns[className]`）具名形式表达不了，本库收敛在
-     `core/godot-host.ts` 的 `godotClass()` 里，用**函数内裸 `require("godot")`**。
-     库自己的 FESM 里那处 default/namespace 形式由 builder 的 `godot-interop.ts` 在产物层
-     改写成裸 require。
+   真正断掉 DOM 的办法是把那个虚拟模块整个换成直通实现（`preloadHelperStubPlugin`，
+   `enforce: "pre"` 才能抢在 Vite 自己解析之前）：`__vitePreload(baseModule) { return baseModule(); }`。
+   stub 之后 deps 成了死参数，`modulePreload: false` 留不留都不影响正确性。Vite 不会把这个 helper
+   发给 Node 产物：注入条件是 `consumer === "client" && !isWorker && !build.lib`，`build.ssr` 与
+   lib 模式的产物里没有 `__vitePreload`。踩到它是因为 application 构建属于 client consumer，
+   Vite 默认产物要进浏览器。
 5. `Node.name` 要 GodotJS **1.3.2** 才绑成属性。更早的引擎把 `name` 整体排除在属性绑定之外，
    `node.name = "x"` 只写 JS 字段而引擎侧不变，生成的 typings 里也没有 `name`。因此
    `pnpm gen:typings` 会先检查引擎声明里有没有 `get name(): StringName`，没有就直接报错
@@ -866,6 +869,28 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     `whatwg-url-minimum`，见第 9 节第 17 条）。`TextEncoder` / `TextDecoder` 引擎测试运行时
     会装（`@nberlette/utf8`，vitest 消息编解码要用），但库自己不再需要它们，所以没进
     `polyfills` —— 没有真实消费者的补丁不补。
+
+20. **产物是 ESM（`.mjs`），靠的是 GodotJS 1.3.4 起编进 release 包的原生 ESM 解析器**。
+    该能力由构建参数 `jsb_native_esm=yes` 决定（`config.py` 默认仍是 `no`，1.3.4 起上游各 V8
+    平台的工作流统一带上它）；关掉时整段代码被 `#if JSB_NATIVE_ESM && JSB_WITH_V8` 编译掉，
+    运行时没有任何开关能打开——拿 1.3.3 及更早的包试 ESM，只会得到
+    `Uncaught SyntaxError: Cannot use import statement outside a module` 和
+    `failed to attach module … (36)`。
+
+    只有 `.mjs` 走 V8 的模块机制，`.js` / `.cjs` / `.json` 照旧 CommonJS；而
+    `DefaultModuleResolver::check_implicit_source_path` 试扩展名的顺序是 `.js` → `.cjs` → `.mjs` →
+    `.json`，`NativeESMModuleResolver::get_source_info` 又只接受落在 `.mjs` 上的结果，所以
+    **产物必须全量 `.mjs`**，rollup 默认发出的 `./chunk.js` 会被判给 CJS 通道。
+
+    本仓库为此动了五处（全在 `packages/builder`）：
+    ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` /
+    脚本类入口全量 `.mjs`（引擎的 `convert_javascript_path` 认 `.mjs`）；
+    ② `vite/godot-interop.ts` 连**具名** `from "godot"` 一起改写（见本节第 3 条）；
+    ③ `vite/polyfill.ts` 的注入由前置 `require(…)` 改成静态 `import "res://…"`（ESM 里静态
+    import 先于模块体求值，前置 `require` 反而晚于所有 chunk 执行）；
+    ④ `preloadHelperStubPlugin` 换掉 Vite 的 preload helper（见本节第 4 条）；
+    ⑤ `shared/godot-bin.ts` 的入口戳列表补 `.mjs`，否则改了产物引擎仍拿旧副本。
+    另外场景里引用入口的 `.tscn` 要跟着改扩展名（`test-app/engine_vitest.tscn`）。
 
 21. **JS 定时器的时钟在 1.3.3 才修好**：引擎每帧把「这一帧过了多久」喂给 JS 定时器轮，1.3.2 及更早
     把「引擎从启动到第一帧的总时长」一次性灌进去，且不足 1ms 的余数直接丢。实测同一个探针
