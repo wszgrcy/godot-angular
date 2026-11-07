@@ -56,10 +56,10 @@ packages/builder/        ← 构建相关（不是包，没有 package.json）
   builders.json            application / vitest 两个 builder
   application/             ng run <app>:build
   vite/
-    build-core.ts          构建核心：多入口 glob、CJS 输出、res:// require 改写
-    polyfill.ts            补丁当额外入口 + 在产物层把 require 写回每个入口顶部
+    build-core.ts          构建核心：多入口 glob、ESM（.mjs）输出、res:// 路径改写
+    polyfill.ts            补丁当额外入口 + 在产物层把 import 写回每个入口顶部
     icu-downgrade.ts       `\p{...}`：transform 逐模块懒加载 babel 展开（只管正则字面量）
-    godot-interop.ts       把发布物里的 default/namespace 形式的 godot 导入改写成裸 require
+    godot-interop.ts       把 `from "godot"` 的三种写法归一成默认导入 + 点属性（ESM 链接期列不出 Proxy 的具名导出）
     options-schema.ts      两个 builder 的选项形状（valibot，schema 由它生成）
   vitest/build/            ng test —— 构建引擎入口并在同进程跑 vitest
   vitest/node/           → godot-angular/vitest            宿主侧插件（ESM .mjs）
@@ -187,22 +187,22 @@ pnpm --filter test-app test  # 此时 builder 才能按包名解析到（消费�
 
 ### CJS / ESM 的分界线：Godot 会不会直接加载它
 
-整个仓库只有一条格式规则：
-
 | 产物 | 谁加载 | 格式 |
 | --- | --- | --- |
-| `test-app/dist*/**.js` | Godot 直接当 Script 跑 | **必 CJS** |
+| `test-app/dist*/**.mjs` | Godot 直接当 Script 跑 | **必 ESM（`.mjs`）** |
+| `test-app/.godot/GodotJS/**.mjs` | 引擎按 `.ts` 源反推出来的脚本类产物 | **必 ESM（`.mjs`）** |
 | `dist/builder/**.mjs` | Angular CLI（`require(path)`）/ Node | ESM |
 | `dist/fesm2022/*.mjs` | vite / rollup 打包时读 | ESM |
 
-为什么 builder 不必为了"被 CLI `require`"而出 CJS：Node 的 **`require(esm)`** 让
+引擎侧的产物全部是 `.mjs`，包括脚本类。脚本类曾经只能出 `.js`：引擎把 `.ts` 源路径映射成
+产物路径时（`PathUtil::convert_typescript_path`）只拼 `.js`，产物只有 `.mjs` 时类能注册上、
+但 `new` 会让引擎 `FATAL` 崩进程。GodotJS **1.3.5** 起那条映射会依次试 `.js` → `.cjs` →
+`.mjs`，脚本类才敢跟应用产物用同一种格式（第 8 节第 20 条）。
+
+builder 自己出 ESM 而不必迁就"被 CLI `require`"：Node 的 **`require(esm)`** 让
 `require()` 能加载 ESM，而 `@angular/cli@22` 的 engines 是
 `^22.22.3 || ^24.15.0 || >=26.0.0`——全部 ≥ 22.12，所以只要 CLI 能跑，这能力就在。
 已实测：把 builder 整体改成 `.mjs` 后，`ng run` 能正常加载并跑完整 AOT 构建。
-
-而第一行那个"必 CJS"不是风格选择：官方 release 引擎把每个脚本都包成 CJS 函数执行，
-产物里出现真的 `import` / `export` 就是语法错（第 8 节第 20 条，含改成 `format: "es"` 的实测结果
-与要跑通还缺什么）。
 
 ⚠ 两个约：① `require(esm)` 遇到依赖图里任何 **top-level await** 会直接
 `ERR_REQUIRE_ASYNC_MODULE`，升级 vite / @angular/build 时要留意；
@@ -741,15 +741,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
    自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
    `jsb_native_esm=yes` 决定，GodotJS **1.3.4** 起官方 release 包已编进去。本仓库产物全部
-   `.mjs`，入口因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
-   **但脚本类产物（`scriptClassEntries`）例外，它只能是 `.js`**：引擎的
-   `PathUtil::convert_typescript_path` 把 `.ts` 硬拼成 `.js`（没有 `.mjs` 分支），产物只有 `.mjs` 时
-   类能注册上、但 `new` 会让引擎 `FATAL: Condition "!(script_instance)" is true` 直接崩溃（不是
-   可捕获异常）。而 `.js` 走 CJS 通道，所以脚本类产物必须是 CJS 形状，不能跟 bundle 共用一趟
-   输出（一个 rollup output 只能一种 format）。因此构建器跑**两趟**：应用入口一趟 ESM `.mjs`，
-   脚本类入口一趟 CJS `.js`（带 `exports: "named"`，产物是 `exports.default = 类`，引擎与测试
-   都按 `require(...).default` 取）。代价：脚本类不再与应用共享 chunk，它 import 的代码会在
-   两边各存一份。
+   `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
 2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
    CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；
    仍要记住 `res://` 绝对路径在 Windows 上也必须正斜杠。
@@ -888,13 +880,16 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     只有 `.mjs` 走 V8 的模块机制，`.js` / `.cjs` / `.json` 照旧 CommonJS；而
     `DefaultModuleResolver::check_implicit_source_path` 试扩展名的顺序是 `.js` → `.cjs` → `.mjs` →
     `.json`，`NativeESMModuleResolver::get_source_info` 又只接受落在 `.mjs` 上的结果，所以
-    **应用产物必须全量 `.mjs`**，rollup 默认发出的 `./chunk.js` 会被判给 CJS 通道（脚本类除外，
-    它只能 `.js`，见本节第 1 条）。
+    **产物必须全量 `.mjs`**，rollup 默认发出的 `./chunk.js` 会被判给 CJS 通道。
 
     本仓库为此动了五处（全在 `packages/builder`）：
-    ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` 全量 `.mjs`；
-    脚本类入口不能跟着改（引擎把 `.ts` 硬拼成 `.js`，见本节第 1 条），所以 `prepareConfig` 按
-    `variant` 分应两趟：`"app"` 走 ESM，`"scriptClass"` 走 CJS `.js`；
+    ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` /
+    脚本类入口全量 `.mjs`。**脚本类走 `.mjs` 需要 GodotJS 1.3.5**：引擎把 `.ts` 源路径映射成
+    产物路径的 `PathUtil::convert_typescript_path` 在 1.3.4 及更早只硬拼 `.js`，产物只有
+    `.mjs` 时类能注册上、但 `new` 会 `FATAL: Condition "!(script_instance)" is true` 直接
+    崩进程（不是可捕获异常）。1.3.5 改成依次试 `.js` → `.cjs` → `.mjs`，没产物时才回落 `.js`
+    报常规错。拿 1.3.4 跑本仓库的脚本类用例，引擎日志里是
+    `the javascript file is missing: …（source: …）`；
     ② `vite/godot-interop.ts` 连**具名** `from "godot"` 一起改写（见本节第 3 条）；
     ③ `vite/polyfill.ts` 的注入由前置 `require(…)` 改成静态 `import "res://…"`（ESM 里静态
     import 先于模块体求值，前置 `require` 反而晚于所有 chunk 执行）；

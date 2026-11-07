@@ -240,26 +240,3 @@ describe("godotInteropPlugin：产物在 Proxy 形态的 godot 上真能跑", ()
     expect(out.viaDefault).toBe("function");
   });
 });
-
-// ─────────────── 脚本类那一趟（CJS 产物）的改写 ───────────────
-
-const transformCjs = (code: string): Promise<{ code: string } | null> =>
-  handlerOf<Transform>(godotInteropPlugin(() => {}, "cjs").transform).call({}, code, "/virtual/mod.js");
-
-describe("godotInteropPlugin：mode=cjs（脚本类产物）", () => {
-  it("default 导入 → 裸 require，不产 __toESM", async () => {
-    const out = await transformCjs(`import gd from "godot";\nexport const n = gd.Node;\n`);
-    expect(out?.code).toContain(`const gd = require("godot");`);
-    expect(out?.code).not.toMatch(/__toESM/);
-  });
-
-  it("纯具名导入不改写（CJS 下本来就是 require(...).Node）", async () => {
-    expect(await transformCjs(`import { Node } from "godot";\nexport const n = Node;\n`)).toBeNull();
-  });
-
-  it("default + 具名混写：具名原样保留，只把 default 换成 require", async () => {
-    const out = await transformCjs(`import gd, { Node } from "godot";\nexport const n = [gd, Node];\n`);
-    expect(out?.code).toContain(`import { Node } from "godot";`);
-    expect(out?.code).toContain(`const gd = require("godot");`);
-  });
-});

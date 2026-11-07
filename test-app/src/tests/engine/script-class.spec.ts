@@ -8,14 +8,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Node, ResourceLoader } from "godot";
 import { initGodotTestEnvironment, awaitFrames, getEngineSceneRoot } from "godot-angular/testing";
 
-// 产物层的 require：GodotJS 的 CJS 模块自带。声明在本地，不用全局类型污染其他测试。
-declare const require: (path: string) => unknown;
-
 /**
  * 引擎硬编码的产物目录 res://.godot/GodotJS。这个文件由构建器的 scriptClassEntries 产出
  * （入口名 = 源码相对路径，保证引擎反推 .ts 源码对得上），不在 outputPath 下。
+ *
+ * 产物是 `.mjs`，所以只能用 `import` 取：引擎按扩展名分流，`.mjs` 交给 V8 的模块机制，
+ * `require` 走不到它。
  */
-const CONVENTION_JS = "res://.godot/GodotJS/src/fixtures/script-class-probe.js";
+const CONVENTION_MJS = "res://.godot/GodotJS/src/fixtures/script-class-probe.mjs";
+const CONVENTION_MJS_TWO = "res://.godot/GodotJS/src/more/script-class-probe-two.mjs";
 
 /** fixture 里那个类的形状 */
 interface ScriptClassProbe extends Node {
@@ -48,11 +49,11 @@ describe("脚本类（引擎约定目录下的产物）", () => {
   });
 
   it("构建器已把脚本类产物写到引擎约定目录", () => {
-    expect(ResourceLoader.exists(CONVENTION_JS)).toBe(true);
+    expect(ResourceLoader.exists(CONVENTION_MJS)).toBe(true);
   });
 
-  it("require 进来的模块默认导出就是类，直接 new 能建出实例", () => {
-    const mod = require(CONVENTION_JS) as { default?: ProbeClass };
+  it("import 进来的模块默认导出就是类，直接 new 能建出实例", async () => {
+    const mod = (await import(CONVENTION_MJS)) as { default?: ProbeClass };
     const Probe = mod.default;
     expect(typeof Probe).toBe("function");
     const inst = new Probe!();
@@ -62,7 +63,7 @@ describe("脚本类（引擎约定目录下的产物）", () => {
   });
 
   it("这样建出的实例是引擎认的真脚本实例，_ready 与 _process 由引擎驱动", async () => {
-    const Probe = (require(CONVENTION_JS) as { default: ProbeClass }).default;
+    const Probe = (await import(CONVENTION_MJS) as { default: ProbeClass }).default;
     const inst = new Probe();
     root.add_child(inst);
     expect(await waitUntil(() => inst.processCalls >= 3, 240)).toBe(true);
@@ -70,9 +71,9 @@ describe("脚本类（引擎约定目录下的产物）", () => {
     inst.free();
   });
 
-  it("多个位置的脚本类都能 new（input 只决定去哪找文件，不决定产物叫什么）", () => {
+  it("多个位置的脚本类都能 new（input 只决定去哪找文件，不决定产物叫什么）", async () => {
     // 两个 fixture 分属 src/fixtures 与 src/more 两个 input，产物名仍按相对工程根算
-    const two = require("res://.godot/GodotJS/src/more/script-class-probe-two.js") as {
+    const two = (await import(CONVENTION_MJS_TWO)) as {
       default?: new () => { plusOne(x: number): number; free(): void };
     };
     expect(typeof two.default).toBe("function");
