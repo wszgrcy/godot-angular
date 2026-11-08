@@ -26,8 +26,8 @@ import { icuDowngradePlugin } from "./icu-downgrade";
 import { cssPlugins, GLOBAL_CSS_VIRTUAL } from "./css-plugin";
 import { godotInteropPlugin } from "./godot-interop";
 import { isExternalDependency, isGodotBuiltinModule, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
-import { assertEngineOutDir, scriptClassEntryName } from "./script-class-path";
-import { globInputFiles, globInputPaths } from "./glob-input";
+import { assertEngineOutDir } from "./engine-out-dir";
+import { globInputPaths } from "./glob-input";
 import {
   applicationOptionsSchema,
   normalizeOptimization,
@@ -43,47 +43,61 @@ interface GodotViteEntry {
 }
 
 /**
- * 入口模式 → 入口表，口径与 assets 一致。名字 = output + 相对 input 的路径（去 .ts），
- * 完全由配置决定：.tscn 按名字引用脚本，匹配集不能反过来影响产物名。
+ * 入口模式 → 入口表。名字 = 文件相对 workspaceRoot 的路径（去掉 .ts），不接受配置干预：
+ * 引擎拿“产物路径去掉 .godot/GodotJS 前缀”反推 `.ts` 源码，名字只有等于源码位置这一种可能。
+ * `.tscn` 里直接挂的脚本与代码里 `new` 出来的脚本类走的是同一条反推，所以两边共用这套命名。
  *
- * 多条模式命中同一个文件（glob 与显式路径重叠、或同一条写了两遍）只算一个入口；同名但
- * 来自不同文件才是真冲突，那种情况两个源文件会抢同一个产物名，必须报错。
+ * 多条模式命中同一个文件（glob 与显式路径重叠、或同一条写了两遍）只算一个入口；不同文件
+ * 也不可能撞名——相对路径本身唯一。
  */
 export function resolveEntries(
   workspaceRoot: string,
   patterns: EntryPattern[],
 ): GodotViteEntry[] {
-  const list = normalizeEntries(patterns);
-  if (list.length === 0) throw new Error("entries 未配置任何入口");
-
   const out: GodotViteEntry[] = [];
-  const taken = new Map<string, string>();
-  for (const p of list) {
-    const inputRoot = resolve(workspaceRoot, p.input);
-    const found = globInputFiles(workspaceRoot, { glob: p.glob, input: p.input, ignore: p.ignore });
+  const taken = new Set<string>();
+  for (const p of normalizeEntries(patterns)) {
+    if (p.output) {
+      throw new Error(
+        `入口的 output 字段已移除（收到 “${p.output}”）：产物名必须等于源码相对工程根的路径，` +
+          "另起目录会让引擎反推不到 .ts 源码。删掉 output 即可。",
+      );
+    }
+    const found = globInputPaths(workspaceRoot, { glob: p.glob, input: p.input, ignore: p.ignore });
     if (found.length === 0) {
       // 路径转 posix：报错要能直接复制去命令行，也不能同一条消息里两种分隔符混着
-      const shown = toPosix(p.input === "" ? workspaceRoot : inputRoot);
+      const shown = toPosix(p.input === "" ? workspaceRoot : resolve(workspaceRoot, p.input));
       throw new Error(`入口 glob 未匹配到任何文件：${p.glob}（input: ${shown}）`);
     }
-    for (const rel of found) {
+    for (const { abs } of found) {
       // name 会作为 rollup 的 input 键与 [name] 使用，只认 /
-      const name = toPosix(p.output ? join(p.output, rel) : rel).replace(/\.ts$/, "");
-      const file = resolve(inputRoot, rel);
-      const dup = taken.get(name);
-      // 名字与文件都相同 = 入口表里本来就是同一条记录，重复展开直接丢掉
-      if (dup === file) continue;
-      if (dup) {
-        throw new Error(
-          `入口名重复：${name}\n  ${dup}\n  ${file}\n` +
-          `两个模式匹配到不同文件却生成同名入口，请调整 input 或 output 使其区分。`,
-        );
-      }
-      taken.set(name, file);
-      out.push({ name, file });
+      const name = relative(workspaceRoot, abs).replace(/\\/g, "/").replace(/\.(ts|cts|mts)$/, "");
+      if (taken.has(name)) continue;
+      taken.add(name);
+      out.push({ name, file: abs });
     }
   }
   return out;
+}
+
+/**
+ * 把废弃的 `scriptClassEntries` 并进 `entries`。
+ *
+ * 两者现在完全等价：场景里 `script = ExtResource(...)` 直接挂的脚本，与代码里 `new`
+ * 出来的脚本类，受的是同一条引擎约束（产物名必须等于源码相对路径），所以不需要两个入
+ * 口列表。分成两个时，同一个文件很容易被两边各列一次而变成两个入口，合成一张表后由
+ * resolveEntries 按名字去重。
+ *
+ * 第二个返回值表示用到了废弃选项，调用方据此给出迁移警告。
+ */
+export function mergeEntryPatterns(
+  entries: EntryPattern[],
+  scriptClassEntries: EntryPattern[],
+): { patterns: EntryPattern[]; usedDeprecated: boolean } {
+  return {
+    patterns: [...entries, ...scriptClassEntries],
+    usedDeprecated: scriptClassEntries.length > 0,
+  };
 }
 
 /**
@@ -194,42 +208,13 @@ export type GodotViteBuildOptions = Omit<ApplicationOptions, "styles"> &
   Partial<Pick<ApplicationOptions, "styles">> &
   GodotViteBuildInternals;
 
-/**
- * 解析 `scriptClassEntries`：glob 出文件，算出引擎要求的入口名（源码相对路径去掉 `.ts`）。
- *
- * 产物目录与主入口相同（整个 outDir 已经在引擎约定的 `.godot/GodotJS/` 里），这里只负责
- * 命名：引擎拿“产物路径去掉该目录前缀”反推 `.ts` 源码，名字对不上就白搭。
- *
- * 返回名字 → 绝对源路径；名字集合同时用于“不吃 polyfill 注入”与“入口命名”两处判定。
- */
-function resolveScriptClassEntries(
-  patterns: EntryPattern[],
-  workspaceRoot: string,
-  context: BuilderContext,
-): Map<string, string> {
-  const out = new Map<string, string>();
-  if (!patterns.length) return out;
-
-  let total = 0;
-  for (const raw of normalizeEntries(patterns)) {
-    const found = globInputPaths(workspaceRoot, { glob: raw.glob, input: raw.input, ignore: raw.ignore });
-    for (const { abs } of found) {
-      // 名字按相对工程根算，不按相对 input：引擎靠这个反推 .ts 源码
-      out.set(scriptClassEntryName(relative(workspaceRoot, abs)), abs);
-    }
-    total += found.length;
-  }
-  if (!total) context.logger.warn(`scriptClassEntries 未匹配到任何文件`);
-  return out;
-}
-
 export async function runGodotViteBuild(
   options: GodotViteBuildOptions,
   context: BuilderContext,
 ): Promise<{ success: boolean }> {
   const prepared = await prepareConfig(options, context);
   if (!prepared) return { success: false };
-  const { config, entryCount, scriptClassCount } = prepared;
+  const { config, entryCount } = prepared;
   try {
     await build(config);
   } catch (err) {
@@ -238,7 +223,7 @@ export async function runGodotViteBuild(
   }
   context.logger.info(
     `已生成 ${entryCount} 个入口 → ${relative(context.workspaceRoot, resolve(context.workspaceRoot, options.outputPath))}` +
-      (scriptClassCount ? `（含脚本类 ${scriptClassCount} 个，名字按源码相对路径）` : ""),
+      "（产物名 = 源码相对工程根的路径）",
   );
   return { success: true };
 }
@@ -315,7 +300,7 @@ export async function* runGodotViteWatch(
 async function prepareConfig(
   options: GodotViteBuildOptions,
   context: BuilderContext,
-): Promise<{ config: InlineConfig; entryCount: number; scriptClassCount: number } | null> {
+): Promise<{ config: InlineConfig; entryCount: number } | null> {
   const {
     entries,
     tsConfig,
@@ -349,35 +334,37 @@ async function prepareConfig(
   // 布尔与对象两种书写在此处归一，下游仅读取 `.scripts`
   const optimize = normalizeOptimization(optimization);
 
-  // 存在 inputOverride 时入口是虚拟模块，`entries` 连配置都不需要
+  // 入口表：废弃的 scriptClassEntries 已并进 entries（见 mergeEntryPatterns）
+  const { patterns: entryPatterns, usedDeprecated } = mergeEntryPatterns(
+    entries,
+    options.scriptClassEntries,
+  );
+  if (usedDeprecated) {
+    context.logger.warn(
+      "scriptClassEntries 已废弃（与 entries 等价），请把它的条目合并进 entries。" +
+        "本次构建已自动并入，行为不变；该选项后续版本会移除。",
+    );
+  }
+
+  // inputOverride 把入口换成虚拟模块（引擎测试用），entries 照建不误：引擎测试也要带脚本类
   const input: Record<string, string> = {};
-  if (options.inputOverride) {
-    Object.assign(input, options.inputOverride);
-  } else {
-    let entryList: GodotViteEntry[];
+  if (entryPatterns.length) {
     try {
-      entryList = resolveEntries(context.workspaceRoot, entries);
+      for (const e of resolveEntries(context.workspaceRoot, entryPatterns)) {
+        input[e.name] = e.file;
+      }
     } catch (err) {
       context.logger.error((err as Error).message);
       return null;
     }
-    for (const e of entryList) {
-      input[e.name] = e.file;
-    }
   }
-  const entryCount = Object.keys(input).length;
-
-  let scriptClasses: Map<string, string>;
-  try {
-    scriptClasses = resolveScriptClassEntries(options.scriptClassEntries, context.workspaceRoot, context);
-  } catch (err) {
-    context.logger.error(err instanceof Error ? err.message : String(err));
+  if (options.inputOverride) {
+    Object.assign(input, options.inputOverride);
+  } else if (!Object.keys(input).length) {
+    context.logger.error("entries 未配置任何入口");
     return null;
   }
-  for (const [name, file] of scriptClasses) {
-    input[name] = file;
-  }
-  const scNames = new Set(scriptClasses.keys());
+  const entryCount = Object.keys(input).length;
   // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
   // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
   // 且不会被摇树，随后由 polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）
@@ -423,7 +410,7 @@ async function prepareConfig(
       ...loaderPlugin(loader),
       // polyfill 由一个插件同时管理两头（虚拟入口 + 产物层注入 require）。必须在最前面：
       // 它的 resolveId 要抢在 vite 核心解析之前
-      polyfillPlugin({ resRoot: outResRoot, extras, skipEntryNames: scNames }),
+      polyfillPlugin({ resRoot: outResRoot, extras }),
       ...angularPlugins(tsConfig, fileReplacements, context),
       icuDowngradePlugin((m) => context.logger.info(m)),
       // CSS 通道（源码层 styleUrls 守卫 + 全局样式虚拟模块）。数组位置只决定同阶段的先后，
@@ -483,9 +470,9 @@ async function prepareConfig(
   if (options.viteConfig) {
     const merged = await mergeUserViteConfig(config, options.viteConfig, context);
     if (!merged) return null;
-    return { config: merged, entryCount, scriptClassCount: scNames.size };
+    return { config: merged, entryCount };
   }
-  return { config, entryCount, scriptClassCount: scNames.size };
+  return { config, entryCount };
 }
 
 function angularPlugins(

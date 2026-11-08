@@ -1,7 +1,7 @@
 import { join, resolve } from "node:path";
 import { globSync } from "tinyglobby";
 
-/** 带 glob 的输入项：entries、scriptClassEntries、assets 三处用的是同一个形状。 */
+/** 带 glob 的输入项：entries 与 assets 两处用的是同一个形状。 */
 export interface GlobInput {
   /** 查找根目录（相对 workspaceRoot，缺省为工程根）；`glob` 相对它写 */
   input?: string;

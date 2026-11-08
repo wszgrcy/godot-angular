@@ -1,17 +1,17 @@
 /**
  * GodotJS 把"编译产物放在哪"写死在引擎里（不是 ProjectSettings，改不了）：
- * 引擎要 `new` 一个脚本类时，拿这个前缀把产物的路径（本仓库产出的都是 `.mjs`）反推成 `.ts`
+ * 引擎要实例化一个脚本类时，拿这个前缀把产物的路径（本仓库产出的都是 `.mjs`）反推成 `.ts`
  * 源码路径去加载。路径不以它开头时，editor / debug 构建直接 CRASH
  * （断言 jsb_checkf 在 debug 下展开成 CRASH_COND_MSG，只有 release 才是空操作）。
  *
  * 触发反推的是"注册了导出属性的脚本类"所在的模块：引擎要构造一个类默认对象去读导出属性的
  * 默认值（bridge/jsb_environment.cpp `evaluate_default_values` →
- * bridge/jsb_class_info.cpp `ScriptClassInfo::instantiate`）。实测两种挂法都会走这条路：
+ * bridge/jsb_class_info.cpp `ScriptClassInfo::instantiate`）。实测两种用法都会走这条路：
  * 代码里 `new` 出来的，以及 `.tscn` 里 `script = ExtResource(...)` 直接挂的。只要那个类带
  * 导出属性、产物又在约定目录外，就是硬崩（不是 JS 异常，JS 侧的容错拦不住）。
  *
- * 所以本构建器把**全部**引擎侧产物都落在 `res://.godot/GodotJS/` 下，不再区分
- * "脚本类产物"与"普通产物"——分包时脚本类可能被卷进共享 chunk，区分对待迟早漏。
+ * 所以本构建器把**全部**引擎侧产物都落在 `res://.godot/GodotJS/` 下，也不区分
+ * "脚本类入口"与"普通入口"——同一条反推约束两边，分包时脚本类还会被卷进共享 chunk。
  *
  * 引擎那两个容易踩的细节：扩展名长度含点，所以 `.cjs` / `.mjs` 切 4 个字符而 `.js` 切 3 个；
  * 前缀判断用 String::begins_with 纯前缀比较，`GodotJSx` 这种近似目录名也算命中。
@@ -39,12 +39,4 @@ export function assertEngineOutDir(outputPath: string): string {
     );
   }
   return rel;
-}
-
-/**
- * 脚本类入口的产物名：源码相对 workspaceRoot 的路径去掉扩展名。
- * 不让配置参与是因为引擎按"产物路径去掉约定目录前缀"反推源码，名字必须等于源码相对路径。
- */
-export function scriptClassEntryName(relFromWorkspace: string): string {
-  return relFromWorkspace.replace(/\\/g, "/").replace(/\.(ts|cts|mts)$/, "");
 }

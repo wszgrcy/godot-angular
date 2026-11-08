@@ -50,7 +50,7 @@ Label / Button / VBoxContainer …       真实 Godot 节点
 ```
 my-app/
 ├── project.godot        # run/main_scene = res://main.tscn
-├── main.tscn            # 根节点脚本 = res://.godot/GodotJS/main.mjs
+├── main.tscn            # 根节点脚本 = res://.godot/GodotJS/src/main.mjs
 ├── angular.json         # godot-angular:application 的 target
 ├── tsconfig.json        # typeRoots 指向生成的 typings 目录
 ├── package.json         # 依赖 godot-angular 与 Angular
@@ -75,7 +75,7 @@ config/features=PackedStringArray("4.7")
 ```ini
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://.godot/GodotJS/main.mjs" id="1_root"]
+[ext_resource type="Script" path="res://.godot/GodotJS/src/main.mjs" id="1_root"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_root")
@@ -171,11 +171,11 @@ npx godot-typings --out typings
 ### 4. 构建并运行
 
 ```bash
-npm run build      # = ng build app，产出 .godot/GodotJS/main.mjs
+npm run build      # = ng build app，产出 .godot/GodotJS/src/main.mjs
 godot --path .     # 或使用 Godot 编辑器打开该目录并按 F5
 ```
 
-`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://.godot/GodotJS/main.mjs`。
+`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://.godot/GodotJS/src/main.mjs`。
 
 修改 `dist/*.mjs` 后引擎无输出时，说明脚本资源缓存未刷新，请重启引擎或执行：
 
@@ -192,7 +192,7 @@ godot --headless --path . --import
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
 
-官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://.godot/GodotJS/main.mjs (expected type: Script)`。
+官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://.godot/GodotJS/src/main.mjs (expected type: Script)`。
 
 ## 模板语法
 
@@ -1027,22 +1027,23 @@ this.router.events
   "options": {
     "entries": [{ "glob": "**/*.ts", "input": "src/pages" }],
     "tsConfig": "tsconfig.json",
-    "outputPath": ".godot/GodotJS/pages"
+    "outputPath": ".godot/GodotJS"
   }
 }
 ```
 
-产物名称为 `output` 与文件相对 `input` 的路径之和（去除 `.ts` 扩展名）。`input` 缺省取 `glob` 中第一个含通配符的段之前的部分，因此产物名称仅由配置决定，与实际匹配结果无关。
+产物名 = 文件相对工程根（workspaceRoot）的路径去掉 `.ts`，不接受配置：引擎拿“产物路径去掉
+`.godot/GodotJS` 前缀”反推 `.ts` 源码，名字只有等于源码位置这一种可能。`input` 只决定 glob
+从哪里开始匹配。
 
 | 写法 | 产物 |
 | --- | --- |
-| `"src/main.ts"` | `dist/main.mjs` |
-| `"src/pages/**/*.ts"` | `dist/hello.mjs`、`dist/counter.mjs` |
+| `"src/main.ts"` | `.godot/GodotJS/src/main.mjs` |
+| `"src/pages/**/*.ts"` | `.godot/GodotJS/src/pages/hello.mjs`、`.../counter.mjs` |
 | `{ glob: "**/*.ts", input: "src/pages" }` | 同上 |
-| `{ glob: "*.ts", input: "src/pages", output: "pages" }` | `dist/pages/hello.mjs` |
-| `{ glob: "**/*.ts", input: "src", ignore: ["**/tests/**"] }` | `dist/app.mjs`、`dist/main.mjs`、`dist/pages/hello.mjs` |
+| `{ glob: "**/*.ts", input: "src", ignore: ["**/tests/**"] }` | `src/app.mjs`、`src/main.mjs`、`src/pages/hello.mjs`（均在 `.godot/GodotJS/` 下） |
 
-两种配置产生同名产物时构建报错。入口名称必须保持稳定，场景文件按名称引用脚本。
+多条模式命中同一个文件只算一个入口；不同文件的相对路径天然唯一，不会撞名。
 
 每个入口对应一个场景文件，场景路径作为命令行位置参数传入：
 
@@ -1133,7 +1134,8 @@ SIGILL 硬崩——不是 JS 异常，JS 侧的 try/catch 拦不住。
 
 | 选项 | 说明 |
 | --- | --- |
-| `entries` | 入口 `.ts` 文件，可配置多个，形状沿用 `assets` 的 `{glob,input,output,ignore}` |
+| `entries` | 入口 `.ts`，可多个，形状 `{glob,input,ignore}`。产物名 = 源码相对工程根的路径（引擎要求，不可配置）；场景直接挂的与代码 `new` 出来的脚本类都从这里进 |
+| `scriptClassEntries` | **已废弃**，请改用 `entries`（两者现在完全等价）。写了会被自动并入 `entries` 并给出一次警告，后续版本会删除 |
 | `outputPath` | 必须是 `.godot/GodotJS`（引擎写死的约定目录）或它的子目录，详见下面的“产物目录” |
 | `viteConfig` | vite 配置文件路径，叠加在本 builder 之上；`plugins` 为追加而非替换 |
 | `styles` | 全局样式表，构建期解析并编入产物，运行时作为 application 层样式参与级联。不接受 `bundleName` 与 `inject` |
@@ -1215,7 +1217,7 @@ SIGILL 硬崩——不是 JS 异常，JS 侧的 try/catch 拦不住。
 
 | 现象 | 原因 |
 | --- | --- |
-| `No loader found for resource: res://.godot/GodotJS/main.mjs (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
+| `No loader found for resource: res://.godot/GodotJS/src/main.mjs (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
 | `Xxx.yyy 不是真实属性，赋值已忽略 ` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |

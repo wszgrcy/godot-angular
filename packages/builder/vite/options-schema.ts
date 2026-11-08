@@ -1,6 +1,6 @@
 import * as v from "valibot";
 import { DEFAULT_ENGINE_PORT } from "../shared/engine-port";
-import { GODOTJS_OUT_DIR } from "./script-class-path";
+import { GODOTJS_OUT_DIR } from "./engine-out-dir";
 
 /* ------------------------------------------------------------------ *
  * 子形状
@@ -95,17 +95,9 @@ export const entryPatternSchema = v.union([
       v.pipe(
         v.string(),
         v.description(
-          "搜索根目录，相对 workspaceRoot。默认取 glob 中第一个含通配符的段之前的部分，"
+          "搜索根目录，相对 workspaceRoot。只决定 glob 从哪里开始匹配，不影响产物名。"
+            + "默认取 glob 中第一个含通配符的段之前的部分，"
             + "因此 \"src/pages/**/*.ts\" 等价于 input=src/pages + glob=**/*.ts。",
-        ),
-      ),
-    ),
-    output: v.optional(
-      v.pipe(
-        v.string(),
-        v.description(
-          "产物子目录，相对 outputPath。默认直接输出到 outputPath 根目录。"
-            + "产物名 = output + 文件相对 input 的路径（去除 .ts），完全由配置决定，不再从匹配结果反推。",
         ),
       ),
     ),
@@ -296,11 +288,12 @@ export const sharedOptionFields = {
   entries: v.pipe(
     v.array(entryPatternSchema),
     v.description(
-      "入口 .ts，可配置多个，形状沿用 assets 的 { glob, input, output, ignore }。"
-        + "产物名 = output + 文件相对 input 的路径（去除 .ts）：\"src/main.ts\" 生成 main.js，"
-        + "{ glob: \"**/*.ts\", input: \"src/pages\" } 生成该目录下的同名文件，"
-        + "再加 output: \"pages\" 即产物目录/pages/同名.js。"
-        + "名称不再从“匹配文件的公共目录”反推（该结果会随匹配情况变化）；未提供 input / output 时以根目录为准。",
+      "入口 .ts，可配置多个，形状沿用 assets 的 { glob, input, ignore }。场景里 "
+        + "`script = ExtResource(...)` 直接挂的脚本、以及代码里 `new` 出来的脚本类，都从这里进："
+        + "引擎对两者的产物位置要求是同一条。产物名 = 文件相对 workspaceRoot 的路径（去除 .ts），"
+        + "例如 `src/main.ts` 生成 .godot/GodotJS/src/main.mjs——引擎拿“产物路径去掉 "
+        + ".godot/GodotJS 前缀”反推 .ts 源码，名字必须与源码位置一致，所以产物名不接受配置。"
+        + "同一个文件被多条模式命中只算一个入口。",
     ),
   ),
   // 这里故意没有 resRoot：outputPath 就是相对工程根（= res://）的，res 前缀恒等于
@@ -309,11 +302,10 @@ export const sharedOptionFields = {
     v.pipe(
       v.array(entryPatternSchema),
       v.description(
-        "脚本类入口（`export default class X extends 引擎类`），形状与 `entries` 一致，字符串简写也可用。" +
-          "与 `entries` 的区别只有一处：产物名固定为文件相对 workspaceRoot 的路径（去掉 .ts），不受 " +
-          "`input` / `output` 影响——引擎是拿“产物路径去掉 .godot/GodotJS 前缀”反推 .ts 源码的，名字对不上时" +
-          "运行时实例化这些类会让引擎直接崩溃。带导出属性的类必须从这里进；不带导出属性的普通入口放 " +
-          "`entries` 就行。",
+        "【已废弃，请改用 `entries`】过去用来单独列脚本类入口的选项。它与 `entries` 其实完全"
+          + "等价：场景直接挂的与代码 `new` 出来的脚本类，受的是同一条引擎约束。写在这里的"
+          + "内容会被直接并进 `entries`（同一个文件不会围此重复成两个入口），构建时会给一次"
+          + "警告。保留只为让老配置不至于一夜失效，后续版本会删除。",
       ),
     ),
     [],

@@ -12,7 +12,7 @@
           "options": {
             "tsConfig": "tsconfig.json",
             "outputPath": ".godot/GodotJS",
-            "scriptClassEntries": [
+            "entries": [
               {
                 "input": "src/fixtures",
                 "glob": "**/*.ts"

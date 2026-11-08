@@ -88,7 +88,9 @@ export function normalizeEntries(patterns: EntryPattern[]) {
   return patterns.map((p) => {
     const raw = typeof p === "string" ? { glob: p } : p;
     const glob = toPosix(raw.glob).replace(/^\.\//, "");
-    const output = raw.output ? trimSlashes(toPosix(raw.output)) : "";
+    // output 已从入口形状中移除，但 looseObject 不会拦下老配置里写的它，这里照原样归一，
+    // 由 resolveEntries 给出“该字段已移除”的明确报错
+    const output = typeof raw.output === "string" ? trimSlashes(toPosix(raw.output)) : "";
     const ignore = raw.ignore ?? [];
     if (raw.input !== undefined) {
       return { glob, input: trimSlashes(toPosix(raw.input)), output, ignore };
