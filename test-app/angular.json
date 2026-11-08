@@ -11,7 +11,7 @@
           "builder": "godot-angular:vitest",
           "options": {
             "tsConfig": "tsconfig.json",
-            "outputPath": "dist-engine-test",
+            "outputPath": ".godot/GodotJS",
             "scriptClassEntries": [
               {
                 "input": "src/fixtures",

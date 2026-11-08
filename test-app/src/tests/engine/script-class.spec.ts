@@ -10,7 +10,7 @@ import { initGodotTestEnvironment, awaitFrames, getEngineSceneRoot } from "godot
 
 /**
  * 引擎硬编码的产物目录 res://.godot/GodotJS。这个文件由构建器的 scriptClassEntries 产出
- * （入口名 = 源码相对路径，保证引擎反推 .ts 源码对得上），不在 outputPath 下。
+ * （入口名 = 源码相对路径，保证引擎反推 .ts 源码对得上）。
  *
  * 产物是 `.mjs`，所以只能用 `import` 取：引擎按扩展名分流，`.mjs` 交给 V8 的模块机制，
  * `require` 走不到它。

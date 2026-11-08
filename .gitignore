@@ -2,8 +2,9 @@ node_modules
 .godot
 .angular
 
-# 构建产物：dist 是发布物（test-app 靠 `link:../dist` 软链它），
-# test-app/dist* 是各 builder target 的产物目录
+# 构建产物：dist 是发布物（test-app 靠 `link:../dist` 软链它）。
+# 引擎侧产物在 .godot/GodotJS（上面已忽略 .godot）；test-app/dist* 是改用
+# .godot/GodotJS 之前的产物目录，留着规则是为了挡住残留。
 dist
 test-app/dist*/
 

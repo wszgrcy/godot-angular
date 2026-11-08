@@ -1,6 +1,6 @@
 import type { BuilderContext } from "@angular-devkit/architect";
 import angular from "@analogjs/vite-plugin-angular";
-import { readFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { ReplaySubject } from "rxjs";
 import { bufferedValuesFrom } from "rxjs-for-await";
@@ -26,12 +26,7 @@ import { icuDowngradePlugin } from "./icu-downgrade";
 import { cssPlugins, GLOBAL_CSS_VIRTUAL } from "./css-plugin";
 import { godotInteropPlugin } from "./godot-interop";
 import { isExternalDependency, isGodotBuiltinModule, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
-import {
-  GODOTJS_OUT_DIR,
-  SC_STAGING_DIR,
-  GODOTJS_OUT_RES_ROOT,
-  scriptClassEntryName,
-} from "./script-class-path";
+import { assertEngineOutDir, scriptClassEntryName } from "./script-class-path";
 import { globInputFiles, globInputPaths } from "./glob-input";
 import {
   applicationOptionsSchema,
@@ -146,30 +141,6 @@ export function godotRequirePlugin(resRoot: string): Plugin {
 }
 
 /**
- * 把脚本类产物从 outDir 里的临时目录搬到引擎约定目录（rename，不改内容）。
- * 需要临时目录是因为 rollup 的 entryFileNames 不允许 `../`，产物写不到 outDir 外面。
- */
-export function scriptClassMovePlugin(opts: {
-  outDirAbs: string;
-  targets: Map<string, string>;
-}): Plugin {
-  return {
-    name: "godot-angular-script-class-move",
-    enforce: "post",
-    writeBundle() {
-      for (const [staged, dest] of opts.targets) {
-        const from = resolve(opts.outDirAbs, staged);
-        if (!existsSync(from)) continue;
-        mkdirSync(dirname(dest), { recursive: true });
-        rmSync(dest, { force: true });
-        renameSync(from, dest);
-      }
-      rmSync(resolve(opts.outDirAbs, SC_STAGING_DIR), { recursive: true, force: true });
-    },
-  };
-}
-
-/**
  * `loader` 选项：将某个扩展名作为纯文本 / base64 内联。官方六种中的 `file` / `dataurl` /
  * `binary` 在 Godot 语境下没有对应处理，schema 直接不接受，而不是静默降级为 text。
  */
@@ -226,33 +197,25 @@ export type GodotViteBuildOptions = Omit<ApplicationOptions, "styles"> &
 /**
  * 解析 `scriptClassEntries`：glob 出文件，算出引擎要求的入口名（源码相对路径去掉 `.ts`）。
  *
- * 这些入口与主入口走**同一次 vite 构建**，只是产物落到引擎硬编码的 `.godot/GodotJS/` 下：
- * 引擎拿“产物路径去掉该目录前缀”反推 `.ts` 源码，名字对不上就白搭。不这么做时，运行时
- * `new` 这些类会让引擎直接崩溃。
+ * 产物目录与主入口相同（整个 outDir 已经在引擎约定的 `.godot/GodotJS/` 里），这里只负责
+ * 命名：引擎拿“产物路径去掉该目录前缀”反推 `.ts` 源码，名字对不上就白搭。
  *
- * 返回名字 → 绝对源路径；名字集合同时用于“不吃 polyfill 注入”与“输出路由”两处判定。
+ * 返回名字 → 绝对源路径；名字集合同时用于“不吃 polyfill 注入”与“入口命名”两处判定。
  */
 function resolveScriptClassEntries(
   patterns: EntryPattern[],
   workspaceRoot: string,
   context: BuilderContext,
-): Map<string, { file: string; outDir: string }> {
-  const out = new Map<string, { file: string; outDir: string }>();
+): Map<string, string> {
+  const out = new Map<string, string>();
   if (!patterns.length) return out;
 
   let total = 0;
   for (const raw of normalizeEntries(patterns)) {
-    const outDir = raw.output || GODOTJS_OUT_DIR;
-    if (outDir !== GODOTJS_OUT_DIR && !outDir.startsWith(`${GODOTJS_OUT_DIR}/`)) {
-      throw new Error(
-        `scriptClassEntries 的 output 只能是 ${GODOTJS_OUT_DIR} 或它的子目录，收到 “${outDir}”：` +
-          "引擎只认这个前缀，写到外面运行时 new 这些类会直接崩溃。",
-      );
-    }
     const found = globInputPaths(workspaceRoot, { glob: raw.glob, input: raw.input, ignore: raw.ignore });
     for (const { abs } of found) {
       // 名字按相对工程根算，不按相对 input：引擎靠这个反推 .ts 源码
-      out.set(scriptClassEntryName(relative(workspaceRoot, abs)), { file: abs, outDir });
+      out.set(scriptClassEntryName(relative(workspaceRoot, abs)), abs);
     }
     total += found.length;
   }
@@ -275,7 +238,7 @@ export async function runGodotViteBuild(
   }
   context.logger.info(
     `已生成 ${entryCount} 个入口 → ${relative(context.workspaceRoot, resolve(context.workspaceRoot, options.outputPath))}` +
-      (scriptClassCount ? `，脚本类 ${scriptClassCount} 个 → ${GODOTJS_OUT_DIR}（引擎约定目录）` : ""),
+      (scriptClassCount ? `（含脚本类 ${scriptClassCount} 个，名字按源码相对路径）` : ""),
   );
   return { success: true };
 }
@@ -377,9 +340,11 @@ async function prepareConfig(
     verbose,
   } = options;
 
-  const outDir = resolve(context.workspaceRoot, outputPath);
-  const outRel = toPosix(outputPath);
-  const outResRoot = `res://${outRel.replace(/\/+$/, "")}`;
+  // 引擎只认 .godot/GodotJS 前缀，写到外面时带导出属性的脚本类会让引擎硬崩，
+  // 原因见 script-class-path.ts 顶部。
+  const outRel = assertEngineOutDir(outputPath);
+  const outDir = resolve(context.workspaceRoot, outRel);
+  const outResRoot = `res://${outRel}`;
 
   // 布尔与对象两种书写在此处归一，下游仅读取 `.scripts`
   const optimize = normalizeOptimization(optimization);
@@ -402,22 +367,17 @@ async function prepareConfig(
   }
   const entryCount = Object.keys(input).length;
 
-  let scriptClasses: Map<string, { file: string; outDir: string }>;
+  let scriptClasses: Map<string, string>;
   try {
     scriptClasses = resolveScriptClassEntries(options.scriptClassEntries, context.workspaceRoot, context);
   } catch (err) {
     context.logger.error(err instanceof Error ? err.message : String(err));
     return null;
   }
-  for (const [name, e] of scriptClasses) {
-    input[name] = e.file;
+  for (const [name, file] of scriptClasses) {
+    input[name] = file;
   }
   const scNames = new Set(scriptClasses.keys());
-  // 脚本类先落到 outDir 里的临时目录（entryFileNames 不允许 `../`），构建完再搬到引擎约定目录
-  const scTargets = new Map<string, string>();
-  for (const [name, e] of scriptClasses) {
-    scTargets.set(`${SC_STAGING_DIR}/${name}.mjs`, resolve(context.workspaceRoot, e.outDir, `${name}.mjs`));
-  }
   // 补丁入口是**虚拟的、必带的**：内容第一行写定对构建器补丁模块的 import（见
   // `MANDATORY_POLYFILL_SPECIFIER`），用户 polyfills 只能往后追加。它作为入口必然单独成文件
   // 且不会被摇树，随后由 polyfillPlugin 将 require 写回每个入口顶部。inputOverride（引擎测试）
@@ -477,7 +437,6 @@ async function prepareConfig(
       // godotRequirePlugin 改的是**产物**里的 require，两者不在一个阶段。
       godotInteropPlugin((m) => context.logger.info(m)),
       godotRequirePlugin(outResRoot),
-      scriptClassMovePlugin({ outDirAbs: outDir, targets: scTargets }),
       assetsPlugin(normalizeAssets(assets), context.workspaceRoot),
       budgetsPlugin({ budgets, statsJson, log }),
       ...(options.extraPlugins ?? []),
@@ -512,8 +471,9 @@ async function prepareConfig(
           // V8 自己的模块机制。产物全部用 `.mjs`，`import` / `export` / `import.meta`
           // 才是标准语义（代价：产物里的相对路径必须带扩展名，rollup 本来就会写全）。
           format: "es",
-          entryFileNames: (chunk) =>
-            scriptClasses.has(chunk.name) ? `${SC_STAGING_DIR}/${chunk.name}.mjs` : "[name].mjs",
+          // 脚本类入口名自带相对目录（如 src/fixtures/probe），rollup 会照原样建目录，
+          // 正好等于引擎反推 .ts 源码时要求的位置。
+          entryFileNames: "[name].mjs",
           chunkFileNames: `chunks/[name]${hashed}.mjs`,
         },
       },

@@ -1,6 +1,6 @@
 {
   "name": "godot-angular",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "Run Angular inside Godot (GodotJS / V8) by rendering Control subclasses",
   "license": "MIT",
   "type": "module",

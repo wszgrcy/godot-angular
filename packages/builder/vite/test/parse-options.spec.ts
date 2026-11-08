@@ -11,8 +11,8 @@ import {
 const minimal = {
   entries: ["src/main.ts"],
   tsConfig: "tsconfig.json",
-  outputPath: "dist",
-  resRoot: "res://dist",
+  outputPath: ".godot/GodotJS",
+  resRoot: "res://.godot/GodotJS",
 };
 
 describe("parseOptions", () => {

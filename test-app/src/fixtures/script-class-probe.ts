@@ -1,4 +1,4 @@
-// 脚本类 fixture：由 scriptClassEntries 单独编到引擎约定目录下。
+// 脚本类 fixture：由 scriptClassEntries 产出，产物名 = 本文件相对工程根的路径。
 //
 // 生命周期计数用字段初始化，不写 constructor —— 官方文档明确不建议脚本类自定义
 // constructor（GodotJS 会为 CDO、跨绑定等特殊用途构造类）。

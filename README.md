@@ -45,12 +45,12 @@ Label / Button / VBoxContainer …       真实 Godot 节点
 
 ### 1. 准备工程
 
-新建目录，放入下列文件（`dist/` 由构建产出，不是手写）：
+新建目录，放入下列文件（`.godot/GodotJS/` 由构建产出，不是手写）：
 
 ```
 my-app/
 ├── project.godot        # run/main_scene = res://main.tscn
-├── main.tscn            # 根节点脚本 = res://dist/main.mjs
+├── main.tscn            # 根节点脚本 = res://.godot/GodotJS/main.mjs
 ├── angular.json         # godot-angular:application 的 target
 ├── tsconfig.json        # typeRoots 指向生成的 typings 目录
 ├── package.json         # 依赖 godot-angular 与 Angular
@@ -75,7 +75,7 @@ config/features=PackedStringArray("4.7")
 ```ini
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://dist/main.mjs" id="1_root"]
+[ext_resource type="Script" path="res://.godot/GodotJS/main.mjs" id="1_root"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_root")
@@ -97,8 +97,7 @@ script = ExtResource("1_root")
           "options": {
             "entries": ["src/main.ts"],
             "tsConfig": "tsconfig.json",
-            "outputPath": "dist",
-            "resRoot": "res://dist",
+            "outputPath": ".godot/GodotJS",
             "optimization": false,
             "sourceMap": false
           }
@@ -172,11 +171,11 @@ npx godot-typings --out typings
 ### 4. 构建并运行
 
 ```bash
-npm run build      # = ng build app，产出 dist/main.mjs
+npm run build      # = ng build app，产出 .godot/GodotJS/main.mjs
 godot --path .     # 或使用 Godot 编辑器打开该目录并按 F5
 ```
 
-`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://dist/main.mjs`。
+`project.godot` 的主场景为 `res://main.tscn`，该场景引用 `res://.godot/GodotJS/main.mjs`。
 
 修改 `dist/*.mjs` 后引擎无输出时，说明脚本资源缓存未刷新，请重启引擎或执行：
 
@@ -193,7 +192,7 @@ godot --headless --path . --import
 | Angular | `^22.0.0` |
 | 平台 | Linux x86_64、Windows x64 |
 
-官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://dist/main.mjs (expected type: Script)`。
+官方 Godot 同样自称 “Godot Engine”，`--version` 无法区分。判断依据：使用官方构建运行时会报 `No loader found for resource: res://.godot/GodotJS/main.mjs (expected type: Script)`。
 
 ## 模板语法
 
@@ -1028,8 +1027,7 @@ this.router.events
   "options": {
     "entries": [{ "glob": "**/*.ts", "input": "src/pages" }],
     "tsConfig": "tsconfig.json",
-    "outputPath": "dist-pages",
-    "resRoot": "res://dist-pages"
+    "outputPath": ".godot/GodotJS/pages"
   }
 }
 ```
@@ -1061,8 +1059,7 @@ godot --headless --path . res://pages.tscn
   "builder": "godot-angular:vitest",
   "options": {
     "tsConfig": "tsconfig.json",
-    "outputPath": "dist-engine-test",
-    "resRoot": "res://dist-engine-test",
+    "outputPath": ".godot/GodotJS",
     "specInclude": ["src/tests/engine/*.spec.ts"],
     "engine": {
       "projectPath": ".",                 // 指定后自动启动引擎；noLaunch: true 时自行启动
@@ -1075,7 +1072,7 @@ godot --headless --path . res://pages.tscn
 }
 ```
 
-`engine_vitest.tscn` 指向 `res://dist-engine-test/vitest-entry.js`，该入口由构建器生成，使用方无需编写任何测试入口文件。`specInclude` 是测试文件匹配模式的唯一来源。
+`engine_vitest.tscn` 指向 `res://.godot/GodotJS/vitest-entry.mjs`，该入口由构建器生成，使用方无需编写任何测试入口文件。`specInclude` 是测试文件匹配模式的唯一来源。
 
 ```ts
 import { initGodotTestEnvironment } from "godot-angular/testing";
@@ -1117,12 +1114,27 @@ ng test --reporters=json
 
 `godot-angular` 提供两个 builder。选项名称与语义沿用官方 `@angular/build:application`，未提供的能力通过 `viteConfig` 配置。
 
+### 产物目录
+
+产物全部落在 `res://.godot/GodotJS/` 下（`outputPath` 只能是它或它的子目录，写别处会在构建时报错）。
+
+原因是引擎写死了这个前缀：带导出属性的脚本类被实例化时，引擎要构造一个类默认对象去读属性的默认值，
+这一步会拿“产物路径去掉 `.godot/GodotJS` 前缀”反推 `.ts` 源码路径。路径不以该前缀开头时，引擎里的
+断言直接失败（`internal/jsb_path_util.cpp` 的 `convert_javascript_path`），editor / debug 构建表现为
+SIGILL 硬崩——不是 JS 异常，JS 侧的 try/catch 拦不住。
+
+受约束的是“声明了脚本类的模块”，而不是某个特定入口：代码里 `new` 出来的、`.tscn` 里
+`script = ExtResource(...)` 挂的，只要那个类带导出属性就都走这条路；分包时脚本类还可能被卷进共享
+ chunk，所以这里不做区分对待，整个产物目录一起放进去。
+
+`.godot/` 是 Godot 自己的缓存目录（Godot 建的 `.gitignore` 默认已包含它），产物因此不进版本库。
+
 ### `godot-angular:application`
 
 | 选项 | 说明 |
 | --- | --- |
 | `entries` | 入口 `.ts` 文件，可配置多个，形状沿用 `assets` 的 `{glob,input,output,ignore}` |
-| `resRoot` | `outputPath` 对应的 `res://` 前缀 |
+| `outputPath` | 必须是 `.godot/GodotJS`（引擎写死的约定目录）或它的子目录，详见下面的“产物目录” |
 | `viteConfig` | vite 配置文件路径，叠加在本 builder 之上；`plugins` 为追加而非替换 |
 | `styles` | 全局样式表，构建期解析并编入产物，运行时作为 application 层样式参与级联。不接受 `bundleName` 与 `inject` |
 | `tsConfig` `outputPath` `sourceMap` `define` | 与官方同名同义 |
@@ -1203,7 +1215,7 @@ ng test --reporters=json
 
 | 现象 | 原因 |
 | --- | --- |
-| `No loader found for resource: res://dist/main.mjs (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
+| `No loader found for resource: res://.godot/GodotJS/main.mjs (expected type: Script)` | 使用的是官方 Godot，而非 GodotJS 构建 |
 | 启动时报 `godot class not found '__esModule'` | 使用了默认导入或命名空间导入，应改为具名导入 |
 | `needs to be compiled using the JIT compiler, but '@angular/compiler' is not available` | 组件的 AOT 产物不完整，通常由自闭合的 Godot 标签（`<Label />`）导致 |
 | `Xxx.yyy 不是真实属性，赋值已忽略 ` | 属性名拼写错误，或使用了驼峰写法。另一种成因是给自定义组件的宿主写了静态字符串属性（`<ui-card title="x">`），见[属性](#属性) |
