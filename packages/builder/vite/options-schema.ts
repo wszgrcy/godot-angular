@@ -371,7 +371,8 @@ export const sharedOptionFields = {
       v.array(v.string()),
       v.description(
         "不打包进产物、运行时由外部提供的包。口径与官方一致：`@foo/bar` 会将包内所有路径视为外部，" +
-          "包括 `@foo/bar/baz`。`godot` 已固定为外部。",
+          "包括 `@foo/bar/baz`。引擎自带的模块（`godot`、`godot.annotations`、`godot.worker`、`jsb.*` 等）" +
+          "已固定为外部，不用写在这里。",
       ),
     ),
     [],

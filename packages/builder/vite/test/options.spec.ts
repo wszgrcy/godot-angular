@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveEntries } from "../build-core";
 import {
   isExternalDependency,
+  isGodotBuiltinModule,
   normalizeAssets,
   normalizeEntries,
   splitStaticInput,
@@ -133,6 +134,30 @@ describe("normalizeEntries / splitStaticInput", () => {
     });
     expect(splitStaticInput("src/**/main.ts")).toEqual({ input: "src", glob: "**/main.ts" });
     expect(splitStaticInput("**/*.ts")).toEqual({ input: "", glob: "**/*.ts" });
+  });
+});
+
+describe("isGodotBuiltinModule（引擎自带模块必须外部化）", () => {
+  it("godot 与带点号的内置模块都算：godot.annotations 不是 godot 的子目录", () => {
+    for (const id of [
+      "godot",
+      "godot-jsb",
+      "godot.annotations",
+      "godot.lib.api",
+      "godot.typeloader",
+      "godot.worker",
+      "jsb.core",
+      "jsb.inject",
+      "godot/extra",
+    ]) {
+      expect(isGodotBuiltinModule(id), id).toBe(true);
+    }
+  });
+
+  it("本库与第三方包不算，否则会被当成引擎模块而不去打包", () => {
+    for (const id of ["godot-angular", "godot-angular/core", "rxjs", "jsbi", "@foo/godot"]) {
+      expect(isGodotBuiltinModule(id), id).toBe(false);
+    }
   });
 });
 

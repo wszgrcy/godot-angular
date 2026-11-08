@@ -14,6 +14,25 @@ export function isExternalDependency(id: string, packages: string[]): boolean {
 }
 
 /**
+ * 引擎自带的模块：这些说明符由 GodotJS 在运行时提供，磁盘上没有对应文件，必须让打包器原样
+ * 保留。`godot` / `godot-jsb` 是引擎 C++ 注册的模块加载器，`godot.*` 与 `jsb.*` 是运行时
+ * bundle 里 define 出来的模块（`godot.annotations` 的 `createClassBinder`、`godot.worker` 的
+ * `JSWorker` 等）。注意分隔符是点不是斜杠，`godot.annotations` 不是 `godot` 的子目录。
+ *
+ * 与 `godot-interop.ts` 里的判定不同：那里只处理 `godot`（它是列不出属性的 Proxy，必须改写成
+ * 默认导入），而 `godot.annotations` 这类普通模块具名导入在引擎里直接可用，不能改写。
+ */
+export function isGodotBuiltinModule(id: string): boolean {
+  return (
+    id === "godot" ||
+    id === "godot-jsb" ||
+    id.startsWith("godot/") ||
+    id.startsWith("godot.") ||
+    id.startsWith("jsb.")
+  );
+}
+
+/**
  * 归一化 assets：字符串分支展开为 `{ glob }`，可选字段补默认值。`input` = 搜索根（相对
  * workspaceRoot），`output` = 输出子目录（相对 outputPath）。返回类型故意不写，由这份
  * 实现推导得出，`NormalizedAsset` 由它派生，两者不可能分叉。

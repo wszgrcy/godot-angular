@@ -25,7 +25,7 @@ import {
 import { icuDowngradePlugin } from "./icu-downgrade";
 import { cssPlugins, GLOBAL_CSS_VIRTUAL } from "./css-plugin";
 import { godotInteropPlugin } from "./godot-interop";
-import { isExternalDependency, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
+import { isExternalDependency, isGodotBuiltinModule, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
 import {
   GODOTJS_OUT_DIR,
   SC_STAGING_DIR,
@@ -503,7 +503,7 @@ async function prepareConfig(
       rollupOptions: {
         // GodotJS 内建模块 + externalDependencies，产物里原样保留 require(...)
         external: (id: string) =>
-          id === "godot" || id.startsWith("godot/") || isExternalDependency(id, externalDependencies),
+          isGodotBuiltinModule(id) || isExternalDependency(id, externalDependencies),
         input: { ...input, [POLYFILL_ENTRY_NAME]: POLYFILL_ENTRY_SPECIFIER },
         // 不设这个，入口的具名导出会被摇掉且**不报错**（整个 App 组件会跟着一起消失）
         preserveEntrySignatures: "strict",

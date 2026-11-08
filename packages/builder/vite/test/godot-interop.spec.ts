@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { build } from "vite";
 import { describe, expect, it } from "vitest";
 import { godotInteropPlugin } from "../godot-interop";
+import { isGodotBuiltinModule } from "../options";
 import { handlerOf } from "./hook";
 
 // ───────────────────────── 1. 纯改写：各种写法 ─────────────────────────
@@ -238,5 +239,52 @@ describe("godotInteropPlugin：产物在 Proxy 形态的 godot 上真能跑", ()
     expect(out.error).toBeUndefined();
     expect(out.named).toBe("function");
     expect(out.viaDefault).toBe("function");
+  });
+});
+
+// ───────────────────── 引擎内置模块的外部化判定 ─────────────────────
+
+/**
+ * 引擎自带模块（`godot.annotations` 等）磁盘上没有文件，打包器一旦去解析就报
+ * `Failed to resolve import`，构建直接失败。这里钉住 build-core 用的那条判定。
+ */
+async function buildBuiltin(external: (id: string) => boolean): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), "godot-builtin-"));
+  writeFileSync(
+    join(root, "main.ts"),
+    `import { createClassBinder } from "godot.annotations";\n` +
+      `export const bind = createClassBinder();\n`,
+  );
+  try {
+    await build({
+      root,
+      logLevel: "silent",
+      build: {
+        outDir: "out",
+        emptyOutDir: true,
+        minify: false,
+        rollupOptions: {
+          input: { main: join(root, "main.ts") },
+          external,
+          output: { format: "es", entryFileNames: "[name].mjs" },
+        },
+      },
+    });
+    return readFileSync(join(root, "out", "main.mjs"), "utf8");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+describe("引擎内置模块的外部化判定", () => {
+  it("按 build-core 的判定构建通过，说明符原样留在产物里", { timeout: 60_000 }, async () => {
+    const code = await buildBuiltin(isGodotBuiltinModule);
+    expect(code).toContain(`from "godot.annotations"`);
+  });
+
+  it("判定漏掉带点号的模块时构建直接失败（复现线上故障）", { timeout: 60_000 }, async () => {
+    await expect(buildBuiltin((id) => id === "godot" || id.startsWith("godot/"))).rejects.toThrow(
+      /Failed to resolve import|failed to resolve import/,
+    );
   });
 });
