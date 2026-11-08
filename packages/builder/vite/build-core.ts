@@ -50,6 +50,9 @@ interface GodotViteEntry {
 /**
  * 入口模式 → 入口表，口径与 assets 一致。名字 = output + 相对 input 的路径（去 .ts），
  * 完全由配置决定：.tscn 按名字引用脚本，匹配集不能反过来影响产物名。
+ *
+ * 多条模式命中同一个文件（glob 与显式路径重叠、或同一条写了两遍）只算一个入口；同名但
+ * 来自不同文件才是真冲突，那种情况两个源文件会抢同一个产物名，必须报错。
  */
 export function resolveEntries(
   workspaceRoot: string,
@@ -73,6 +76,8 @@ export function resolveEntries(
       const name = toPosix(p.output ? join(p.output, rel) : rel).replace(/\.ts$/, "");
       const file = resolve(inputRoot, rel);
       const dup = taken.get(name);
+      // 名字与文件都相同 = 入口表里本来就是同一条记录，重复展开直接丢掉
+      if (dup === file) continue;
       if (dup) {
         throw new Error(
           `入口名重复：${name}\n  ${dup}\n  ${file}\n` +

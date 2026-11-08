@@ -1,10 +1,10 @@
 /**
  * `name` 属性 → 引擎节点真实名字。
  *
- * GodotJS 1.3.2 起 `Node.name` 在 JS 侧是真访问器（装在 `Node.prototype` 上），
- * `.name` 与 `get_name()` / `set_name()` 读写的是同一个引擎名字。在此之前 `name` 被整体
- * 排除在属性绑定之外，`node.name = "x"` 只会写出一个 JS 自有属性：读回来还是那个值，
- * 引擎侧却一点没变，`find_child` / `get_node` 全部查不到。
+ * `Node.name` 在 JS 侧是真访问器（装在 `Node.prototype` 上），
+ * `.name` 与 `get_name()` / `set_name()` 读写的是同一个引擎名字。
+ * 要是哪天绑定退回去（`name` 不在属性绑定里），`node.name = "x"` 只会写出一个 JS 自有属性：
+ * 读回来还是那个值，引擎侧却一点没变，`find_child` / `get_node` 全部查不到。
  *
  * 本文件的判据一律用 `get_name()` / `find_child` / `get_node`，不用 `.name`：
  * 万一属性绑定哪天退回去，`.name` 读的会是 JS 缓存，两边“一致地错”而测不出问题。
@@ -172,7 +172,7 @@ describe("name → 引擎节点名字", () => {
     expect(second.get_name().startsWith("@")).toBe(true);
   });
 
-  it("访问器已覆盖全部 ClassDB 属性（name 在 1.3.2 已补上）", () => {
+  it("访问器已覆盖全部 ClassDB 属性（含 name）", () => {
     const node = new Label();
     expect(hasJsAccessor(node as never, "text")).toBe(true);
     expect(hasJsAccessor(node as never, "name")).toBe(true);

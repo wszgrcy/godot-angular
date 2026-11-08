@@ -8,6 +8,8 @@ import {
 } from "../options";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // 入口解析靠的是目录形状，所以给一份专用夹具（src/main.ts + src/app.ts + src/pages/*.ts +
@@ -66,10 +68,37 @@ describe("resolveEntries（口径同 assets）", () => {
     );
   });
 
-  it("两个模式算出同一个名字 → 抛，不静默覆盖", () => {
-    expect(() =>
-      resolveEntries(root, ["src/pages/*.ts", { glob: "*.ts", input: "src/pages" }]),
-    ).toThrow(/入口名重复/);
+  it("两个模式算出同名但不同文件的入口 → 抛，不静默覆盖", () => {
+    // 两个目录里各一个 main.ts，被两条模式算成同一个名字
+    const clash = mkdtempSync(join(tmpdir(), "entries-clash-"));
+    try {
+      for (const dir of ["a", "b"]) {
+        mkdirSync(join(clash, dir), { recursive: true });
+        writeFileSync(join(clash, dir, "main.ts"), "");
+      }
+      expect(() =>
+        resolveEntries(clash, [
+          { glob: "main.ts", input: "a", output: "m" },
+          { glob: "main.ts", input: "b", output: "m" },
+        ]),
+      ).toThrow(/入口名重复：m/);
+    } finally {
+      rmSync(clash, { recursive: true, force: true });
+    }
+  });
+
+  it("多条模式命中同一个文件只算一个入口（glob 与显式路径重叠）", () => {
+    // src/*.ts 已经包含 src/app.ts，再单写一遍不报错也不重复
+    expect(names(root, [{ glob: "*.ts", input: "src" }, "src/app.ts"])).toEqual(["app", "main"]);
+    expect(names(root, ["src/app.ts", "src/app.ts"])).toEqual(["app"]);
+    expect(names(root, ["src/pages/**/*.ts", "src/pages/counter.ts"])).toEqual(["counter", "hello"]);
+  });
+
+  it("同一个文件用两个名字仍是两个入口（去重看名字+文件，不只看文件）", () => {
+    expect(names(root, ["src/app.ts", { glob: "app.ts", input: "src", output: "alt" }])).toEqual([
+      "alt/app",
+      "app",
+    ]);
   });
 
   it("entries 空数组也抛（不是“没入口也算成功”）", () => {

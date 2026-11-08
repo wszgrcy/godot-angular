@@ -4,7 +4,7 @@
 #
 # 版本号由环境变量给出（CI 在 workflow 的 env 里集中设置，本地临时指定即可）：
 #   GODOTJS_REPO     发布仓库，上游 godotjs/GodotJS 或 fork wszgrcy/GodotJS，资产名规则一致
-#   GODOTJS_TAG      release 标签，例如 1.3.2
+#   GODOTJS_TAG      release 标签，例如 1.3.5
 #   GODOT_VERSION    资产名里的 Godot 版本，例如 4.7.2
 #   GODOT_RUNTIME    运行时：v8 / qjs-ng
 #

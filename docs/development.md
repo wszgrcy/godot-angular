@@ -194,10 +194,9 @@ pnpm --filter test-app test  # 此时 builder 才能按包名解析到（消费�
 | `dist/builder/**.mjs` | Angular CLI（`require(path)`）/ Node | ESM |
 | `dist/fesm2022/*.mjs` | vite / rollup 打包时读 | ESM |
 
-引擎侧的产物全部是 `.mjs`，包括脚本类。脚本类曾经只能出 `.js`：引擎把 `.ts` 源路径映射成
-产物路径时（`PathUtil::convert_typescript_path`）只拼 `.js`，产物只有 `.mjs` 时类能注册上、
-但 `new` 会让引擎 `FATAL` 崩进程。GodotJS **1.3.5** 起那条映射会依次试 `.js` → `.cjs` →
-`.mjs`，脚本类才敢跟应用产物用同一种格式（第 8 节第 20 条）。
+引擎侧的产物全部是 `.mjs`，包括脚本类。引擎把 `.ts` 源路径映射成
+产物路径时（`PathUtil::convert_typescript_path`）按 `.js` → `.cjs` → `.mjs` 依次探测文件是否
+存在，所以脚本类能跟应用产物用同一种格式（第 8 节第 20 条）。
 
 builder 自己出 ESM 而不必迁就"被 CLI `require`"：Node 的 **`require(esm)`** 让
 `require()` 能加载 ESM，而 `@angular/cli@22` 的 engines 是
@@ -740,7 +739,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 
 1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
    自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
-   `jsb_native_esm=yes` 决定，GodotJS **1.3.4** 起官方 release 包已编进去。本仓库产物全部
+   `jsb_native_esm=yes` 决定，本仓库用的 1.3.5 release 包已编进去。本仓库产物全部
    `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
 2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
    CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；
@@ -772,10 +771,10 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
    发给 Node 产物：注入条件是 `consumer === "client" && !isWorker && !build.lib`，`build.ssr` 与
    lib 模式的产物里没有 `__vitePreload`。踩到它是因为 application 构建属于 client consumer，
    Vite 默认产物要进浏览器。
-5. `Node.name` 要 GodotJS **1.3.2** 才绑成属性。更早的引擎把 `name` 整体排除在属性绑定之外，
-   `node.name = "x"` 只写 JS 字段而引擎侧不变，生成的 typings 里也没有 `name`。因此
+5. `Node.name` 是真属性访问器，`.name` 与 `set_name()` / `get_name()` 读写同一个引擎名字。
+   若 `bin/` 里放错了引擎（`name` 没绑成属性），生成的 typings 里也就没有 `name`，所以
    `pnpm gen:typings` 会先检查引擎声明里有没有 `get name(): StringName`，没有就直接报错
-   让你升级引擎，而不是到 tsc 阶段报一堆 TS2339。
+   让你换引擎，而不是到 tsc 阶段报一堆 TS2339。
 6. 信号只能连 `Callable`，直接传 JS 函数报
    `Failed to convert JS variable to Variant. Expected: Callable. Found: function`。
    正确写法（`Callable.create` 的 owner 必须是 Godot 对象，`{}` / `null` 抛 bad object）：
@@ -870,10 +869,10 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     会装（`@nberlette/utf8`，vitest 消息编解码要用），但库自己不再需要它们，所以没进
     `polyfills` —— 没有真实消费者的补丁不补。
 
-20. **产物是 ESM（`.mjs`），靠的是 GodotJS 1.3.4 起编进 release 包的原生 ESM 解析器**。
-    该能力由构建参数 `jsb_native_esm=yes` 决定（`config.py` 默认仍是 `no`，1.3.4 起上游各 V8
-    平台的工作流统一带上它）；关掉时整段代码被 `#if JSB_NATIVE_ESM && JSB_WITH_V8` 编译掉，
-    运行时没有任何开关能打开——拿 1.3.3 及更早的包试 ESM，只会得到
+20. **产物是 ESM（`.mjs`），靠的是 release 包里编进的原生 ESM 解析器**。
+    该能力由构建参数 `jsb_native_esm=yes` 决定（`config.py` 默认是 `no`，上游各 V8
+    平台的发布工作流统一带上它）；关掉时整段代码被 `#if JSB_NATIVE_ESM && JSB_WITH_V8` 编译掉，
+    运行时没有任何开关能打开——自己编引擎漏传这个参数，跑 ESM 产物只会得到
     `Uncaught SyntaxError: Cannot use import statement outside a module` 和
     `failed to attach module … (36)`。
 
@@ -884,12 +883,11 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 
     本仓库为此动了五处（全在 `packages/builder`）：
     ① `vite/build-core.ts` 的 `output.format` = `es`，`entryFileNames` / `chunkFileNames` /
-    脚本类入口全量 `.mjs`。**脚本类走 `.mjs` 需要 GodotJS 1.3.5**：引擎把 `.ts` 源路径映射成
-    产物路径的 `PathUtil::convert_typescript_path` 在 1.3.4 及更早只硬拼 `.js`，产物只有
-    `.mjs` 时类能注册上、但 `new` 会 `FATAL: Condition "!(script_instance)" is true` 直接
-    崩进程（不是可捕获异常）。1.3.5 改成依次试 `.js` → `.cjs` → `.mjs`，没产物时才回落 `.js`
-    报常规错。拿 1.3.4 跑本仓库的脚本类用例，引擎日志里是
-    `the javascript file is missing: …（source: …）`；
+    脚本类入口全量 `.mjs`。**脚本类产物也是 `.mjs`**：引擎把 `.ts` 源路径映射成产物路径的
+    `PathUtil::convert_typescript_path` 按 `.js` → `.cjs` → `.mjs` 依次探测，都没命中才回落
+    `.js` 报常规错 `the javascript file is missing: …（source: …）`。这条映射要是只认 `.js`，
+    产物只有 `.mjs` 时类能注册上、但 `new` 会 `FATAL: Condition "!(script_instance)" is true`
+    直接崩进程（不是可捕获异常）；
     ② `vite/godot-interop.ts` 连**具名** `from "godot"` 一起改写（见本节第 3 条）；
     ③ `vite/polyfill.ts` 的注入由前置 `require(…)` 改成静态 `import "res://…"`（ESM 里静态
     import 先于模块体求值，前置 `require` 反而晚于所有 chunk 执行）；
@@ -897,12 +895,10 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
     ⑤ `shared/godot-bin.ts` 的入口戳列表补 `.mjs`，否则改了产物引擎仍拿旧副本。
     另外场景里引用入口的 `.tscn` 要跟着改扩展名（`test-app/engine_vitest.tscn`）。
 
-21. **JS 定时器的时钟在 1.3.3 才修好**：引擎每帧把「这一帧过了多久」喂给 JS 定时器轮，1.3.2 及更早
-    把「引擎从启动到第一帧的总时长」一次性灌进去，且不足 1ms 的余数直接丢。实测同一个探针
-    （`_ready` 里 `setTimeout(50)`）：1.3.2 在墙上时间 **1ms** 就触发，1.3.3 是 **56ms**。
-    后果是旧引擎上「刚注册的定时器当场触发」，而固定步长（`physics_ticks_per_second` 非 0 的
-    `--fixed-fps` 场景）下每帧增量恒为 0，`setTimeout` / `setInterval` / RxJS `asyncScheduler`
-    会不报错地永久停摆 —— 见 `engine.fixedFps` 选项的说明。
+21. **JS 定时器的时钟是准的**：引擎每帧把「这一帧过了多久」（按微秒累加）喂给 JS 定时器轮，
+    首帧不交增量。实测探针（`_ready` 里 `setTimeout(50)`）隔约 56ms 触发。
+    固定步长（`physics_ticks_per_second` 非 0 的 `--fixed-fps` 场景）下的行为见
+    `engine.fixedFps` 选项的说明。
 
 ---
 

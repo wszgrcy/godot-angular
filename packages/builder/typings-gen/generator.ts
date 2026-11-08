@@ -111,16 +111,15 @@ export function collectGodotTypings(options: CollectOptions): GodotTypingsBundle
     if (files.length === 0)
       throw new Error(`引擎未报错，但 ${src} 中不存在 .d.ts 文件`);
 
-    // `Node.name` 在 GodotJS 1.3.2 才进入属性绑定。旧引擎生成的 typings 里没有它，
-    // 而库代码直接用 `node.name`，到 tsc 阶段只会报 TS2339，看不出是引擎版本问题。
-    // 这里直接拦住，顺便把“引擎至少要多新”写成代码而不是文档。
+    // 库代码直接用 `node.name`，而只有引擎把 `name` 绑成属性时 typings 里才有它。
+    // 缺了就拦住：到 tsc 阶段只会报 TS2339，看不出是引擎放错了。
     const declaresName = files.some((f) =>
       readFileSync(join(src, f), "utf8").includes("get name(): StringName"),
     );
     if (!declaresName) {
       throw new Error(
-        `引擎生成的 typings 里没有 Node.name。GodotJS 从 1.3.2 起才把 name 绑成属性，` +
-          `请升级引擎二进制（${bin}）后重试。`,
+        `引擎生成的 typings 里没有 Node.name，说明 ${bin} 不是本仓库对齐的那份引擎，` +
+          `请换成 GodotJS 1.3.5 的 release 包（md5 见 bin/README.md）后重试。`,
       );
     }
 
