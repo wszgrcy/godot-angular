@@ -4,7 +4,7 @@
 #
 # 版本号由环境变量给出（CI 在 workflow 的 env 里集中设置，本地临时指定即可）：
 #   GODOTJS_REPO     发布仓库，上游 godotjs/GodotJS 或 fork wszgrcy/GodotJS，资产名规则一致
-#   GODOTJS_TAG      release 标签，例如 1.3.5
+#   GODOTJS_TAG      release 标签，例如 1.3.8
 #   GODOT_VERSION    资产名里的 Godot 版本，例如 4.7.2
 #   GODOT_RUNTIME    运行时：v8 / qjs-ng
 #
@@ -58,10 +58,20 @@ else
   curl -fsSL --retry 3 -o "$zip" "$url"
 fi
 
-# release 的 zip 里只有一个可执行文件（不带目录），解到 bin/<平台>-<运行时>/ 下才和 BIN_TABLE 一致
+# zip 里不带目录，解到 bin/<平台>-<运行时>/ 下才和 BIN_TABLE 一致。
+# 除了可执行文件，zip 里还有一份 icudtl.dat（Intl.* 与 Unicode 正则要用），
+# 引擎启动时按「可执行文件旁边」找它，所以必须和解出来的二进制放在同一目录。
 mkdir -p "$bin_dir"
 unzip -q -o "$zip" -d "$bin_dir"
 chmod +x "$bin_dir/$exe"
+
+# 缺 icudtl.dat 不会报错退出，而是 Intl.* 抛 "Icu error"、Date.prototype.toLocale* 与
+# Intl.Segmenter 直接终止进程，症状离根因很远，在这里就挡住。
+if [ ! -f "$bin_dir/icudtl.dat" ]; then
+  echo "[godotjs] 解包后没找到 $bin_dir/icudtl.dat：这个 release 包没带 ICU 数据，" >&2
+  echo "[godotjs] 引擎里的 Intl.* 与 Date.prototype.toLocale* 会坏掉（后者直接崩进程）。" >&2
+  exit 1
+fi
 
 # 拉错包（标签与资产对不上）在这里就挡住，别等测试跑到一半才发现引擎不对
 version="$("$bin_dir/$exe" --headless --version | head -n1)"

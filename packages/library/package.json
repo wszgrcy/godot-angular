@@ -1,6 +1,6 @@
 {
   "name": "godot-angular",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Run Angular inside Godot (GodotJS / V8) by rendering Control subclasses",
   "license": "MIT",
   "type": "module",
@@ -31,7 +31,6 @@
     "@angular-devkit/core": "22.2.1",
     "@angular/build": "22.2.1",
     "@babel/core": "^8.0.0",
-    "@babel/plugin-transform-unicode-regex": "^8.0.0",
     "@nberlette/utf8": "^0.4.1",
     "@rolldown/pluginutils": "^1.0.1",
     "abortcontroller-polyfill": "^1.7.8",

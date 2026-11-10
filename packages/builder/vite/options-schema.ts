@@ -315,7 +315,7 @@ export const sharedOptionFields = {
       v.string(),
       v.description(
         "vite 配置文件路径（相对 workspaceRoot），叠加在本 builder 之上。plugins 为追加而非" +
-          "替换，因此 polyfill / res:// require / ICU 等关键插件不会被覆盖。未在此暴露的 vite 能力可通过该配置接入。",
+          "替换，因此 polyfill / res:// require 等关键插件不会被覆盖。未在此暴露的 vite 能力可通过该配置接入。",
       ),
     ),
   ),

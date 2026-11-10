@@ -10,7 +10,6 @@
     "@angular-devkit/core",
     "@angular/build",
     "@babel/core",
-    "@babel/plugin-transform-unicode-regex",
     "@nberlette/utf8",
     "@rolldown/pluginutils",
     "abortcontroller-polyfill",

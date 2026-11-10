@@ -119,7 +119,7 @@ export function collectGodotTypings(options: CollectOptions): GodotTypingsBundle
     if (!declaresName) {
       throw new Error(
         `引擎生成的 typings 里没有 Node.name，说明 ${bin} 不是本仓库对齐的那份引擎，` +
-          `请换成 GodotJS 1.3.5 的 release 包（md5 见 bin/README.md）后重试。`,
+          `请换成 GodotJS 1.3.8 的 release 包（md5 见 bin/README.md）后重试。`,
       );
     }
 

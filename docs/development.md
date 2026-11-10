@@ -58,7 +58,6 @@ packages/builder/        ← 构建相关（不是包，没有 package.json）
   vite/
     build-core.ts          构建核心：多入口 glob、ESM（.mjs）输出、res:// 路径改写
     polyfill.ts            补丁当额外入口 + 在产物层把 import 写回每个入口顶部
-    icu-downgrade.ts       `\p{...}`：transform 逐模块懒加载 babel 展开（只管正则字面量）
     godot-interop.ts       把 `from "godot"` 的三种写法归一成默认导入 + 点属性（ESM 链接期列不出 Proxy 的具名导出）
     options-schema.ts      两个 builder 的选项形状（valibot，schema 由它生成）
   vitest/build/            ng test —— 构建引擎入口并在同进程跑 vitest
@@ -319,7 +318,7 @@ polyfill import，也关不掉它。补丁实现本身是构建器的普通文�
 一个目录会互相抹掉（实测跑完 `pnpm test` 再构建应用入口就找不到 `main.js`）。
 
 **未暴露的 vite 能力走 `viteConfig`。** 用户配置叠加在 builder 之上，plugins 是**追加**
-不是替换——builder 自己的 polyfill / res:// require / ICU 那几个承重插件顶不掉。
+不是替换——builder 自己的 polyfill / res:// require 那几个承重插件顶不掉。
 
 ---
 
@@ -585,18 +584,19 @@ worktree 打架，全是脏状态），以及让每个使用方手抄一份场�
 - **引擎里的 `console` 会转发到宿主**（`packages/builder/vitest/runtime/console-forward.ts`）。
   以前 stdout 只在失败/超时时回显——"spec 全绿但中间一行 warn 说中了真正问题"完全看不见。
   现在宿主实时打印并统计。
-- **ICU 降级**：GodotJS 的 V8 不带完整 ICU，`\p{...}` Unicode 属性转义在**解析期**就炸
-  （语法级缺失，运行时补不了）。展开表用 babel 的
-  （`@babel/plugin-transform-unicode-regex`，底下是 regexpu-core 的完整 Unicode 表），
-  不再手写——手写的三行 ASCII 近似对非 ASCII 标识符语义就是错的。
-  **只管写死在源码里的正则字面量**，一个 `transform` 钩子（`enforce: "post"`）搞定：
-  - post 拿到的是 analog 编译完的 JS（实测命中模块 7,766 B，整个 chunk 是 857,553 B，
-    在 chunk 上跑 babel 贵 110 倍）；在 pre 会看到带装饰器的原始 TS。
-  - `new RegExp("\\p{Foo}")` 这种字符串拼的、`new RegExp(userInput)` 这种变量拼的，
-    **一律放过，不报错也不复查**。前者不是解析期炸，是运行到那一行构造时才炸，而且可能
-    永远跑不到；静态拦它等于拦合法代码。计数只数一次（给日志），展开完不回看。
-
-  没命中时只多两次 `String.includes`，babel 连 import 都不会发生（实测零命中构建 = 基线）。
+- **`\p{...}` Unicode 属性正则由引擎的 V8 直接解析，构建期不做改写**。这类转义在**解析期**就定
+  成败，运行时补不回来，真要兼容只能改产物；引擎支持它，所以构建器里没有这一层。
+  产物里用到 `\p{...}` 的只有 polyfill 带的 `whatwg-url-minimum`（域名校验的
+  `\p{Cn}` `\p{Co}` `\p{Cs}` `\p{Mark}`）。
+  - `\p{...}` 读的是 V8 编译进去的字符属性表，**不需要** `icudtl.dat`（实测把它移走 `\p{...}` 照样对）。
+  - `Intl.*` 与 `Date.prototype.toLocale*` 才需要 `icudtl.dat`。缺它不是可捕获的报错：
+    `toLocaleDateString` 与 `Intl.Segmenter` 会直接终止进程，只有启动日志那条
+    `ICU data not loaded from ...` 的 WARNING 说清了根因。放置位置见 `bin/README.md`。
+  - 几条源码级 `transform` 插件的实测结论（范式落在 `css-plugin.ts`）：
+    `enforce: "post"` 才拿到 analog 编译完的 JS，`pre` 看到的是带装饰器的原始 TS；用 `transform`
+    （收单模块，实测命中模块 7,766 B）而不是 `renderChunk`（收整 chunk，857,553 B，贵 110 倍）；
+    热路径用 `String.includes` 做闸门，同一个带 `/g` 的正则对象不要跨模块复用 `.test()`（lastIndex 有状态，会随机漏检）；
+    重活动态 `import()`，没命中时零成本。
 
 ### 超时为什么都压得这么短
 
@@ -739,7 +739,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 
 1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
    自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
-   `jsb_native_esm=yes` 决定，本仓库用的 1.3.5 release 包已编进去。本仓库产物全部
+   `jsb_native_esm=yes` 决定，本仓库用的 1.3.8 release 包已编进去。本仓库产物全部
    `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
 2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
    CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；

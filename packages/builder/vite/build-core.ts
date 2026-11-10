@@ -22,7 +22,7 @@ import {
   POLYFILL_ENTRY_SPECIFIER,
   polyfillPlugin,
 } from "./polyfill";
-import { icuDowngradePlugin } from "./icu-downgrade";
+
 import { cssPlugins, GLOBAL_CSS_VIRTUAL } from "./css-plugin";
 import { godotInteropPlugin } from "./godot-interop";
 import { isExternalDependency, isGodotBuiltinModule, normalizeAssets, normalizeEntries, normalizeGlobalStyles } from "./options";
@@ -412,7 +412,6 @@ async function prepareConfig(
       // 它的 resolveId 要抢在 vite 核心解析之前
       polyfillPlugin({ resRoot: outResRoot, extras }),
       ...angularPlugins(tsConfig, fileReplacements, context),
-      icuDowngradePlugin((m) => context.logger.info(m)),
       // CSS 通道（源码层 styleUrls 守卫 + 全局样式虚拟模块）。数组位置只决定同阶段的先后，
       // 真正的顺序由 enforce 决定（源码层必须抢在 analog 之前）。
       ...cssPlugins({

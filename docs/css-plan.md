@@ -83,15 +83,15 @@ NativeScript/packages/core/
 
 ### 5. 构建期（vite）插件的既有范式 —— 加 CSS 通道照这个抄，别自己摸索
 
-本项目已有三个自研 vite 插件，`build-core.ts:376-389` 是它们的挂载点与**顺序注释**。加 CSS 插件直接复用 `icu-downgrade.ts` 的实测结论（它注释里全写着）：
+本项目已有三个自研 vite 插件，`build-core.ts` 的 plugins 数组是它们的挂载点与**顺序注释**。下表是源码级 `transform` 插件的实测结论，加 CSS 插件直接复用：
 
-| 事实 | 出处 |
+| 事实 | 范式现在落在 |
 | --- | --- | --- |
-| `enforce: "post"` 才拿得到 **analog 编译完的 JS**；放 `pre` 会看到带装饰器的原始 TS，babel 解析不了 | `icu-downgrade.ts:29` |
-| 用 `transform` 而不是 `renderChunk`：transform 收**单模块**（实测某组件 7,766 B），renderChunk 收**整 chunk**（857,553 B），**差 110 倍**；早先放 renderChunk 实测 +385ms，挪到 transform 只 +~100ms | `icu-downgrade.ts:21-27` |
-| 热路径用 `String.includes` 做闸门，别上正则（实测 includes 25.5 GB/s vs regex.test 4.85 GB/s，**正则反而慢 5 倍**） | `icu-downgrade.ts:36-42` |
-| 带 `/g` 的正则对象**不能跨模块复用** `.test()`（lastIndex 有状态，会随机漏检） | `icu-downgrade.ts:43-45` |
-| 重活（babel 级）动态 `import()`，没命中时零成本 | `icu-downgrade.ts:52-68` |
+| `enforce: "post"` 才拿得到 **analog 编译完的 JS**；放 `pre` 会看到带装饰器的原始 TS，babel 解析不了 | `css-plugin.ts`（`enforce: "post"`） |
+| 用 `transform` 而不是 `renderChunk`：transform 收**单模块**（实测某组件 7,766 B），renderChunk 收**整 chunk**（857,553 B），**差 110 倍**；早先放 renderChunk 实测 +385ms，挪到 transform 只 +~100ms | `css-plugin.ts:267` |
+| 热路径用 `String.includes` 做闸门，别上正则（实测 includes 25.5 GB/s vs regex.test 4.85 GB/s，**正则反而慢 5 倍**） | `css-plugin.ts:268`（`filter.code` 给字符串就是包含语义） |
+| 带 `/g` 的正则对象**不能跨模块复用** `.test()`（lastIndex 有状态，会随机漏检） | 历史实测，写闸门时照做 |
+| 重活（babel 级）动态 `import()`，没命中时零成本 | `godot-interop.ts`（同样动态 import babel） |
 | 虚拟模块现成写法（`resolveId` + `load`，`enforce: "pre"`，id 不加 `\0`） | `polyfill.ts:39-63` |
 
 **analog 自己那个组件样式封装插件为什么帮不上**：`encapsulateComponentStylesPlugin` 是 `apply: 'serve'`，且只在 `options.liveReload` 开启时才挂（`@analogjs/vite-plugin-angular/src/lib/angular-vite-plugin.js:685`、`encapsulate-component-styles-plugin.js:14`）。本 builder 没开 liveReload，**build 模式下没有任何人做样式封装** —— 这正是 `%COMP%` 活到产物里的原因（C13），也正是我们要补的洞。它内部调的是 `@angular/compiler` 的 `encapsulateStyle(style, componentId)`，我们要么复用这个函数，要么自己走 Phase 1 的解析器。
@@ -247,8 +247,8 @@ Godot 的 theme 查询顺序（`gui_skinning` "To sum it up…" 原文）：
 
 **这是 CSS 源码进入本项目的唯一入口。** 运行时只能看到已经被 analog 塞进 `styles: [...]` 的字符串；能在**源码层面**读到 `styles` / `styleUrls` / 全局样式并解析处理的，只有 vite 插件。
 
-- 新文件 `packages/builder/vite/css-plugin.ts`，形状照 `icu-downgrade.ts`：`enforce: "post"` + `transform(code, id)`，热路径用 `includes("%COMP%")` / `includes("styles:")` 做闸门
-- 挂在 `build-core.ts:376-389` 的 plugins 数组里，**紧跟 `icuDowngradePlugin` 之后、`godotInteropPlugin` 之前**（同为源码级 transform；`godotRequirePlugin` 改的是产物 require，不在一个阶段 —— 顺序注释里写明）
+- 新文件 `packages/builder/vite/css-plugin.ts`，形状照上表：`enforce: "post"` + `transform(code, id)`，热路径用 `includes("%COMP%")` / `includes("styles:")` 做闸门
+- 挂在 `build-core.ts` 的 plugins 数组里，**紧跟 Angular 插件之后、`godotInteropPlugin` 之前**（同为源码级 transform；`godotRequirePlugin` 改的是产物 require，不在一个阶段 —— 顺序注释里写明）
 - **职责（MVP，策略 B）**：
   1. 把 `styles` 里的 `%COMP%` 换成 `componentId`（`type.id.replace(/-/g,'_')`），与 NativeScript 的运行时替换等价但**提前到构建期** → Phase 4 不再需要运行时替换
   2. `styleUrls`：**内联本身已经能用**（文件存在时 Angular 的 Compilation API 会读取并经 `transformStylesheet` 预处理，`.scss` 直接可用，项目里 `sass@1.104.1` 已装）。本插件要做的是**把两处静默改成硬失败**（C15）：文件不存在 → `this.error()` 并带上组件文件与相对路径；预处理器报错 → 不能只 `console.error` 后返回空串（analog 现在就是这个行为，`angular-vite-plugin.js:795-801`）
