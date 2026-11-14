@@ -87,12 +87,15 @@ function findButton(root: any, text: string): any {
 }
 
 /**
- * 让出一个宏任务。popstate 触发的导航被路由自己延后了一拍：
- * `HistoryStateManager.registerNonRouterCurrentEntryChangeListener` 里包了一层
- * `setTimeout`，而 `whenStable()` 等的是 PendingTasks，不会替这个定时器买单。
+ * 等路由把 popstate 延后的那一拍跑完。
+ * `HistoryStateManager.registerNonRouterCurrentEntryChangeListener` 里包了一层 `setTimeout`，
+ * 而 `whenStable()` 等的是 PendingTasks，不会替这个定时器买单。
+ *
+ * 延时不能写 0：路由那层也是 0ms，两个 0ms 定时器谁先响由引擎的定时器轮决定（GodotJS 1.4.5
+ * 起改成按到期时间排，后武装的 0ms 会插到前面）。写 40ms（本环境约 2~6 帧）让路由那层先跑完。
  */
 async function flushMacrotask(): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  await new Promise<void>((resolve) => setTimeout(resolve, 40));
 }
 
 // —— 组件全部声明在 describe 之前：describe 的回调在收集阶段就地执行，写在后面就是 TDZ。

@@ -204,9 +204,10 @@ describe("真实变更检测路径", () => {
     const fixture = await render(MicroComp);
     expect(nodeTexts(fixture.nativeElement)).toContain("a");
 
-    // 关键：一次都不驱动，只将事件循环让出。Angular 的调度器就挂在那里。
+    // 等 Angular 自己报“这轮活干完了”（zoneless 排变更检测时会挂上这个标记），
+    // 比写死一个宏任务稳：引擎版次不同，0ms 定时器相对帧的落点会变。
     fixture.componentInstance.v.set("b");
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await fixture.whenStable();
     expect(nodeTexts(fixture.nativeElement)).toContain("b");
   });
 
@@ -232,9 +233,9 @@ describe("真实变更检测路径", () => {
     const label = findAllNodes(fixture.nativeElement, "Label")[0];
     expect(label.text).toBe("hits=0");
 
-    // 全程不驱动，只让出一个宏任务：能刷新 → 证明置脏发生在监听包装内，不依赖外部驱动
+    // 同上：等 Angular 报稳定，不赌宏任务
     findAllNodes(fixture.nativeElement, "Button")[0].emit_signal("pressed");
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await fixture.whenStable();
     expect(label.text).toBe("hits=1");
   });
 
