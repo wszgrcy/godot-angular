@@ -739,7 +739,7 @@ Statements 96.94% / Branches 91.38% / Functions 96.41% / Lines 98.33%。
 
 1. **产物扩展名决定模块语义**：`.js` / `.cjs` 被包成 CommonJS 函数执行，只有 `.mjs` 交给 V8
    自己的模块机制，`import` / `export` / `import.meta` 才按标准语义工作。该能力由构建参数
-   `jsb_native_esm=yes` 决定，本仓库用的 1.3.8 release 包已编进去。本仓库产物全部
+   `jsb_native_esm=yes` 决定，本仓库用的 1.4.5 release 包已编进去。本仓库产物全部
    `.mjs`，脚本类因此走默认导出（`export default class Main extends ...`），不再是 `exports.default`。
 2. `.mjs` 里的相对说明符必须带扩展名（`./x.mjs`），rollup 的 ESM 输出本来就会写全。
    CJS 时代“`require("./x")` 会被拼成 `res:/x`”那条坑不再适用（产物里没有 `require` 了）；
